@@ -1,9 +1,10 @@
 # Kaizoku.NET
 
-<video controls width="640">
-  <source src="https://github.com/maxpiva/Kaizoku.NET/releases/download/video/Kaizoku.NET.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+
+https://github.com/user-attachments/assets/ac0af0eb-5b4a-4377-b777-9fcafbc329ae
+
+Video has brigthness issues, blame Microsoft. 
+
 
 **Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE,  built to fill the void and bring a streamlined manga series manager back to life.
 
