@@ -1,0 +1,17 @@
+.grid-justify-evenly {
+  justify-content: space-evenly;
+}
+
+.grid-auto-fit {
+  justify-content: space-evenly;
+}
+
+.grid-auto-fit > * {
+  max-width: 17rem;
+  min-width: 0;
+}
+
+.gaid-auto-fit::after  {
+  content: "";
+flex-basis: 30%
+}

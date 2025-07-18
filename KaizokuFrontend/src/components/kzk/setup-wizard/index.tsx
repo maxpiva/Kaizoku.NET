@@ -1,0 +1,242 @@
+"use client";
+
+import React from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Step, Stepper, type StepItem } from "@/components/ui/stepper";
+import { ArrowLeft, ArrowRight, Check, LoaderCircle, Settings, File, CheckSquare, Flag, Sliders, Clock } from "lucide-react";
+import { useSetupWizard } from "@/components/providers/setup-wizard-provider";
+
+// Import step components
+import { PreferencesStep } from "./steps/preferences-step";
+import { AddProvidersStep } from "./steps/add-providers-step";
+import { ImportLocalStep } from "./steps/import-local-step";
+import { ConfirmImportsStep } from "./steps/confirm-imports-step";
+import { ScheduleUpdatesStep } from "./steps/schedule-updates-step";
+import { FinishStep } from "./steps/finish-step";
+
+const steps = {
+  preferences: {
+    label: "Preferences",
+    description: "Configure settings",
+    icon: Sliders,
+  },
+  providers: {
+    label: "Add Sources",
+    description: "Install sources",
+    icon: Settings,
+  },
+  import: {
+    label: "Import Local Files",
+    description: "Scan archives",
+    icon: File,
+  },
+  confirm: {
+    label: "Confirm Imports",
+    description: "Review series",
+    icon: CheckSquare,
+  },
+  schedule: {
+    label: "Schedule Summary",
+    description: "Check incoming updates",
+    icon: Clock,
+  },
+  finish: {
+    label: "Finish",
+    description: "Complete Import",
+    icon: Flag,
+  },
+} satisfies Record<string, StepItem>;
+
+export function SetupWizard() {
+  const { isWizardActive, currentStep, totalSteps, nextStep, previousStep, completeWizard } = useSetupWizard();
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [canProgress, setCanProgress] = React.useState(false);
+  const [disableDownloads, setDisableDownloads] = React.useState(false);
+
+  if (!isWizardActive) {
+    return null;
+  }
+
+  return (<Dialog open={true} onOpenChange={() => { /* Prevent closing */ }} modal>
+    <DialogContent
+      className="max-w-[90%] max-h-[90%] flex flex-col"
+      onInteractOutside={(e) => e.preventDefault()}
+      onEscapeKeyDown={(e) => e.preventDefault()}
+    >        <DialogHeader>
+        <DialogTitle>Import Wizard</DialogTitle>
+        <DialogDescription>
+          Configure your Kaizoku.NET installation by following these steps to set up preferences, add sources, and import existing series.
+        </DialogDescription>
+      </DialogHeader><div className="flex w-full flex-col gap-4">          <Stepper
+        initialStep={0}
+        activeStep={currentStep}
+        steps={Object.values(steps)}
+        variant="circle"
+        orientation="horizontal"
+        size="md"
+        responsive={true}
+        state={isLoading ? "loading" : error ? "error" : undefined}
+      >
+        <Step
+          label={steps.preferences.label}
+          description={steps.preferences.description}
+          icon={steps.preferences.icon}
+        >
+          <PreferencesStep
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+          />
+        </Step>
+        {error && currentStep === 0 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}
+
+        <Step
+          label={steps.providers.label}
+          description={steps.providers.description}
+          icon={steps.providers.icon}
+        >
+          <AddProvidersStep
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+          />
+        </Step>
+        {error && currentStep === 1 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}
+
+        <Step
+          label={steps.import.label}
+          description={steps.import.description}
+          icon={steps.import.icon}
+        >
+          <ImportLocalStep
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+          />
+        </Step>
+        {error && currentStep === 2 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}            <Step
+          label={steps.confirm.label}
+          description={steps.confirm.description}
+          icon={steps.confirm.icon}
+        >
+          <ConfirmImportsStep
+            key={`confirm-imports-step-${currentStep}`}
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+          />        </Step>
+        {error && currentStep === 3 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}
+
+        <Step
+          label={steps.schedule.label}
+          description={steps.schedule.description}
+          icon={steps.schedule.icon}
+        >
+          <ScheduleUpdatesStep
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+            onDownloadOptionChange={setDisableDownloads}
+          />
+        </Step>
+        {error && currentStep === 4 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}
+
+        <Step
+          label={steps.finish.label}
+          description={steps.finish.description}
+          icon={steps.finish.icon}
+        >
+          <FinishStep
+            setError={setError}
+            setIsLoading={setIsLoading}
+            setCanProgress={setCanProgress}
+            disableDownloads={disableDownloads}
+          />
+        </Step>
+        {error && currentStep === 5 && (
+          <div className="mb-4 list-disc space-y-1 rounded-lg border bg-destructive/10 p-2 text-[0.8rem] font-medium text-destructive">
+            {error}
+          </div>
+        )}
+      </Stepper>
+        <Footer
+          currentStep={currentStep}
+          totalSteps={totalSteps}
+          canProgress={canProgress}
+          isLoading={isLoading}
+          onNext={currentStep === totalSteps - 1 ? () => void completeWizard() : () => void nextStep()}
+          onPrevious={() => previousStep()}
+        />
+      </div>
+    </DialogContent>
+  </Dialog>
+  );
+}
+
+interface FooterProps {
+  currentStep: number;
+  totalSteps: number;
+  canProgress: boolean;
+  isLoading: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+}
+
+function Footer({ currentStep, totalSteps, canProgress, isLoading, onNext, onPrevious }: FooterProps) {
+  const isFirstStep = currentStep === 0;
+  const isLastStep = currentStep === totalSteps - 1;
+
+  return (
+    <div className="flex justify-between items-center pt-4">
+      <Button
+        variant="outline"
+        onClick={onPrevious}
+        disabled={isFirstStep || isLoading}
+        className={`flex items-center gap-2 transition-opacity duration-200 ${isFirstStep ? 'opacity-0 pointer-events-none' : ''}`}
+        style={isFirstStep ? { visibility: 'hidden' } : {}}
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Previous
+      </Button>
+      <div className="text-sm text-muted-foreground">
+        Step {currentStep + 1} of {totalSteps}
+      </div>
+      <Button
+        onClick={onNext}
+        disabled={!canProgress || isLoading}
+        className="flex items-center gap-2"
+      >
+        {isLoading ? (
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+        ) : isLastStep ? (
+          <Check className="h-4 w-4" />
+        ) : (
+          <ArrowRight className="h-4 w-4" />
+        )}
+        {isLastStep ? "Finish" : "Next"}
+      </Button>
+    </div>
+  );
+}

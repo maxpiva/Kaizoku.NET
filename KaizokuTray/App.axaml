@@ -1,0 +1,11 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="KaizokuTray.App">
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+    <Application.Resources>
+        <Image x:Key="TrayIcon" Source="/Assets/kaizoku.net.ico" />
+    </Application.Resources>
+
+</Application>

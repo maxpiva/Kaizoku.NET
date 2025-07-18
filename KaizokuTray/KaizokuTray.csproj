@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+	  <AssemblyVersion>1.0.0.0</AssemblyVersion>
+	  <FileVersion>1.0.0.0</FileVersion>
+	  <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+	<RuntimeIdentifiers>linux-arm64;linux-x64;win-x64;win-arm64;osx-arm64;</RuntimeIdentifiers>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <PackageIcon>kaizoku.net.png</PackageIcon>
+	  <ApplicationIcon>Assets\kaizoku.net.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\KaizokuFrontend\public\kaizoku.net.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
+    <PackageReference Include="Spectre.Console" Version="0.49.1" />
+    <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.2">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KaizokuBackend\KaizokuBackend.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Remove="Assets\kaizoku.net.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\kaizoku.net.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\kaizoku.net.ico" />
+  </ItemGroup>
+</Project>

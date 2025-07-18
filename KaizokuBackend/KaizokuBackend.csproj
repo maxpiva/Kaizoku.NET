@@ -1,0 +1,109 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>207bc8ca-9eb1-41a0-9fc0-6ef80b6fb958</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileContext>.</DockerfileContext>
+	<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
+	<RuntimeIdentifiers>linux-arm64;linux-x64;win-x64;win-arm64;osx-arm64;</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="runtime\Suwayomi\**" />
+    <Compile Remove="scripts\**" />
+    <Content Remove="runtime\Suwayomi\**" />
+    <Content Remove="scripts\**" />
+    <EmbeddedResource Remove="runtime\Suwayomi\**" />
+    <EmbeddedResource Remove="scripts\**" />
+    <None Remove="runtime\Suwayomi\**" />
+    <None Remove="scripts\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Remove="appsettings.json" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <None Remove="Resources\na.jpg" />
+    <None Remove="Suwayomi\server.conf" />
+    <None Remove="wwwroot.sha256" />
+    <None Remove="wwwroot.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="appsettings.json" />
+    <EmbeddedResource Include="Resources\na.jpg" />
+    <EmbeddedResource Include="Suwayomi\server.conf">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="wwwroot.sha256" />
+    <EmbeddedResource Include="wwwroot.zip" />
+  </ItemGroup>
+
+
+
+
+
+  <ItemGroup>
+	<PackageReference Include="CliWrap" Version="3.9.0" />
+	<PackageReference Include="FastDeepCloner" Version="1.3.6" />
+	<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.7" />
+	<PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.3.0" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.7" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.7" />
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Tasks" Version="9.0.7">
+		  <PrivateAssets>all</PrivateAssets>
+		<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	</PackageReference>
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.7">
+		
+	        
+		<PrivateAssets>all</PrivateAssets>
+	  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	</PackageReference>
+	<PackageReference Include="Microsoft.Extensions.Http.Polly" Version="9.0.7" />
+	<PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+	<PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+	<PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+	<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+	<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+	<PackageReference Include="SharpCompress" Version="0.40.0" />
+	<PackageReference Include="SkiaSharp" Version="3.119.0" />
+	<PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.3" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<TrimmerRootAssembly Include="Serilog.Sinks.File" />
+		<TrimmerRootAssembly Include="Serilog.Sinks.Console" />
+		<TrimmerRootAssembly Include="Microsoft.AspNetCore.OpenApi" />
+		<TrimmerRootAssembly Include="Microsoft.EntityFrameworkCore" />
+	</ItemGroup>
+
+
+
+  <!-- Frontend Build Integration 
+
+  <PropertyGroup>
+    <FrontendProjectPath>../KaizokuFrontend</FrontendProjectPath>
+    <FrontendOutputPath>$(FrontendProjectPath)/out</FrontendOutputPath>
+  </PropertyGroup>
+  
+  <Target Name="BuildFrontend" BeforeTargets="Build" Condition=" '$(Configuration)' == 'Release' ">
+    <Message Text="Building frontend..." Importance="high" />
+    <RemoveDir Directories="$(FrontendOutputPath)" Condition="Exists('$(FrontendOutputPath)')" />
+    <RemoveDir Directories="wwwroot" Condition="Exists('wwwroot')" />
+    <MakeDir Directories="wwwroot" />
+    <Exec Command="npm run build" WorkingDirectory="$(FrontendProjectPath)" />
+     <Message Text="Copying frontend files to wwwroot..." Importance="high" />
+    <ItemGroup>
+      <FrontendFiles Include="$(FrontendOutputPath)/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FrontendFiles)" DestinationFolder="wwwroot/%(RecursiveDir)" SkipUnchangedFiles="true" />
+
+  </Target>
+-->
+
+</Project>

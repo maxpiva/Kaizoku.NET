@@ -1,0 +1,6 @@
+@KaizokuBackend_HostAddress = http://localhost:5294
+
+GET {{KaizokuBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
