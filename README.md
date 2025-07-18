@@ -1,6 +1,6 @@
 # Kaizoku.NET
 
-**Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE — built to fill the void and bring a streamlined manga series manager back to life.
+**Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE,  built to fill the void and bring a streamlined manga series manager back to life.
 
 This is a **feature-complete** application (not a preview). While it may contain bugs, it *definitely doesn’t contain spiders* — yet.
 
@@ -8,7 +8,7 @@ This is a **feature-complete** application (not a preview). While it may contain
 
 ## 🎯 What It Does
 
-Kaizoku.NET is a **series manager** that prioritizes simplicity, speed, and reliability — just like the original Kaizoku — but with powerful new features under the hood.
+Kaizoku.NET is a **series manager** that prioritizes simplicity, speed, and reliability, just like the original Kaizoku, but with powerful new features under the hood.
 
 It uses the power of **Suwayomi Server** and **MIHON extensions** to connect with multiple sources.
 
@@ -52,7 +52,7 @@ Kaizoku.NET is composed of:
 - **Backend**: A custom .NET engine managing schedules, downloads, and metadata.
 - **Bridge**: Suwayomi Server (to access Mihon Android extensions).
 
-> ❗ **Note:** Kaizoku.NET does **not** use Suwayomi Server’s built-in download or scheduling logic — only its extension bridge.
+> ❗ **Note:** Kaizoku.NET does **not** use Suwayomi Server’s built-in download or scheduling logic, only its extension bridge.
 
 ---
 
@@ -69,7 +69,7 @@ Kaizoku.NET is composed of:
 
 ## 🤔 Why Suwayomi Server?
 
-Only the **MIHON** extensions are actively maintained — and they’re Android-based APKs.  
+Only the **MIHON** extensions are actively maintained and they’re Android-based APKs.  
 Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM) were avoided due to complexity, Kotlin compatibility issues, and Java version mismatches.
 
 ---
@@ -84,7 +84,7 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM
 ## 🖥️ Desktop App
 
 - A **tray application** based on Avalonia is available in the [Releases](https://github.com/yourrepo/releases).
-- Currently tested only on **Windows** — testers for Linux/macOS are welcome!
+- Currently tested only on **Windows**  testers for Linux/macOS are welcome!
 
 ---
 
@@ -103,10 +103,10 @@ Be aware: **Kaizoku.NET** and **Suwayomi Server** can be **memory-intensive**, e
 
 ## 🤝 Contributing
 
-### Frontend Devs — You're Needed 🙏  
+### Frontend Devs ! You're Needed 🙏  
 Help clean up the mess left behind by our overenthusiastic friend, GitHub Copilot.
 
-### Backend Devs — PRs Welcome  
+### Backend Devs ! PRs Welcome  
 This was a **rushed 1-month project**. There are known race conditions and an import system that’s... let’s say *aggressively functional*.  
 PRs are welcome to improve stability and architecture.
 
@@ -114,5 +114,5 @@ PRs are welcome to improve stability and architecture.
 
 ## 🏴‍☠️ Brace Yourself
 
-This app *just works™* — until it doesn't. But it's here, it’s fast, it’s yours.  
-Start managing your manga with the style it deserves.
+This app *just works™*  until it doesn't. But it's here, it’s fast, it’s yours.  
+Start managing your series with the style it deserves.
