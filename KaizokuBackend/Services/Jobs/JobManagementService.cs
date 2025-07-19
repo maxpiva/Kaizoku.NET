@@ -41,6 +41,11 @@ namespace KaizokuBackend.Services.Jobs
             return await ScheduleRecurringJobAsync(jobType, parametersJson, key, groupKey, runNow, schedule, priority, token);
         }
 
+        public async Task SetRecurringTimeAsync(JobType jobType, TimeSpan time, CancellationToken token = default)
+        {
+            await _db.Jobs.Where(j => j.JobType == jobType)
+                .ExecuteUpdateAsync(updates => updates.SetProperty(j => j.TimeBetweenJobs, time),token).ConfigureAwait(false);
+        }
         public async Task<Guid> ScheduleRecurringJobAsync(JobType jobType, string? parametersJson, 
             string? key = null, string? groupKey = null, bool runNow = false, 
             TimeSpan? schedule = null, Priority priority = Priority.Normal, 
@@ -109,6 +114,7 @@ namespace KaizokuBackend.Services.Jobs
                     today += schedule.Value;
                     if (today < now)
                         today += TimeSpan.FromDays(1);
+                    job.TimeBetweenJobs = schedule.Value;
                     job.NextExecution = today;
                 }
                 job.IsEnabled = true;

@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-	  <AssemblyVersion>1.0.0.0</AssemblyVersion>
-	  <FileVersion>1.0.0.0</FileVersion>
+	  <AssemblyVersion>1.0.0.1</AssemblyVersion>
+	  <FileVersion>1.0.0.1</FileVersion>
 	  <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
@@ -38,15 +38,17 @@
     <ProjectReference Include="..\KaizokuBackend\KaizokuBackend.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <AvaloniaResource Remove="Assets\kaizoku.net.ico" />
-  </ItemGroup>
+	<ItemGroup>
+		<AvaloniaResource Include="Assets\**" />
+	</ItemGroup>
 
   <ItemGroup>
     <None Remove="Assets\kaizoku.net.ico" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Assets\kaizoku.net.ico" />
+    <EmbeddedResource Include="Assets\kaizoku.net.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
   </ItemGroup>
 </Project>

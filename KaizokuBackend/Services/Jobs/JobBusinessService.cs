@@ -57,7 +57,7 @@ namespace KaizokuBackend.Services.Jobs
             KaizokuBackend.Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             string groupKey = nameof(JobType.UpdateExtensions);
             
-            if (enable)
+            if (!enable)
             {
                 await _jobManagement.DisableRecurringJobAsync(JobType.UpdateExtensions, groupKey, token)
                     .ConfigureAwait(false);

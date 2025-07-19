@@ -79,7 +79,7 @@ namespace KaizokuBackend.Services.Downloads
             DownloadInfoList ls = new DownloadInfoList();
             Expression<Func<Enqueue, bool>> where = a => a.JobType == JobType.Download && a.Status == status;
             if (keyword != null)
-                where = a => a.JobType == JobType.Download && a.Status == status && a.JobParameters.Contains(keyword);
+                where = a => a.JobType == JobType.Download && a.Status == status && a.JobParameters!.Contains(keyword);
             ls.TotalCount = await _db.Queues.CountAsync(where, token);
             List<Enqueue> result = [];
             

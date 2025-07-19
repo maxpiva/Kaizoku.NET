@@ -2,6 +2,7 @@
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Background;
+using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Jobs.Settings;
 using KaizokuBackend.Services.Providers;
@@ -179,6 +180,32 @@ namespace KaizokuBackend.Services.Settings
                 await _client.SetServerSettingsAsync(parametersToSaveOnSuwayomi, token).ConfigureAwait(false);
             }
         }
+
+        public void SetThreadSettings(EditableSettings set)
+        {
+            using (var scope = _prov.CreateScope())
+            {
+                var settings = scope.ServiceProvider.GetRequiredService<JobsSettings>();
+                settings.SetQueueSettings(JobQueues.Downloads, set.NumberOfSimultaneousDownloads, 20, set.NumberOfSimultaneousDownloadsPerProvider, set.ChapterDownloadFailRetryTime);
+                settings.SetQueueSettings(JobQueues.Default, 10, set.ChapterDownloadFailRetries, 10, set.ChapterDownloadFailRetryTime);
+            }
+        }
+
+        public async Task SetTimesSettingsAsync(EditableSettings set, CancellationToken token = default)
+        {
+            using (var scope = _prov.CreateScope())
+            {
+                var settings = scope.ServiceProvider.GetRequiredService<JobsSettings>();
+                var jobManagment = scope.ServiceProvider.GetRequiredService<JobManagementService>();
+                settings.JobTimes[JobType.GetChapters] = set.PerTitleUpdateSchedule;
+                settings.JobTimes[JobType.GetLatest] = set.PerSourceUpdateSchedule;
+                settings.JobTimes[JobType.UpdateExtensions] = set.ExtensionsCheckForUpdateSchedule;
+                await jobManagment.SetRecurringTimeAsync(JobType.GetChapters, set.PerTitleUpdateSchedule, token).ConfigureAwait(false);
+                await jobManagment.SetRecurringTimeAsync(JobType.GetLatest, set.PerSourceUpdateSchedule, token).ConfigureAwait(false);
+                await jobManagment.SetRecurringTimeAsync(JobType.UpdateExtensions, set.ExtensionsCheckForUpdateSchedule, token).ConfigureAwait(false);
+            }
+        }
+
         public async Task SaveSettingsAsync(EditableSettings set, bool force = false, CancellationToken token = default)
         {
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
@@ -187,12 +214,12 @@ namespace KaizokuBackend.Services.Settings
                 set.NumberOfSimultaneousDownloadsPerProvider != _settings?.NumberOfSimultaneousDownloadsPerProvider
                 )
             {
-                using (var scope = _prov.CreateScope())
-                {
-                    var settings = scope.ServiceProvider.GetRequiredService<JobsSettings>();
-                        settings.SetQueueSettings(JobQueues.Downloads,set.NumberOfSimultaneousDownloads, 20, set.NumberOfSimultaneousDownloadsPerProvider, set.ChapterDownloadFailRetryTime);
-                        settings.SetQueueSettings(JobQueues.Default, 10, set.ChapterDownloadFailRetries,10, set.ChapterDownloadFailRetryTime);
-                }
+                SetThreadSettings(set);
+            }
+            if (set.PerTitleUpdateSchedule != _settings?.PerTitleUpdateSchedule ||
+                set.PerSourceUpdateSchedule != _settings?.PerSourceUpdateSchedule || set.ExtensionsCheckForUpdateSchedule!=_settings?.ExtensionsCheckForUpdateSchedule)
+            {
+                await SetTimesSettingsAsync(set, token).ConfigureAwait(false);
             }
             await SaveToSuwayomiAsync(set, force, token).ConfigureAwait(false);
             List<Setting> dbsettings = await _db.Settings.ToListAsync(token).ConfigureAwait(false);

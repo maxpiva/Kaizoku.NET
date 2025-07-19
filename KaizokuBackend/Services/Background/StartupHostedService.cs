@@ -92,6 +92,8 @@ namespace KaizokuBackend.Services.Background
                 
                 // Load settings
                 Models.Settings settings = await settingsService.GetSettingsAsync(cancellationToken).ConfigureAwait(false);
+                settingsService.SetThreadSettings(settings);
+                await settingsService.SetTimesSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
                 AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 IHostApplicationLifetime lifetime = scope.ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
                 JobManagementService jobManagement = scope.ServiceProvider.GetRequiredService<JobManagementService>();

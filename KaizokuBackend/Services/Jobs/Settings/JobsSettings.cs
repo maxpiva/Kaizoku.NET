@@ -31,8 +31,10 @@ namespace KaizokuBackend.Services.Jobs.Settings
 
         public Dictionary<JobType, TimeSpan> JobTimes = new Dictionary<JobType, TimeSpan>()
         {
+            { JobType.UpdateExtensions, TimeSpan.FromHours(1)},
             { JobType.GetChapters, TimeSpan.FromHours(2)},
             { JobType.GetLatest, TimeSpan.FromMinutes(30)},
+            { JobType.DailyUpdate,TimeSpan.FromDays(1)}
 
         };
     }

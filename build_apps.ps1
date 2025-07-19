@@ -53,6 +53,9 @@ foreach ($rid in $runtimeIds) {
 
     # Rename Tray to Final
     if (Test-Path $oldExe) {
+	    if (Test-Path $newExe) {
+        	Remove-Item $newExe -Force
+    	}
         Rename-Item -Path $oldExe -NewName (Split-Path $newExe -Leaf)
     }
 

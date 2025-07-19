@@ -192,7 +192,7 @@ public partial class App : Application
 
             try
             {
-                var uri = new Uri("avares://KaizokuTray/Assets/kaizoku.ico");
+                var uri = new Uri("avares://KaizokuTray/Assets/kaizoku.net.ico");
                 using var stream = AssetLoader.Open(uri);
                 Bitmap bitmap = new Bitmap(stream);
                 var icon = new WindowIcon(bitmap);
