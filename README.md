@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/ac0af0eb-5b4a-4377-b777-9fcafbc329ae
 Video has brigthness issues, blame Microsoft. 
 
 
-**Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE,  built to fill the void and bring a streamlined manga series manager back to life.
+**Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE,  built to fill the void and bring a streamlined series manager back to life.
 
 This is a **feature-complete** application (not a preview). While it may contain bugs, it *definitely doesn’t contain spiders*, yet.
 
@@ -83,7 +83,90 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM
 ## 🐳 Docker Support
 
 - Available for both `amd64` and `arm64`.
-- **Host networking mode is recommended** for optimal performance (especially during heavy parallel operations like searching multiple sources).
+
+### 📁 Volumes
+
+| Container Path | Description                      |
+|----------------|----------------------------------|
+| `/config`      | Stores application configuration |
+| `/series`      | Stores downloaded series         |
+
+---
+
+### 🌐 Ports
+
+| Port  | Service         | Required | Notes                        |
+|-------|------------------|----------|------------------------------|
+| 9833  | Kaizoku.NET UI   | ✅       | Web interface                |
+| 4567  | Suwayomi Server  | ❌       | Optional (if exposing port) |
+
+---
+
+### 👤 Permissions
+
+| Variable | Value | Description                    |
+|----------|-------|--------------------------------|
+| `UID`    | 99    | Host user ID                   |
+| `PGID`   | 100   | Host group ID                  |
+| `UMASK`  | 022   | File permission mask (default) |
+
+> Ensure the specified UID and PGID have write access to your mounted `/config` and `/series` directories.
+
+---
+
+### #🌐 Network Mode
+
+It is recommended to use **host networking** for optimal performance when querying multiple providers in parallel.
+
+---
+
+### 🚀 Example: One-Liner Run Command
+
+```bash
+docker run -d \
+  --name kaizoku-net \
+  --network host \
+  -e UID=99 \
+  -e PGID=100 \
+  -e UMASK=022 \
+  -v /path/to/your/config:/config \
+  -v /path/to/your/series:/series \
+  maxpiva/kaizoku-net:latest
+```
+Replace /path/to/your/config and /path/to/your/series with real paths on your host.
+
+---
+
+## 🐳 Unraid Template
+
+```xml
+<Container>
+  <Name>Kaizoku.NET</Name>
+  <Repository>maxpiva/kaizoku-net:latest</Repository>
+  <Registry>https://hub.docker.com/r/maxpiva/kaizoku-net</Registry>
+  <Network>host</Network>
+  <MyID>kaizoku-net</MyID>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/maxpiva/kaizoku-net/issues</Support>
+  <Project>https://github.com/maxpiva/kaizoku-net</Project>
+  <Overview>Kaizoku.NET – a feature-complete series manager powered by Suwayomi extensions. Forked from Kaizoku Next by OAE.</Overview>
+  <Category>MediaManager:Comics</Category>
+
+  <Config Name="Config Folder" Target="/config" Default="/mnt/user/appdata/kaizoku-net" Mode="rw" Description="Path to store configuration, database, and settings." Type="Path" />
+  <Config Name="Series Folder" Target="/series" Default="/mnt/user/media/series" Mode="rw" Description="Path where series and chapters will be downloaded." Type="Path" />
+
+  <Config Name="UID" Target="UID" Default="99" Mode="rw" Description="User ID to run the container as." Type="Variable" />
+  <Config Name="PGID" Target="PGID" Default="100" Mode="rw" Description="Group ID to run the container as." Type="Variable" />
+  <Config Name="UMASK" Target="UMASK" Default="022" Mode="rw" Description="UMASK for file permissions." Type="Variable" />
+
+  <WebUI>http://[IP]:9833</WebUI>
+
+  <TemplateURL>https://raw.githubusercontent.com/maxpiva/kaizoku-net/main/unraid/kaizoku-net.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/maxpiva/Kaizoku.NET/refs/heads/main/KaizokuFrontend/public/kaizoku.net.png</Icon>
+</Container>
+```
+
 
 ---
 
