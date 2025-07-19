@@ -101,7 +101,7 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., [IKV
 | Container Path | Description                      |
 |----------------|----------------------------------|
 | `/config`      | Stores application configuration |
-| `/series`      | Stores downloaded series         |
+| `/series`      | Stores series                    |
 
 ---
 
