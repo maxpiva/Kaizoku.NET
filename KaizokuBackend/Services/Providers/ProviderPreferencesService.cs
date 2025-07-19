@@ -199,6 +199,10 @@ namespace KaizokuBackend.Services.Providers
 
                 if (ShouldUpdatePreference(preference, currentPref))
                 {
+                    if (preference.CurrentValue.GetType().Name.ToLowerInvariant() == "jsonelement")
+                    {
+                        preference.CurrentValue = ConvertJsonObject(preference.CurrentValue);
+                    }
                     toUpdate.Add((preference.Key, preference.CurrentValue));
                 }
             }
