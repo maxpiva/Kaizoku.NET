@@ -116,7 +116,7 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM
 
 ### #🌐 Network Mode
 
-It is recommended to use **host networking** for optimal performance when querying multiple providers in parallel.
+It is recommended to use **host networking** for optimal performance when downloading a lot and querying multiple providers in parallel.
 
 ---
 
