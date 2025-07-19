@@ -54,7 +54,7 @@ It uses the power of **Suwayomi Server** and **MIHON extensions** to connect wit
 
 Kaizoku.NET is composed of:
 
-- **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/kaizoku-next) (Next.js).
+- **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/kaizoku/tree/next) (Next.js).
 - **Backend**: A custom .NET engine managing schedules, downloads, and metadata.
 - **Bridge**: Suwayomi Server (to access Mihon Android extensions).
 
