@@ -77,7 +77,7 @@ Kaizoku.NET is composed of:
 ## ⚙️ Configuration Notes
 
 - By default, **Suwayomi Server is embedded** and auto-launched by Kaizoku.NET.
-- You **can expose Suwayomi’s port** (via Docker or in the Desktop App).
+- You **can expose Suwayomi’s port** (via Docker or in your Browser when using the Desktop Tray App).
 - You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install).
 
 > ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters which in every instance, most likely are different. 
