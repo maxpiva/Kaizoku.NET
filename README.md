@@ -88,7 +88,7 @@ Kaizoku.NET is composed of:
 ## 🤔 Why Suwayomi Server?
 
 Only the **MIHON** extensions are actively maintained and they’re Android-based APKs.  
-Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM) were avoided due to complexity, Kotlin compatibility issues, and Java version mismatches.
+Suwayomi provides a working **Java bridge** for those. Other options (e.g., [IKVM](https://github.com/ikvmnet/ikvm)) were avoided due to complexity, Kotlin compatibility issues, and Java version mismatches.
 
 ---
 
