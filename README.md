@@ -172,7 +172,7 @@ Replace /path/to/your/config and /path/to/your/series with real paths on your ho
 
 ## 🖥️ Desktop App
 
-- A **tray application** based on Avalonia is available in the [Releases](https://github.com/yourrepo/releases).
+- A **tray application** based on Avalonia is available in the [Releases](https://github.com/maxpiva/Kaizoku.NET/releases).
 - Currently tested only on **Windows**  testers for Linux/macOS are welcome!
 
 ---
