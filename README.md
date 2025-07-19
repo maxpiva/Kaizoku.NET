@@ -6,7 +6,19 @@ https://github.com/user-attachments/assets/ac0af0eb-5b4a-4377-b777-9fcafbc329ae
 Video has brigthness issues, blame Microsoft. 
 
 
-**Kaizoku.NET** is a modern fork of the original **Kaizoku** and **Kaizoku Next Gen** by OAE,  built to fill the void and bring a streamlined series manager back to life.
+
+<table>
+  <tr>
+    <td width="150" border="0">
+      <img width="150px" src="./KaizokuFrontend/public/kaizoku.net.png" alt="Kaizoku"></img>
+    </td>
+    <td>
+       <strong>Kaizoku.NET</strong> is a modern fork of the original <strong>Kaizoku</strong> and <strong>Kaizoku Next Gen</strong>strong> by OAE,  built to fill the void and bring a streamlined series manager back to life.
+    </td>
+  </tr>
+</table>
+
+ 
 
 This is a **feature-complete** application (not a preview). While it may contain bugs, it *definitely doesn’t contain spiders*, yet.
 
@@ -26,7 +38,7 @@ It uses the power of **Suwayomi Server** and **MIHON extensions** to connect wit
   Automatically imports your existing library.
 
 - 🔁 **Temporary vs Permanent Sources**  
-  - Chapters are only downloaded from **temporary** sources.  
+  - Chapters are only downloaded from **temporary** sources when there is no permanent sources 
   - Auto-deleted if a **permanent** source later provides them.
 
 - 🔎 **Multi-Search & Multi-Linking**  
@@ -56,7 +68,7 @@ Kaizoku.NET is composed of:
 
 - **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/kaizoku/tree/next) (Next.js).
 - **Backend**: A custom .NET engine managing schedules, downloads, and metadata.
-- **Bridge**: Suwayomi Server (to access Mihon Android extensions).
+- **Bridge**: [Suwayomi Server](https://github.com/Suwayomi/Suwayomi-Server) (to access Mihon Android extensions).
 
 > ❗ **Note:** Kaizoku.NET does **not** use Suwayomi Server’s built-in download or scheduling logic, only its extension bridge.
 
@@ -68,7 +80,7 @@ Kaizoku.NET is composed of:
 - You **can expose Suwayomi’s port** (via Docker or in the Desktop App).
 - You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install).
 
-> ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters.  
+> ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters which in every instance, most likely are different. 
 > If you change servers, **you must reset Kaizoku.NET** by deleting `kaizoku.db`, as ID mappings will no longer match.
 
 ---
@@ -114,7 +126,7 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., IKVM
 
 ---
 
-### #🌐 Network Mode
+### 🌐 Network Mode
 
 It is recommended to use **host networking** for optimal performance when downloading a lot and querying multiple providers in parallel.
 
@@ -186,7 +198,7 @@ Documentation coming soon™ (once laziness subsides).
 
 ## ⚠️ Resource Usage
 
-Be aware: **Kaizoku.NET** and **Suwayomi Server** can be **memory-intensive**, especially when managing large libraries or doing parallel searches.
+Be aware: **Kaizoku.NET** and **Suwayomi Server** can be **memory-intensive**, especially when managing large libraries or doing parallel searches and downloads.
 
 ---
 
@@ -203,5 +215,5 @@ PRs are welcome to improve stability and architecture.
 
 ## 🏴‍☠️ Brace Yourself
 
-This app *just works™*  until it doesn't. But it's here, it’s fast, it’s yours.  
+This app *just works™*  until it doesn't. But it's here.
 Start managing your series with the style it deserves.
