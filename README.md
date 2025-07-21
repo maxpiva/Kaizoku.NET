@@ -47,7 +47,7 @@ It uses the power of **Suwayomi Server** and **MIHON extensions** to connect wit
 - 📥 **Automatic Downloads, Retries, and Rescheduling**
 
 - 🔄 **Auto-Updates**  
-  Extensions and sources are kept up to date.
+  Extensions are kept up to date.
 
 - 🧹 **Filename Normalization**  
   Rebuild your library easily with consistent naming.
@@ -81,7 +81,7 @@ Kaizoku.NET is composed of:
 - You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install).
 
 > ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters which in every instance, most likely are different. 
-> If you change servers, **you must reset Kaizoku.NET** by deleting `kaizoku.db`, as ID mappings will no longer match.
+> If you change servers, **you must reset Kaizoku.NET** by deleting `kaizoku.db`, and start from scratch, as ID mappings will no longer match.
 
 ---
 
