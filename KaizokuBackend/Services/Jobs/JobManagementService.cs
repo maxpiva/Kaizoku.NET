@@ -346,6 +346,11 @@ namespace KaizokuBackend.Services.Jobs
             }
         }
 
+        public Task<bool> IsJobTypeRunningAsync(JobType jobType, CancellationToken token = default)
+        {
+            return _db.Queues.AnyAsync(a=>a.JobType==jobType && a.Status == QueueStatus.Running, token);
+        }
+
         public async Task DeleteQueuedJobsAsync(JobType jobType, string extraKey, CancellationToken token = default)
         {
             using (await _lock.LockAsync(token))
@@ -392,14 +397,14 @@ namespace KaizokuBackend.Services.Jobs
         private async Task UpdateJobAsync(Enqueue job, CancellationToken token = default)
         {
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
-            await _reportService.ReportJobAsync(job, token).ConfigureAwait(false);
+//            await _reportService.ReportJobAsync(job, token).ConfigureAwait(false);
         }
 
         private async Task AddJobAsync(Enqueue job, CancellationToken token = default)
         {
             _db.Queues.Add(job);
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
-            await _reportService.ReportJobAsync(job, token).ConfigureAwait(false);
+  //          await _reportService.ReportJobAsync(job, token).ConfigureAwait(false);
         }
 
         #endregion

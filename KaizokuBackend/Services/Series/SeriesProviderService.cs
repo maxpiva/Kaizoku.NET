@@ -110,7 +110,7 @@ namespace KaizokuBackend.Services.Series
                     string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");
                     string newPath = Path.Combine(settings.StorageFolder, series.StoragePath, newFilename);
                     
-                    if (File.Exists(originalPath))
+                    if (File.Exists(originalPath) && originalPath!=newPath)
                     {
                         try
                         {

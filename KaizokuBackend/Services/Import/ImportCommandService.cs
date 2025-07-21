@@ -2,19 +2,20 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
-using KaizokuBackend.Services.Jobs;
-using Microsoft.EntityFrameworkCore;
-using System.Linq.Expressions;
-using static System.Net.Mime.MediaTypeNames;
-using Action = KaizokuBackend.Models.Database.Action;
-using KaizokuBackend.Services.Jobs.Models;
-using KaizokuBackend.Services.Jobs.Report;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
+using KaizokuBackend.Services.Jobs;
+using KaizokuBackend.Services.Jobs.Models;
+using KaizokuBackend.Services.Jobs.Report;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Series;
 using KaizokuBackend.Services.Settings;
+using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+using static System.Net.Mime.MediaTypeNames;
+using Action = KaizokuBackend.Models.Database.Action;
 
 namespace KaizokuBackend.Services.Import;
 
@@ -24,6 +25,7 @@ public class ImportCommandService
     private readonly AppDbContext _db;
     private readonly SuwayomiClient _sc;
     private readonly JobHubReportService _reportingService;
+    private readonly JobManagementService _jobManagementService;
     private readonly SearchQueryService _searchQuery;
     private readonly SearchCommandService _searchCommand;
     private readonly SeriesCommandService _seriesCommand;
@@ -42,6 +44,7 @@ public class ImportCommandService
         SearchCommandService searchCommand,
         AppDbContext db,
         JobHubReportService reportingService,
+        JobManagementService jobManagementService,
         ContextProvider baseUrl,
         SettingsService settings,
         SeriesCommandService seriesCommand,
@@ -60,6 +63,7 @@ public class ImportCommandService
         _searchQuery = searchQuery;
         _searchCommand = searchCommand;
         _reportingService = reportingService;
+        _jobManagementService = jobManagementService;
         _baseUrl = baseUrl;
         _providerCache = providerCache;
         _seriesCommand = seriesCommand;
@@ -70,6 +74,13 @@ public class ImportCommandService
     public async Task<JobResult> ScanAsync(string directoryPath, JobInfo jobInfo, CancellationToken token = default)
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
+        if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)) 
+            || (await _jobManagementService.IsJobTypeRunningAsync(JobType.InstallAdditionalExtensions, token).ConfigureAwait(false)))
+        {
+            progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
+            return JobResult.Success;
+        }            
+  
         List<KaizokuBackend.Models.Database.Series> allseries = await _db.Series.Include(a => a.Sources).ToListAsync(token).ConfigureAwait(false);
         List<SuwayomiExtension> exts = await _sc.GetExtensionsAsync(token).ConfigureAwait(false);
         if (!Directory.Exists(directoryPath))
@@ -174,6 +185,11 @@ public class ImportCommandService
         try
         {
             ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
+            if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)))
+            {
+                progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+                return JobResult.Success;
+            }
             progress.Report(ProgressStatus.InProgress, startPercentage, null);
             List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports.Where(a => a.Status == ImportStatus.Import).ToListAsync(token).ConfigureAwait(false);
             List<ProviderInfo> providerInfos = imports.SelectMany(i => i.Info.Providers).ToList();
@@ -198,6 +214,14 @@ public class ImportCommandService
             return JobResult.Failed;
         }
     }
+
+    private SuwayomiSource? GetSource(ProviderInfo info, IEnumerable<SuwayomiSource> sources)
+    {
+        if (info.Provider == "Unknown")
+            return null;
+        return sources.FirstOrDefault(a => a.Name.Equals(info.Provider,  StringComparison.InvariantCultureIgnoreCase) && a.Lang.Equals(info.Language, StringComparison.InvariantCultureIgnoreCase));
+    }
+
 
     public async Task UpdateImportInfoAsync(ImportInfo info, CancellationToken token = default)
     {
@@ -377,14 +401,106 @@ public class ImportCommandService
                     }
                     else
                     {
+
+
+                        List<(ProviderInfo, SuwayomiSource, ProviderStorage)> existing = new List<(ProviderInfo, SuwayomiSource, ProviderStorage)>();
+                        foreach (ProviderInfo i in import.Info.Providers)
+                        {
+                            SuwayomiSource? source = GetSource(i, filteredSources.Keys);
+                            if (source != null)
+                            {
+                                existing.Add((i, source, filteredSources[source]));
+                            }
+                        }
                         string langstr = langs.Count == 0 ? "all" : string.Join(",", langs);
-                        _logger.LogInformation(
-                            "Searching for '{Title}' across {Count} providers in languages: {langstr}",
-                            import.Info.Title, filteredSources.Count, langstr);
-                        List<LinkedSeries> linked = await _searchQuery
-                            .SearchSeriesAsync(import.Info.Title, filteredSources, appSettings, 0, token)
-                            .ConfigureAwait(false);
-                        linked = linked.Where(a => a.Title.AreStringSimilar(import.Info.Title,0)).ToList();
+                        List<ProviderInfo> fnd = existing.Select(a => a.Item1).Distinct().ToList();
+                        List<ProviderInfo> left = import.Info.Providers.Where(a => !fnd.Contains(a)).ToList();
+                        List<LinkedSeries> linked = new List<LinkedSeries>();
+                        if (existing.Count > 0)
+                        {
+                            _logger.LogInformation("Searching for '{Title}' across {Count} matched providers in languages: {langstr}", import.Info.Title, existing.Count, langstr);
+                            int tries = 3;
+                            List<LinkedSeries> list = [];
+                            List<(string, SuwayomiSource, ProviderStorage)> searchlist = new List<(string, SuwayomiSource, ProviderStorage)>();
+                            foreach (var n in existing)
+                            {
+                                if (searchlist.Any(a => a.Item1 == n.Item1.Title && a.Item2.Id == n.Item2.Id))
+                                    continue; // Avoid duplicates
+                                searchlist.Add((n.Item1.Title, n.Item2, n.Item3));
+                            }
+                            do
+                            {
+                                list = await _searchQuery.SearchSeriesAsync(searchlist, appSettings!, 0, token).ConfigureAwait(false);
+                                tries--;
+                            } while (list.Count==0 && tries>0);
+                            
+                            Dictionary<string, List<string>> sourceTitles = new Dictionary<string, List<string>>();
+                            foreach (var n in existing)
+                            {
+                                if (!sourceTitles.ContainsKey(n.Item2.Id))
+                                    sourceTitles.Add(n.Item2.Id, new List<string>());
+                                if (!sourceTitles[n.Item2.Id].Contains(n.Item1.Title))
+                                    sourceTitles[n.Item2.Id].Add(n.Item1.Title);
+                            }
+                            if (list.Count==0)
+                                left.AddRange(existing.Select(a=>a.Item1));
+                
+                            foreach (LinkedSeries l in list)
+                            {
+                                List<string> lss = sourceTitles[l.ProviderId];
+                                foreach (string n in lss)
+                                {
+                                    if (l.Title.AreStringSimilar(n))
+                                    {
+                                        linked.Add(l);
+                                        break;
+                                    }
+                                }
+                            }
+
+                        }
+                        if (left.Count > 0)
+                        {
+                            List<SuwayomiSource> srcs = existing.Select(a => a.Item2).Distinct().ToList();
+                            Dictionary<SuwayomiSource, ProviderStorage> lefts = filteredSources.Where(a => !srcs.Contains(a.Key))
+                                .ToDictionary(a => a.Key, a => a.Value);
+                            _logger.LogInformation("Searching for '{Title}' across {Count} providers in languages: {langstr}",
+                                import.Info.Title, lefts.Count, langstr);
+                            List<LinkedSeries> list = await _searchQuery
+                                .SearchSeriesAsync(import.Info.Title, lefts, appSettings, 0, token)
+                                .ConfigureAwait(false);
+                            List<string> titles = new List<string> { import.Info.Title };
+                            {
+                                foreach (var n in left)
+                                {
+                                    bool fnda = false;
+                                    foreach (string x in titles)
+                                    {
+                                        if (x.Equals(n.Title, StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            fnda = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!fnda)
+                                    {
+                                        titles.Add(n.Title);
+                                    }
+                                }
+                            }
+                            foreach (LinkedSeries l in list)
+                            {
+                                foreach (string title in titles)
+                                {
+                                    if (l.Title.AreStringSimilar(title,0.1))
+                                    {
+                                        linked.Add(l);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                         bool success = false;
                         if (linked.Count > 0)
                         {

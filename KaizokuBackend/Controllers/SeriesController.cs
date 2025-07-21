@@ -191,6 +191,10 @@ namespace KaizokuBackend.Controllers
             {
                 return await _queryService.GetSeriesThumbnailAsync(id, token).ConfigureAwait(false);
             }
+            catch (TaskCanceledException)
+            {
+                return StatusCode(500, $"Error getting series thumbnail, canceled.");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error getting series thumbnail");

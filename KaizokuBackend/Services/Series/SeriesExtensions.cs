@@ -145,24 +145,24 @@ public static class SeriesExtensions
         if (seriesList.Any(a => a.Preferred))
             return;
         var exactMatches = new List<SmallSeries>();
-        foreach (var series in seriesList)
+        foreach (ProviderInfo p in providers)
         {
-            var matchingProvider = providers.FirstOrDefault(p =>
-                p.Provider.Equals(series.Provider, StringComparison.OrdinalIgnoreCase) &&
-                p.Language.Equals(series.Lang, StringComparison.OrdinalIgnoreCase));
-            if (matchingProvider != null && !matchingProvider.IsDisabled)
+            List<SmallSeries> matchs = [];
+            if (p.Provider == p.Scanlator || string.IsNullOrEmpty(p.Scanlator))
             {
-                exactMatches.Add(series);
+                matchs = seriesList.Where(s => s.Provider.Equals(p.Provider, StringComparison.OrdinalIgnoreCase) &&
+                                               s.Lang.Equals(p.Language, StringComparison.OrdinalIgnoreCase)).ToList();
             }
+            else
+            {
+                matchs = seriesList.Where(s => s.Provider.Equals(p.Provider, StringComparison.OrdinalIgnoreCase) && s.Scanlator.Equals(p.Scanlator, StringComparison.OrdinalIgnoreCase) &&
+                                               s.Lang.Equals(p.Language, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            matchs.ForEach(a=>a.Preferred=true);
         }
-        if (exactMatches.Count != 0)
-        {
-            var preferredSeries = exactMatches
-                .OrderByDescending(s => s.ChapterCount)
-                .First();
-            preferredSeries.Preferred = true;
+
+        if (seriesList.Any(a => a.Preferred))
             return;
-        }
         var maxChapterSeries = seriesList
             .OrderByDescending(s => s.LastChapter)
             .ToList();

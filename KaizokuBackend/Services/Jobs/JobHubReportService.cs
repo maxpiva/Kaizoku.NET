@@ -26,10 +26,12 @@ public class JobHubReportService : IReportProgress
     /// <param name="state">The job queue state</param>
     /// <param name="token">Cancellation token</param>
     /// <returns>Task representing the async operation</returns>
+    /*
     public Task ReportJobAsync(Enqueue state, CancellationToken token = default)
     {
         return _hub.Clients.All.SendAsync("Jobs", state.ToJobState(), token);
     }
+    */
 
     /// <summary>
     /// Reports job progress updates to SignalR clients

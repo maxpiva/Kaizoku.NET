@@ -1,14 +1,15 @@
+using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
-using KaizokuBackend.Extensions;
 using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Providers;
+using KaizokuBackend.Services.Series;
+using KaizokuBackend.Services.Settings;
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Concurrent;
 using System.Globalization;
-using KaizokuBackend.Services.Import;
-using KaizokuBackend.Services.Settings;
-using KaizokuBackend.Services.Series;
+using static Microsoft.Extensions.Logging.EventSource.LoggingEventSource;
 
 namespace KaizokuBackend.Services.Search
 {
@@ -93,6 +94,76 @@ namespace KaizokuBackend.Services.Search
             
             return await SearchSeriesAsync(keyword, filteredSources, appSettings, threshold, token).ConfigureAwait(false);
         }
+
+        public async Task<List<LinkedSeries>> SearchSeriesAsync(List<(string, SuwayomiSource, ProviderStorage)> sources, KaizokuBackend.Models.Settings? appSettings, double threshold = 0.1f, CancellationToken token = default)
+        {
+            var results = new ConcurrentBag<(string, SuwayomiSource Source, ProviderStorage Storag, SuwayomiSeriesResult Result)>();
+            var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
+
+            await Parallel.ForEachAsync(
+                sources,
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
+                async (source, ct) =>
+                {
+                    try
+                    {
+                        var searchResult = await _suwayomi.SearchSeriesAsync(source.Item2.Id, source.Item1, 1, ct).ConfigureAwait(false);
+                        if (searchResult != null && searchResult.MangaList.Count > 0)
+                        {
+                            // Remove duplicates within the same source
+                            var uniqueSeries = new List<SuwayomiSeries>();
+                            foreach (var series in searchResult.MangaList)
+                            {
+                                if (uniqueSeries.All(a => a.Id != series.Id))
+                                    uniqueSeries.Add(series);
+                            }
+
+                            searchResult.MangaList = uniqueSeries;
+                            results.Add((source.Item1, source.Item2, source.Item3, searchResult));
+                        }
+                    }
+                    catch (HttpRequestException r)
+                    {
+                        _logger.LogWarning("Error searching provider {DisplayName}: Http Error {StatusCode}.", source.Item2.DisplayName, r.StatusCode);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error searching provider {DisplayName}: {Message}", source.Item2.DisplayName, ex.Message);
+                    }
+                }).ConfigureAwait(false);
+
+            var allSeries = new List<SuwayomiSeries>();
+            foreach (var (pi, source, providerStorage, result) in results)
+            {
+                foreach (SuwayomiSeries l in result.MangaList)
+                {
+                    if (!allSeries.Any(b=>b.Id==l.Id))
+                        allSeries.Add(l);
+                }
+            }
+
+
+            var linked = allSeries.FindAndLinkSimilarSeries(_baseUrl, threshold);
+
+            Dictionary<string, (SuwayomiSource, ProviderStorage)> sourceDict = new Dictionary<string, (SuwayomiSource, ProviderStorage)>();
+            foreach (var n in sources)
+            {
+                if (!sourceDict.ContainsKey(n.Item2.Id))
+                    sourceDict.Add(n.Item2.Id, (n.Item2, n.Item3));
+            }
+
+            // Enrich linked series with provider information
+            linked.ForEach(a =>
+            {
+                a.Provider = sourceDict[a.ProviderId].Item1.Name;
+                a.Lang = sourceDict[a.ProviderId].Item1.Lang.ToLowerInvariant();
+                a.IsStorage = sourceDict[a.ProviderId].Item2.IsStorage;
+            });
+
+            return linked.ToList();
+
+        }
+
 
         /// <summary>
         /// Searches for series across specified sources with caching
