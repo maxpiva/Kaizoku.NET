@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useLayoutEffect, useDeferredValue } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelectSources } from "@/components/ui/multi-select-sources";
@@ -116,66 +116,6 @@ const SeriesCard = React.memo(({
 
 SeriesCard.displayName = 'SeriesCard';
 
-export interface SeriesGridHandle {
-  getSelectedIds: () => string[];
-}
-
-// Memoized grid component with internal selection state and imperative handle
-const SeriesGrid = React.memo(React.forwardRef<SeriesGridHandle, {
-  results: LinkedSeries[];
-  isDesktop: boolean;
-  onSelectionCountChange: (count: number) => void;
-}>(function SeriesGrid({
-  results,
-  isDesktop,
-  onSelectionCountChange,
-}, ref) {
-  const [selectedSeries, setSelectedSeries] = React.useState<string[]>([]);
-  const selectedSeriesSet = React.useMemo(() => new Set(selectedSeries), [selectedSeries]);
-
-  // Expose getSelectedIds to the parent via ref
-  React.useImperativeHandle(ref, () => ({
-    getSelectedIds: () => selectedSeries,
-  }));
-
-  // Stable onToggle handler for each card
-  const handleSeriesToggle = React.useCallback((seriesId: string) => {
-    setSelectedSeries(prev => {
-      const newSelection = new Set(prev);
-      if (newSelection.has(seriesId)) {
-        newSelection.delete(seriesId);
-      } else {
-        newSelection.add(seriesId);
-      }
-      return Array.from(newSelection);
-    });
-  }, []);
-
-  // Notify parent when selection count changes
-  React.useEffect(() => {
-    onSelectionCountChange(selectedSeries.length);
-  }, [selectedSeries, onSelectionCountChange]);
-
-  return (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-3">
-      {results.map((series) => {
-        const isSelected = selectedSeriesSet.has(series.id);
-        return (
-          <SeriesCard
-            key={series.id}
-            series={series}
-            isSelected={isSelected}
-            onToggle={handleSeriesToggle}
-            isDesktop={isDesktop}
-          />
-        );
-      })}
-    </div>
-  );
-}));
-
-SeriesGrid.displayName = 'SeriesGrid';
-
 const SearchContent = React.memo(({
   searchInputRef,
   searchValue,
@@ -187,8 +127,6 @@ const SearchContent = React.memo(({
   isDesktop,
   selectionCount,
   error,
-  scrollContainerRef,
-  handleScroll,
   searchResultsGrid
 }: {
   searchInputRef: React.Ref<HTMLInputElement>;
@@ -201,8 +139,6 @@ const SearchContent = React.memo(({
   isDesktop: boolean;
   selectionCount: number;
   error: string | null;
-  scrollContainerRef: React.Ref<HTMLDivElement>;
-  handleScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   searchResultsGrid: React.ReactNode;
 }) => {
   return (
@@ -240,11 +176,7 @@ const SearchContent = React.memo(({
           {error}
         </div>
       )}
-      <div 
-        className="h-[50vh] overflow-y-auto" 
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-      >
+      <div className="h-[50vh] overflow-y-auto">
         {searchResultsGrid}
       </div>
     </div>
@@ -260,17 +192,11 @@ export function SearchSeriesRequester({
   onResult,
 }: SearchSeriesRequesterProps) {
   const [searchValue, setSearchValue] = useState("");
-  const [hasUserInteracted, setHasUserInteracted] = useState(false);
-  const [initialSearchDone, setInitialSearchDone] = useState(false);
-  const [debouncedSearchValue] = useDebounce(searchValue, 500);
-  const [selectionCount, setSelectionCount] = useState(0);
-  const [gridKey, setGridKey] = useState(Date.now());
+  const [debouncedSearchValue] = useDebounce(searchValue, 300); // Match library page debounce timing
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const gridRef = useRef<SeriesGridHandle>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const scrollPositionRef = useRef<number>(0); // To store scroll position
   const searchInputRef = useRef<HTMLInputElement>(null);
   
   const isDesktop = useMediaQuery("(min-width: 768px)");
@@ -289,9 +215,9 @@ export function SearchSeriesRequester({
     }
   }, [availableSources, selectedSources.length]);
 
-  // Search when: initial search with prefilled title OR user has interacted and typed
-  const shouldSearch = (!initialSearchDone && searchValue === importTitle && searchValue.length >= 3) || 
-                      (hasUserInteracted && debouncedSearchValue.length >= 3);
+  // Simplified search condition that directly validates the debounced keyword length
+  // This prevents empty keyword API calls and matches the working implementations
+  const shouldSearch = debouncedSearchValue.length >= 3 && selectedSources.length > 0;
 
   const { data: searchResults = [], isLoading, error: searchError, isFetching } = useSearchSeries(
     { 
@@ -301,65 +227,28 @@ export function SearchSeriesRequester({
     { enabled: shouldSearch }
   );
 
-  // Mark initial search as done when we get results for the prefilled title
-  useEffect(() => {
-    if (searchResults.length > 0 && searchValue === importTitle && !hasUserInteracted) {
-      setInitialSearchDone(true);
-    }
-  }, [searchResults, searchValue, importTitle, hasUserInteracted]);
-
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
       setSearchValue(importTitle);
-      setSelectionCount(0);
-      setGridKey(Date.now()); // This will reset the SeriesGrid component and its internal state
+      setSelectedSeries([]);
       setError(null);
       setIsSubmitting(false);
-      setHasUserInteracted(false);
-      setInitialSearchDone(false); // Reset initial search flag
       
-      // Focus the search input and move cursor to end with multiple attempts
-      const focusInput = () => {
+      // Focus the search input
+      setTimeout(() => {
         if (searchInputRef.current) {
           searchInputRef.current.focus();
-          // Move cursor to the end of the text
           const length = searchInputRef.current.value.length;
           searchInputRef.current.setSelectionRange(length, length);
         }
-      };
-      
-      // Try immediately
-      setTimeout(focusInput, 0);
-      // Try again after dialog animation
-      setTimeout(focusInput, 200);
-      // Final attempt after longer delay
-      setTimeout(focusInput, 500);
+      }, 100);
     } else {
       // Clear search when dialog closes
       setSearchValue("");
-      setSelectionCount(0);
-      setHasUserInteracted(false);
-      setInitialSearchDone(false);
+      setSelectedSeries([]);
     }
   }, [open, importTitle]);
-
-  // Additional focus effect when searchValue updates with initial value
-  useEffect(() => {
-    if (open && searchValue === importTitle && !hasUserInteracted && searchInputRef.current) {
-      const focusWithCursorAtEnd = () => {
-        if (searchInputRef.current) {
-          searchInputRef.current.focus();
-          const length = searchInputRef.current.value.length;
-          searchInputRef.current.setSelectionRange(length, length);
-        }
-      };
-      
-      // Try multiple times to ensure it works
-      setTimeout(focusWithCursorAtEnd, 100);
-      setTimeout(focusWithCursorAtEnd, 300);
-    }
-  }, [open, searchValue, importTitle, hasUserInteracted]);
 
   // Handle error from search
   useEffect(() => {
@@ -370,35 +259,21 @@ export function SearchSeriesRequester({
     }
   }, [searchError]);
 
-  // Restore scroll position after re-renders
-  useLayoutEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollPositionRef.current;
-    }
-  });
+  const handleSeriesToggle = (seriesId: string) => {
+    setSelectedSeries(prev => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(seriesId)) {
+        newSelection.delete(seriesId);
+      } else {
+        newSelection.add(seriesId);
+      }
+      return Array.from(newSelection);
+    });
+  };
 
-  const canSubmit = selectionCount > 0 && !isSubmitting;
+  const canSubmit = selectedSeries.length > 0 && !isSubmitting;
   
-  // Memoize searchResults to ensure a stable reference
-  const prevResultsRef = React.useRef<LinkedSeries[]>([]);
-  React.useEffect(() => {
-    // Only update if the ids actually change
-    const prevIds = prevResultsRef.current.map(s => s.id).join(',');
-    const newIds = searchResults.map(s => s.id).join(',');
-    if (prevIds !== newIds) {
-      prevResultsRef.current = searchResults;
-    }
-  }, [searchResults]);
-  const stableSearchResults = prevResultsRef.current;
-
-  // Only reset scroll position when the search value changes (not on selection)
-  useEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0;
-    }
-  }, [debouncedSearchValue]);
-
-  // Memoize the searchResultsGrid to prevent unnecessary re-renders
+  // Memoize the search results grid using the simple approach like the working implementation
   const searchResultsGrid = React.useMemo(() => {
     if (isLoading || isFetching) {
       return (
@@ -407,20 +282,29 @@ export function SearchSeriesRequester({
         </div>
       );
     }
+    
+    const selectedSeriesSet = new Set(selectedSeries);
+    
     return (
-      <SeriesGrid
-        key={gridKey}
-        ref={gridRef}
-        results={stableSearchResults}
-        isDesktop={isDesktop}
-        onSelectionCountChange={setSelectionCount}
-      />
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-3">
+        {searchResults.map((series) => {
+          const isSelected = selectedSeriesSet.has(series.id);
+          return (
+            <SeriesCard
+              key={series.id}
+              series={series}
+              isSelected={isSelected}
+              onToggle={handleSeriesToggle}
+              isDesktop={isDesktop}
+            />
+          );
+        })}
+      </div>
     );
-  }, [isLoading, isFetching, stableSearchResults, isDesktop, gridKey]);
+  }, [isLoading, isFetching, searchResults, selectedSeries, isDesktop, handleSeriesToggle]);
 
   const handleSearchChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchValue(e.target.value);
-    setHasUserInteracted(true);
   }, []);
 
   const handleSearchFocus = React.useCallback((e: React.FocusEvent<HTMLInputElement>) => {
@@ -429,20 +313,15 @@ export function SearchSeriesRequester({
     e.target.setSelectionRange(length, length);
   }, []);
 
-  const handleScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    scrollPositionRef.current = e.currentTarget.scrollTop;
-  }, []);
-
   const handleOk = async () => {
-    const selectedIds = gridRef.current?.getSelectedIds();
-    if (!selectedIds || selectedIds.length === 0) return;
+    if (selectedSeries.length === 0) return;
     
     setIsSubmitting(true);
     setError(null);
     try {
       // Get the full LinkedSeries objects for the selected IDs
       const selectedLinkedSeries = searchResults.filter((series: LinkedSeries) => 
-        selectedIds.includes(series.id)
+        selectedSeries.includes(series.id)
       );
       // Call the augment endpoint
       const updatedImportInfo = await setupWizardService.augmentSeries(importPath, selectedLinkedSeries);
@@ -485,10 +364,8 @@ export function SearchSeriesRequester({
             selectedSources={selectedSources}
             onSelectedSourcesChange={setSelectedSources}
             isDesktop={isDesktop}
-            selectionCount={selectionCount}
+            selectionCount={selectedSeries.length}
             error={error}
-            scrollContainerRef={scrollContainerRef}
-            handleScroll={handleScroll}
             searchResultsGrid={searchResultsGrid}
           />
           <DialogFooter>
@@ -520,10 +397,8 @@ export function SearchSeriesRequester({
             selectedSources={selectedSources}
             onSelectedSourcesChange={setSelectedSources}
             isDesktop={isDesktop}
-            selectionCount={selectionCount}
+            selectionCount={selectedSeries.length}
             error={error}
-            scrollContainerRef={scrollContainerRef}
-            handleScroll={handleScroll}
             searchResultsGrid={searchResultsGrid}
           />
         </div>

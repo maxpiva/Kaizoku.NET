@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-	  <AssemblyVersion>1.0.0.1</AssemblyVersion>
-	  <FileVersion>1.0.0.1</FileVersion>
+	  <AssemblyVersion>1.0.0.2</AssemblyVersion>
+	  <FileVersion>1.0.0.2</FileVersion>
 	  <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
@@ -11,7 +11,7 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <PackageIcon>kaizoku.net.png</PackageIcon>
-	  <ApplicationIcon>Assets\kaizoku.net.ico</ApplicationIcon>
+	<ApplicationIcon>Assets\kaizoku.net.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\KaizokuFrontend\public\kaizoku.net.png">

@@ -8,6 +8,7 @@ export class ProgressHub {
   private listeners: ((progress: ProgressState) => void)[] = [];
   private isInitialized = false;
   private signalR: any = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
 
   private async loadSignalR(): Promise<any> {
     if (typeof window === 'undefined') {
@@ -34,7 +35,62 @@ export class ProgressHub {
         this.listeners.forEach(listener => listener(progress));
       });
 
+      // Add connection state event handlers
+      this.connection.onreconnecting((error: any) => {
+        console.log('SignalR reconnecting...', error);
+      });
+
+      this.connection.onreconnected((connectionId: string) => {
+        console.log('SignalR reconnected:', connectionId);
+      });
+
+      this.connection.onclose((error: any) => {
+        console.log('SignalR connection closed:', error);
+      });
+
+      this.setupVisibilityHandling();
       this.isInitialized = true;
+    }
+  }
+
+  private setupVisibilityHandling(): void {
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          // Tab became visible - check connection
+          void this.handleTabVisible();
+        }
+      });
+    }
+  }
+
+  private async handleTabVisible(): Promise<void> {
+    const signalR = await this.loadSignalR();
+    if (!signalR || !this.connection) return;
+
+    // If disconnected or reconnecting failed, restart
+    if (this.connection.state === signalR.HubConnectionState.Disconnected) {
+      try {
+        await this.connection.start();
+      } catch (err) {
+        console.error('Failed to restart connection on tab visible:', err);
+      }
+    }
+  }
+
+  async ensureConnected(): Promise<boolean> {
+    const signalR = await this.loadSignalR();
+    if (!signalR || !this.connection) return false;
+
+    if (this.connection.state === signalR.HubConnectionState.Connected) {
+      return true;
+    }
+
+    try {
+      await this.startConnection();
+      return this.connection.state === signalR.HubConnectionState.Connected;
+    } catch {
+      return false;
     }
   }
 
@@ -48,7 +104,8 @@ export class ProgressHub {
     const signalR = await this.loadSignalR();
     if (!signalR || !this.connection) return;
 
-    if (this.connection.state === signalR.HubConnectionState.Disconnected) {
+    // Handle all non-connected states
+    if (this.connection.state !== signalR.HubConnectionState.Connected) {
       try {
         await this.connection.start();
       } catch (err) {
@@ -71,6 +128,23 @@ export class ProgressHub {
     }
   }
 
+  startHealthCheck(): void {
+    if (this.healthCheckInterval) return;
+    
+    this.healthCheckInterval = setInterval(async () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        await this.ensureConnected();
+      }
+    }, 30000); // Check every 30 seconds when tab is visible
+  }
+
+  stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+
   onProgress(callback: (progress: ProgressState) => void): () => void {
     this.listeners.push(callback);
 
@@ -84,6 +158,7 @@ export class ProgressHub {
 
   dispose(): void {
     this.listeners = [];
+    this.stopHealthCheck();
     if (this.connection) {
       void this.stopConnection();
     }

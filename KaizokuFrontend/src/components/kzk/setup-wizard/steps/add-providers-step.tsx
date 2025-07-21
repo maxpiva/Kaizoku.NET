@@ -84,8 +84,8 @@ export default function AddProvidersStep({
         showNsfwIndicator={true}
         installedGridCols="grid-cols-1 lg:grid-cols-3"
         availableGridCols="grid-cols-1 lg:grid-cols-3"
-        installedMaxHeight="min-h-30 max-h-90"
-        availableMaxHeight="min-h-30 max-h-90"
+        installedMaxHeight="min-h-20 max-h-60"
+        availableMaxHeight="min-h-20 max-h-60"
         installedTitle="Installed Sources"
         availableTitle="Available Sources"
         description={
