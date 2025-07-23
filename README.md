@@ -50,7 +50,7 @@ It uses the power of **Suwayomi Server** and **MIHON extensions** to connect wit
   Extensions are kept up to date.
 
 - 🧹 **Filename Normalization**  
-  Rebuild your library easily with consistent naming.
+  Rebuild your library easily with consistent naming, that will help you reimport it back when needed.
 
 - 🧾 **ComicInfo.xml Injection**  
   Chapters include rich metadata from the original source.
