@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-	  <AssemblyVersion>1.0.0.2</AssemblyVersion>
-	  <FileVersion>1.0.0.2</FileVersion>
+	  <AssemblyVersion>1.0.0.3</AssemblyVersion>
+	  <FileVersion>1.0.0.3</FileVersion>
 	  <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
