@@ -232,13 +232,17 @@ namespace KaizokuBackend.Services.Providers
                     {
                         try
                         {
-                            var preferences = await _suwayomiClient.GetSourcePreferencesAsync(source.Id, ct).ConfigureAwait(false);
+                            var preferences = await _suwayomiClient.GetSourcePreferencesAsync(source.Id, ct)
+                                .ConfigureAwait(false);
                             RemoveSuffixPreferences(extension.Lang, source.Id, preferences);
-                            mappings.Add(new Mappings
+                            if (mappings.All(a => a.Source?.Id != source.Id))
                             {
-                                Preferences = preferences,
-                                Source = source,
-                            });
+                                mappings.Add(new Mappings
+                                {
+                                    Preferences = preferences,
+                                    Source = source,
+                                });
+                            }
                         }
                         catch (Exception ex)
                         {

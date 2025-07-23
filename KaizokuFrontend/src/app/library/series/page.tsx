@@ -175,7 +175,7 @@ const ProviderCard = ({ provider,
             {/* Action buttons */}
             <div className="flex-1 ">            <div className="flex gap-2 justify-end mr-0.5">
 
-              {!provider.isUnknown && (
+            
                 <Button
                   variant="destructive"
                   size="sm"
@@ -184,7 +184,7 @@ const ProviderCard = ({ provider,
                   <Trash2 className="h-4 w-4 mr-1" />
                   Delete
                 </Button>
-              )}            
+                        
               {!provider.isUnknown && !provider.isUninstalled && (
                 <Button className="opacity-100"
                   variant={isEnabled ? "destructive" : "default"}
@@ -1541,9 +1541,16 @@ function SeriesPageContent() {
   };
 
   // Handler for verify success dialog close
-  const handleVerifyDialogClose = () => {
+  const handleVerifyDialogClose = async () => {
     setShowVerifyDialog(false);
     setVerifyResult(null);
+    
+    // Refresh the series data after successful verification
+    if (seriesId) {
+      await queryClient.invalidateQueries({ 
+        queryKey: ['series', 'detail', seriesId] 
+      });
+    }
   };
 
   // Handler for cleanup dialog cancel

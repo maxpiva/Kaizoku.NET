@@ -221,6 +221,9 @@ namespace KaizokuBackend.Extensions
                         ContinueAfterChapter = provider.ContinueAfterChapter,
                         ChapterList = provider.Chapters.Select(c => c.Number).FormatDecimalRanges() ?? "",
                     };
+                    //Previously matched, but search failed.
+                    if (provider.SuwayomiId == 0)
+                        providerInfo.IsUnknown = true;
                     info.Providers.Add(providerInfo);
 
                 }

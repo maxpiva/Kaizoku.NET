@@ -105,8 +105,17 @@ namespace KaizokuBackend.Services.Providers
                 if (storagePreference != null)
                 {
                     var storageValue = (string)ConvertJsonObject(storagePreference.CurrentValue!);
-                    provider.IsStorage = storageValue == "permanent";
-                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                    bool newValue = storageValue == "permanent";
+                    if (provider.IsStorage != newValue)
+                    {
+                        ProviderStorage? pp = await _db.Providers.FirstOrDefaultAsync(a => a.Id == provider.Id, token)
+                            .ConfigureAwait(false);
+                        if (pp != null)
+                        {
+                            pp.IsStorage = newValue;
+                            await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                        }
+                    }
                     preferences.Preferences.Remove(storagePreference);
                 }
 

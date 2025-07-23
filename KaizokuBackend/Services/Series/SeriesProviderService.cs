@@ -39,13 +39,14 @@ namespace KaizokuBackend.Services.Series
         /// <returns>The provider match if found</returns>
         public async Task<ProviderMatch?> GetMatchAsync(Guid providerId, CancellationToken token = default)
         {
+
             SeriesProvider? provider = await _db.SeriesProviders.Where(a => a.Id == providerId).AsNoTracking()
                 .FirstOrDefaultAsync(token).ConfigureAwait(false);
-            if (provider == null || !provider.IsUnknown)
+            if (provider == null || (provider.SuwayomiId!=0 && !provider.IsUnknown))
                 return null;
             
             List<SeriesProvider> providers = await _db.SeriesProviders
-                .Where(a => a.SeriesId == provider.SeriesId && !a.IsUnknown).AsNoTracking().ToListAsync(token)
+                .Where(a => a.SeriesId == provider.SeriesId && !a.IsUnknown && a.SuwayomiId!=0).AsNoTracking().ToListAsync(token)
                 .ConfigureAwait(false);
             if (providers.Count == 0)
                 return null;
@@ -110,11 +111,12 @@ namespace KaizokuBackend.Services.Series
                     string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");
                     string newPath = Path.Combine(settings.StorageFolder, series.StoragePath, newFilename);
                     
-                    if (File.Exists(originalPath) && originalPath!=newPath)
+                    if (File.Exists(originalPath))
                     {
                         try
                         {
-                            File.Move(originalPath, newPath, true);
+                            if (originalPath != newPath)
+                                File.Move(originalPath, newPath, true);
                             _db.Touch(mi, a => a.Chapters);
                             dst.Filename = newFilename;
                             dst.DownloadDate = ch.DownloadDate;

@@ -46,7 +46,7 @@ namespace KaizokuBackend.Services.Downloads
             _jobManagementService = jobManagementService;
             _reportingService = reportingService;
             _logger = logger;
-            _tempFolder = Path.Combine(config["runtimeDirectory"] ?? "", "downloads");
+            _tempFolder = Path.Combine(config["runtimeDirectory"] ?? "", "Downloads");
         }
 
         /// <summary>

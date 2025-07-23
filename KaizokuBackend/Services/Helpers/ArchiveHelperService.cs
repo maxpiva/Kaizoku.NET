@@ -59,7 +59,7 @@ namespace KaizokuBackend.Services.Helpers
          CancellationToken token = default)
         {
             Models.Database.Series? series = await _db.Series
-                .Include(s => s.Sources)
+                .Include(s => s.Sources).AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == seriesId, token).ConfigureAwait(false);
             if (series == null)
                 return;
@@ -69,8 +69,10 @@ namespace KaizokuBackend.Services.Helpers
         public async Task UpdateTitleAndAddComicInfoAsync(Models.Database.Series series, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
         {
             Models.Settings settings = await _settings.GetSettingsAsync(token);
-            foreach (var sp in series.Sources)
+            foreach (var sp2 in series.Sources)
             {
+                var sp = await _db.SeriesProviders
+                    .FirstOrDefaultAsync(s => s.Id == sp2.Id, token).ConfigureAwait(false);
                 if (sp.Chapters == null)
                     continue;
                 foreach (var chap in sp.Chapters)
@@ -177,7 +179,7 @@ namespace KaizokuBackend.Services.Helpers
         public async Task UpdateAllTitlesAndAddComicInfoAsync(ProgressReporter reporter, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
         {
             reporter.Report(ProgressStatus.Started,0, "Updating all Series...");
-            var allSeries = await _db.Series.Include(s => s.Sources).ToListAsync(token);
+            var allSeries = await _db.Series.Include(s => s.Sources).AsNoTracking().ToListAsync(token);
             float step = 100 / (float)allSeries.Count;
             float acum = 0;
             foreach (var series in allSeries)

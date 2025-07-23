@@ -240,6 +240,12 @@ namespace KaizokuBackend.Extensions
   
         public static bool IsMatchingProvider(this SeriesProvider sp, FullSeries fs)
         {
+            if (fs.Scanlator == fs.Provider || (string.IsNullOrEmpty(fs.Scanlator) && string.IsNullOrEmpty(fs.Provider)))
+            {
+                return sp.Provider == fs.Provider &&
+                       sp.Title == fs.Title &&
+                       sp.Language == fs.Lang;
+            }
             return sp.Provider == fs.Provider &&
                    sp.Title == fs.Title &&
                    sp.Language == fs.Lang &&

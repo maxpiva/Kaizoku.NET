@@ -419,7 +419,6 @@ public class ImportCommandService
                         if (existing.Count > 0)
                         {
                             _logger.LogInformation("Searching for '{Title}' across {Count} matched providers in languages: {langstr}", import.Info.Title, existing.Count, langstr);
-                            int tries = 3;
                             List<LinkedSeries> list = [];
                             List<(string, SuwayomiSource, ProviderStorage)> searchlist = new List<(string, SuwayomiSource, ProviderStorage)>();
                             foreach (var n in existing)
@@ -428,12 +427,7 @@ public class ImportCommandService
                                     continue; // Avoid duplicates
                                 searchlist.Add((n.Item1.Title, n.Item2, n.Item3));
                             }
-                            do
-                            {
-                                list = await _searchQuery.SearchSeriesAsync(searchlist, appSettings!, 0, token).ConfigureAwait(false);
-                                tries--;
-                            } while (list.Count==0 && tries>0);
-                            
+                            list = await _searchQuery.SearchSeriesAsync(searchlist, appSettings!, 0, token).ConfigureAwait(false);
                             Dictionary<string, List<string>> sourceTitles = new Dictionary<string, List<string>>();
                             foreach (var n in existing)
                             {

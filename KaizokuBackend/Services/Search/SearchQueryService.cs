@@ -105,31 +105,40 @@ namespace KaizokuBackend.Services.Search
                 new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
                 async (source, ct) =>
                 {
-                    try
+                    //Try to match 3 times, for providers that are slow or have temporary issues
+                    int retries = 3;
+                    do
                     {
-                        var searchResult = await _suwayomi.SearchSeriesAsync(source.Item2.Id, source.Item1, 1, ct).ConfigureAwait(false);
-                        if (searchResult != null && searchResult.MangaList.Count > 0)
+                        try
                         {
-                            // Remove duplicates within the same source
-                            var uniqueSeries = new List<SuwayomiSeries>();
-                            foreach (var series in searchResult.MangaList)
+                            var searchResult = await _suwayomi.SearchSeriesAsync(source.Item2.Id, source.Item1, 1, ct).ConfigureAwait(false);
+                            if (searchResult != null && searchResult.MangaList.Count > 0)
                             {
-                                if (uniqueSeries.All(a => a.Id != series.Id))
-                                    uniqueSeries.Add(series);
-                            }
+                                // Remove duplicates within the same source
+                                var uniqueSeries = new List<SuwayomiSeries>();
+                                foreach (var series in searchResult.MangaList)
+                                {
+                                    if (uniqueSeries.All(a => a.Id != series.Id))
+                                        uniqueSeries.Add(series);
+                                }
 
-                            searchResult.MangaList = uniqueSeries;
-                            results.Add((source.Item1, source.Item2, source.Item3, searchResult));
+                                searchResult.MangaList = uniqueSeries;
+                                results.Add((source.Item1, source.Item2, source.Item3, searchResult));
+                                break;
+                            }
                         }
-                    }
-                    catch (HttpRequestException r)
-                    {
-                        _logger.LogWarning("Error searching provider {DisplayName}: Http Error {StatusCode}.", source.Item2.DisplayName, r.StatusCode);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error searching provider {DisplayName}: {Message}", source.Item2.DisplayName, ex.Message);
-                    }
+                        catch (HttpRequestException r)
+                        {
+                            _logger.LogWarning("Error searching provider {DisplayName}: Http Error {StatusCode}.", source.Item2.DisplayName, r.StatusCode);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error searching provider {DisplayName}: {Message}", source.Item2.DisplayName, ex.Message);
+                        }
+
+                        retries++;
+                    } while (retries<3);
+                   
                 }).ConfigureAwait(false);
 
             var allSeries = new List<SuwayomiSeries>();

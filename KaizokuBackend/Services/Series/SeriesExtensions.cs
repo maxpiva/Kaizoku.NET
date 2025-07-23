@@ -705,7 +705,7 @@ public static class SeriesExtensions
 
     public static SeriesStatus BestStatus(IEnumerable<SeriesProvider> providers)
     {
-        SeriesProvider? p = providers.Where(a => a.Status != SeriesStatus.UNKNOWN).FirstOrDefault();
+        SeriesProvider? p = providers.Where(a => a.Status != SeriesStatus.UNKNOWN).OrderBy(a=>a.Status).FirstOrDefault();
         if (p == null)
             p = providers.FirstOrDefault();
         if (p == null)
