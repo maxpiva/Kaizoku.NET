@@ -45,8 +45,8 @@ function ProviderCard({
     <Card className="w-full">
       <CardHeader className={isCompact ? "p-3" : "p-2 pr-4"}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="relative flex-shrink-0">
               <LazyImage
                 src={extension.iconUrl}
                 alt={`${extension.name} icon`}
@@ -72,33 +72,30 @@ function ProviderCard({
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <CardTitle className={`${isCompact ? 'text-sm' : 'text-lg'} truncate line-clamp-1`}>
+                <CardTitle className={`${isCompact ? 'text-sm' : 'text-lg'} truncate`}>
                   {extension.name}
                 </CardTitle>
-                <ReactCountryFlag
+               
+              </div>
+              <CardDescription className={`${isCompact ? 'text-xs' : 'text-xs'} truncate flex items-center`}>
+                <span className="text-muted-foreground">
+                  v{extension.versionName}
+                      &nbsp;&nbsp;                      
+                       <ReactCountryFlag
                   countryCode={countryCode}
                   svg
                   style={{
-                    width: isCompact ? "16px" : "12px",
-                    height: isCompact ? "12px" : "12px",
+                    width: isCompact ? "14px" : "14px",
+                    height: isCompact ? "10px" : "10px",
+                    marginBottom: isCompact ? "2px" : "2px",
                   }}
                   title={`${extension.lang.toUpperCase()} (${countryCode})`}
                 />
-              </div>
-              <CardDescription className={`${isCompact ? 'text-xs' : 'text-xs'} truncate flex items-center mt-1`}>
-                <span className="text-muted-foreground">
-                  v{extension.versionName}
-                  {!isCompact && (
-                    <>
-                      &nbsp;&nbsp;
-                      <span>{extension.lang.toLowerCase()}</span>
-                    </>
-                  )}
                 </span>
               </CardDescription>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {extension.installed && (
               <ProviderSettingsButton
                 variant={isCompact ? 'default' : undefined}
@@ -170,8 +167,8 @@ export function ProviderManager({
   isCompact = false,
   showSearch = true,
   showNsfwIndicator = true,
-  installedGridCols = "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
-  availableGridCols = "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
+  installedGridCols = "grid-cols-1 sm:grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3",
+  availableGridCols = "grid-cols-1 sm:grid-cols-1 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3",
   installedMaxHeight = "",
   availableMaxHeight = "",
   installedTitle = "Installed",

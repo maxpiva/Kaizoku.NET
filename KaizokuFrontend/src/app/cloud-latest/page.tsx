@@ -15,6 +15,7 @@ import { seriesService } from "@/lib/api/services/seriesService";
 import { useQueryClient } from '@tanstack/react-query';
 import { CloudLatestGrid } from "@/components/kzk/series/cloud-latest-grid";
 import { type LatestSeriesInfo } from "@/lib/api/types";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 const ITEMS_PER_PAGE = 40; // Increased to ensure screen fill
 
@@ -87,6 +88,9 @@ export default function CloudLatestPage() {
     return calculateItemsPerPage(cardWidth);
   }, [cardWidth]);
 
+  // Debounce card width changes to prevent race conditions
+  const debouncedCardWidth = useDebounce(cardWidth, 300);
+
   // Wrap setters to also update sessionStorage
   const setSelectedSourceId = (v: string | null) => {
     setSelectedSourceIdState(v);
@@ -129,21 +133,40 @@ export default function CloudLatestPage() {
     return () => searchInput.removeEventListener("input", handler);
   }, [SESSION_KEYS.search]);
 
-  // Reset pagination when filters change
+  // Reset pagination when filters change (but NOT for card width changes)
   useEffect(() => {
     setItems([]);
     setCurrentPage(0);
     setHasMore(true);
-  }, [debouncedSearchTerm, selectedSourceId, cardWidth]); // Added cardWidth dependency
+  }, [debouncedSearchTerm, selectedSourceId]); // Removed debouncedCardWidth
+
+  // Calculate dynamic items per page based on debounced card size for API calls
+  const debouncedItemsPerPage = useMemo(() => {
+    return calculateItemsPerPage(debouncedCardWidth);
+  }, [debouncedCardWidth]);
 
   // Fetch latest series data
   const { data: latestData, isLoading, error } = useLatest(
-    currentPage * itemsPerPage,
-    itemsPerPage,
+    currentPage * debouncedItemsPerPage,
+    debouncedItemsPerPage,
     selectedSourceId ?? undefined,
     debouncedSearchTerm ?? undefined,
     true
   );
+
+  // Check if we need to load more items when card size changes
+  useEffect(() => {
+    if (!items.length) return; // Don't trigger on initial load or filter changes
+    
+    const currentItemsOnScreen = items.length;
+    const newRequiredItems = debouncedItemsPerPage;
+    
+    // If we need more items to fill the screen and we have more available
+    if (currentItemsOnScreen < newRequiredItems && hasMore && !isLoading && !isLoadingMore) {
+      setIsLoadingMore(true);
+      setCurrentPage(prev => prev + 1);
+    }
+  }, [debouncedItemsPerPage, items.length, hasMore, isLoading, isLoadingMore]);
 
   // Track user activity (mouse, keyboard, touch events)
   useEffect(() => {
@@ -178,7 +201,7 @@ export default function CloudLatestPage() {
         // Get fresh data from server for the first page only
         const freshLatestData = await seriesService.getLatest(
           0, // Always refresh first page
-          itemsPerPage,
+          debouncedItemsPerPage,
           selectedSourceId ?? undefined,
           debouncedSearchTerm ?? undefined
         );
@@ -191,7 +214,7 @@ export default function CloudLatestPage() {
           // Update the query cache with fresh data
           queryClient.setQueryData(['series', 'latest', {
             offset: 0,
-            limit: itemsPerPage,
+            limit: debouncedItemsPerPage,
             sourceId: selectedSourceId ?? undefined,
             searchTerm: debouncedSearchTerm ?? undefined
           }], freshLatestData);
@@ -207,7 +230,7 @@ export default function CloudLatestPage() {
     }, 60000); // Check every 60 seconds
 
     return () => clearInterval(interval);
-  }, [selectedSourceId, debouncedSearchTerm, itemsPerPage, queryClient]);
+  }, [selectedSourceId, debouncedSearchTerm, debouncedItemsPerPage, queryClient]);
 
   // Store latest data for comparison on each update
   useEffect(() => {
@@ -229,12 +252,12 @@ export default function CloudLatestPage() {
       
       // Since the Latest endpoint doesn't provide metadata about total count,
       // we infer hasMore from the response size:
-      // - If we get exactly itemsPerPage items, there are likely more
-      // - If we get fewer than itemsPerPage items, we've reached the end
-      setHasMore(latestData.length >= itemsPerPage);
+      // - If we get exactly debouncedItemsPerPage items, there are likely more
+      // - If we get fewer than debouncedItemsPerPage items, we've reached the end
+      setHasMore(latestData.length >= debouncedItemsPerPage);
       setIsLoadingMore(false);
     }
-  }, [latestData, currentPage, itemsPerPage]);
+  }, [latestData, currentPage, debouncedItemsPerPage]);
 
   // Load more function for infinite scroll
   const loadMore = useCallback(() => {
@@ -253,22 +276,7 @@ export default function CloudLatestPage() {
   return (
     <>
       <div className="flex items-center">
-        {/* Card Size Select - immediately after title, to the left */}
-        <div className="ml-4 w-32">
-          <Select value={cardWidth} onValueChange={setCardWidth}>
-            <SelectTrigger className="w-full !pr-2 caret-transparent">
-              <SelectValue placeholder="Card Size" />
-            </SelectTrigger>
-            <SelectContent>
-              {cardWidthOptions.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        
-        <div className="ml-auto flex items-center gap-2">
-          <div className="w-48">
+        <div className="w-48">
             <Select
               value={selectedSourceId ?? "__ALL__"}
               onValueChange={(value) => setSelectedSourceId(value === "__ALL__" ? null : value)}
@@ -286,6 +294,22 @@ export default function CloudLatestPage() {
               </SelectContent>
             </Select>
           </div>
+        
+        
+        <div className="ml-auto flex items-center gap-2">
+          {/* Card Size Select - immediately after title, to the left */}
+        <div className="ml-4 w-16">
+          <Select value={cardWidth} onValueChange={setCardWidth}>
+            <SelectTrigger className="w-full !pr-2 caret-transparent">
+              <SelectValue placeholder="Card Size" />
+            </SelectTrigger>
+            <SelectContent>
+              {cardWidthOptions.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         </div>
       </div>
 

@@ -153,7 +153,7 @@ namespace KaizokuBackend.Services.Series
                 dbSeries.StoragePath, dbSeries.PauseDownloads, token);
             
             dbSeries.Sources.CalculateContinueAfterChapter();
-            dbSeries.PauseDownloads = series.PauseDownloads;
+            dbSeries.PauseDownloads = series.PausedDownloads;
             
             _db.Series.Update(dbSeries);
             
@@ -162,7 +162,7 @@ namespace KaizokuBackend.Services.Series
             
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
             
-            await _providerService.RescheduleIfNeededAsync(dbSeries.Sources, true, series.PauseDownloads, token)
+            await _providerService.RescheduleIfNeededAsync(dbSeries.Sources, true, series.PausedDownloads, token)
                 .ConfigureAwait(false);
             
             await dbSeries.SaveKaizokuInfoToDirectoryAsync(

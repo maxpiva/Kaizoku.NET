@@ -3,7 +3,6 @@
 // All rendering happens on the client for static export compatibility
 
 import { ListFilter } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddSeries } from "@/components/kzk/series/add-series";
 import { ListSeries } from "@/components/kzk/series/list-series";
 import { Button } from "@/components/ui/button";
@@ -127,6 +126,8 @@ export default function RootPage() {
         ? series.status !== SeriesStatus.COMPLETED && series.status !== SeriesStatus.PUBLISHING_FINISHED && series.isActive && !series.pausedDownloads
         : tab === "paused"
         ? series.pausedDownloads
+        : tab === "unassigned"
+        ? series.hasUnknown === true
         : true;
     const matchesGenre = selectedGenre ? series.genre?.includes(selectedGenre) : true;
     const matchesProvider = selectedProvider ? series.providers?.some((p) => p.provider === selectedProvider) : true;
@@ -134,8 +135,8 @@ export default function RootPage() {
   }, [tab, selectedGenre, selectedProvider]);
 
   // Count for each tab (with genre and provider filter applied) - memoized for performance
-  const { allCount, activeCount, pausedCount, completedCount } = useMemo(() => {
-    if (!deduplicatedLibrary) return { allCount: 0, activeCount: 0, pausedCount: 0, completedCount: 0 };
+  const { allCount, activeCount, pausedCount, unassignedCount, completedCount } = useMemo(() => {
+    if (!deduplicatedLibrary) return { allCount: 0, activeCount: 0, pausedCount: 0, unassignedCount: 0, completedCount: 0 };
     
     // Base filter function for genre and provider
     const baseFilter = (series: SeriesInfo) => 
@@ -153,6 +154,7 @@ export default function RootPage() {
         !series.pausedDownloads
       ).length,
       pausedCount: baseFiltered.filter(series => series.pausedDownloads).length,
+      unassignedCount: baseFiltered.filter(series => series.hasUnknown === true).length,
       completedCount: baseFiltered.filter(series => 
         series.status === SeriesStatus.COMPLETED || 
         series.status === SeriesStatus.PUBLISHING_FINISHED
@@ -166,69 +168,34 @@ export default function RootPage() {
       <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
         <KzkHeader />
         <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0">
-              <Tabs value={tab} onValueChange={setTab}>
                 <div className="flex items-center">
-                  <TabsList>
-                    <TabsTrigger value="all">
-                      All{" "}
-                      {allCount > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({allCount})
-                        </span>
-                      )}
-                    </TabsTrigger>
-                    <TabsTrigger value="active">
-                      Active{" "}
-                      {activeCount > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({activeCount})
-                        </span>
-                      )}
-                    </TabsTrigger>
-                    <TabsTrigger value="paused">
-                      Paused{" "}
-                      {pausedCount > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({pausedCount})
-                        </span>
-                      )}
-                    </TabsTrigger>
-                    <TabsTrigger value="completed">
-                      Completed{" "}
-                      {completedCount > 0 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({completedCount})
-                        </span>
-                      )}
-                    </TabsTrigger>
-                  </TabsList>
-                  {/* Order Select - immediately after tabs, to the left */}
-                  <div className="ml-4 w-32">
-                    <Select value={orderBy} onValueChange={setOrderBy}>
+                  {/* Status Filter - first select */}
+                  <div className="w-40">
+                    <Select value={tab} onValueChange={setTab}>
                       <SelectTrigger className="w-full !pr-2 caret-transparent">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="title">Alphabetical</SelectItem>
-                        <SelectItem value="lastChange">Last Change</SelectItem>
+                        <SelectItem value="all">
+                          All{allCount > 0 && ` (${allCount})`}
+                        </SelectItem>
+                        <SelectItem value="active">
+                          Active{activeCount > 0 && ` (${activeCount})`}
+                        </SelectItem>
+                        <SelectItem value="paused">
+                          Paused{pausedCount > 0 && ` (${pausedCount})`}
+                        </SelectItem>
+                        <SelectItem value="unassigned">
+                          Unassigned{unassignedCount > 0 && ` (${unassignedCount})`}
+                        </SelectItem>
+                        <SelectItem value="completed">
+                          Completed{completedCount > 0 && ` (${completedCount})`}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  {/* Card Size Select */}
-                    <div className="ml-4 w-16">
-                      <Select value={cardWidth} onValueChange={setCardWidth}>
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
-                          <SelectValue placeholder="Card Size" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {cardWidthOptions.map(opt => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  <div className="ml-auto flex items-center gap-2">
-                    <div className="w-40">
+                 
+                    <div className="w-40 ml-2">
                       <Select
                         value={selectedGenre ?? "__ALL__"}
                         onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
@@ -246,7 +213,7 @@ export default function RootPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="w-48">
+                    <div className="w-48 ml-2">
                       <Select
                         value={selectedProvider ?? "__ALL__"}
                         onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
@@ -260,6 +227,32 @@ export default function RootPage() {
                             <SelectItem key={provider} value={provider}>
                               {provider}
                             </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  <div className="ml-auto flex items-center gap-2">
+                     {/* Order Select - immediately after tabs, to the left */}
+                  <div className="w-32">
+                    <Select value={orderBy} onValueChange={setOrderBy}>
+                      <SelectTrigger className="w-full !pr-2 caret-transparent">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="title">Alphabetical</SelectItem>
+                        <SelectItem value="lastChange">Last Change</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* Card Size Select */}
+                    <div className="w-16">
+                      <Select value={cardWidth} onValueChange={setCardWidth}>
+                        <SelectTrigger className="w-full !pr-2 caret-transparent">
+                          <SelectValue placeholder="Card Size" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {cardWidthOptions.map(opt => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -280,7 +273,6 @@ export default function RootPage() {
                     library={deduplicatedLibrary}
                   />
                 </div>
-              </Tabs>
         </main>
       </div>
     </div>
