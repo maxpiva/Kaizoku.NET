@@ -203,7 +203,7 @@ export default function RootPage() {
                     </TabsTrigger>
                   </TabsList>
                   {/* Order Select - immediately after tabs, to the left */}
-                  <div className="ml-4 w-40">
+                  <div className="ml-4 w-32">
                     <Select value={orderBy} onValueChange={setOrderBy}>
                       <SelectTrigger className="w-full !pr-2 caret-transparent">
                         <SelectValue />
@@ -215,7 +215,7 @@ export default function RootPage() {
                     </Select>
                   </div>
                   {/* Card Size Select */}
-                    <div className="ml-4 w-32">
+                    <div className="ml-4 w-16">
                       <Select value={cardWidth} onValueChange={setCardWidth}>
                         <SelectTrigger className="w-full !pr-2 caret-transparent">
                           <SelectValue placeholder="Card Size" />
@@ -228,7 +228,7 @@ export default function RootPage() {
                       </Select>
                     </div>
                   <div className="ml-auto flex items-center gap-2">
-                    <div className="w-48">
+                    <div className="w-40">
                       <Select
                         value={selectedGenre ?? "__ALL__"}
                         onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}

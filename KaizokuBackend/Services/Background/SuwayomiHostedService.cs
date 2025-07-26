@@ -132,16 +132,17 @@ namespace KaizokuBackend.Services.Background
                 }
 
                 runnerArgs.Add($"-Dsuwayomi.tachidesk.config.server.rootDir={runtimeDirectory.Replace("\\", "/")}");
-
-/*
-//Added /tmp delete crontab instead
                 string tmpDir = Path.Combine(runtimeDirectory, "tmp");
                 if (!Directory.Exists(tmpDir))
                 {
                     Directory.CreateDirectory(tmpDir);
                 }
-                runnerArgs.Add($"-Djava.io.tmpdir={tmpDir.Replace("\\","/")}");
-*/
+                runnerArgs.Add($"-Djava.io.tmpdir={tmpDir.Replace("\\", "/")}");
+
+                /*
+                //Added /tmp delete crontab instead
+
+                */
                 runnerArgs.Add("-jar");
                 runnerArgs.Add(jarFile);
                 // Start the JAR file using java with process tracking

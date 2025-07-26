@@ -32,8 +32,6 @@ PUID=${PUID:-99}
 PGID=${PGID:-100}
 USERNAME=kaizoku
 
-cron
-
 # Resolve group name from PGID if it already exists
 existing_group=$(getent group "$PGID" | cut -d: -f1)
 if [ -z "$existing_group" ]; then
@@ -61,7 +59,6 @@ echo "Setting permissions on /app/KaizokuBackend and /config"
 chmod +x /app/KaizokuBackend
 chown -R "$user_name:$group_name" /config
 chmod -R 777 /config
-rm -rf /tmp/*
 
 # Run the app as the correct user
 exec gosu "$user_name" /app/KaizokuBackend "$command"

@@ -777,7 +777,7 @@ function SeriesPageContent() {
   const [providerDeletedStates, setProviderDeletedStates] = useState<Record<string, boolean>>({});
 
   // Pause downloads state management
-  const [pauseDownloads, setPauseDownloads] = useState<boolean>(false);  // Provider fromChapter state management
+  const [pausedDownloads, setPausedDownloads] = useState<boolean>(false);  // Provider fromChapter state management
   const [providerFromChapters, setProviderFromChapters] = useState<Record<string, string>>({});
 
   // Delete dialog state management
@@ -856,15 +856,15 @@ function SeriesPageContent() {
     }
   }, [series, isDeleting]);
   
-  // Helper function that allows updating with an explicit pauseDownloads value
-  const updateSeriesWithPauseDownloads = async (overridePauseDownloads: boolean) => {
+  // Helper function that allows updating with an explicit pausedDownloads value
+  const updateSeriesWithPausedDownloads = async (overridePausedDownloads: boolean) => {
     if (!series || isDeleting) return;
     
     try {
       // Create updated series object with current state
       const updatedSeries = {
         ...series,
-        pauseDownloads: overridePauseDownloads,
+        pausedDownloads: overridePausedDownloads,
         providers: series.providers.map(provider => {
           const switches = providerSwitches[provider.id];
           const fromChapterValue = providerFromChapters[provider.id];
@@ -910,8 +910,8 @@ function SeriesPageContent() {
           ...updatedDisabledStates
         }));
         
-        // Also update pauseDownloads in case it was changed by backend
-        setPauseDownloads(result.pauseDownloads ?? false);
+        // Also update pausedDownloads in case it was changed by backend
+        setPausedDownloads(result.pausedDownloads ?? false);
       }
 
       // Use optimistic update instead of invalidation to prevent unnecessary refetching
@@ -934,10 +934,10 @@ function SeriesPageContent() {
     }
   };
 
-  // Standard update series function (uses current pauseDownloads state)
+  // Standard update series function (uses current pausedDownloads state)
   const updateSeries = async () => {
-    // Call the override function with the current pauseDownloads value
-    await updateSeriesWithPauseDownloads(pauseDownloads);
+    // Call the override function with the current pausedDownloads value
+    await updateSeriesWithPausedDownloads(pausedDownloads);
   };
 
   // Generic update function that accepts explicit switch values
@@ -957,7 +957,7 @@ function SeriesPageContent() {
       // Create updated series object with current state
       const updatedSeries = {
         ...series,
-        pauseDownloads: pauseDownloads,
+        pausedDownloads: pausedDownloads,
         providers: series.providers.map(provider => {
           // Use the modified switches for the specific provider
           const currentSwitches = provider.id === providerId ? 
@@ -1018,8 +1018,8 @@ function SeriesPageContent() {
           ...updatedSwitches
         }));
         
-        // Also update pauseDownloads in case it was changed by backend
-        setPauseDownloads(result.pauseDownloads ?? false);
+        // Also update pausedDownloads in case it was changed by backend
+        setPausedDownloads(result.pausedDownloads ?? false);
       }
 
       // Use optimistic update instead of invalidation
@@ -1061,7 +1061,7 @@ function SeriesPageContent() {
       // Create updated series object with current state
       const updatedSeries = {
         ...series,
-        pauseDownloads: pauseDownloads,
+        pausedDownloads: pausedDownloads,
         providers: series.providers.map(provider => {
           const switches = providerSwitches[provider.id];
           const fromChapterValue = providerFromChapters[provider.id];
@@ -1109,8 +1109,8 @@ function SeriesPageContent() {
           ...updatedDisabledStates
         }));
         
-        // Also update pauseDownloads in case it was changed by backend
-        setPauseDownloads(result.pauseDownloads ?? false);
+        // Also update pausedDownloads in case it was changed by backend
+        setPausedDownloads(result.pausedDownloads ?? false);
       }
 
       // Use optimistic update instead of invalidation
@@ -1151,7 +1151,7 @@ function SeriesPageContent() {
       // Create updated series object with current state
       const updatedSeries = {
         ...series,
-        pauseDownloads: pauseDownloads,
+        pausedDownloads: pausedDownloads,
         providers: series.providers.map(provider => {
           const switches = providerSwitches[provider.id];
           const fromChapterValue = providerFromChapters[provider.id];
@@ -1207,8 +1207,8 @@ function SeriesPageContent() {
           ...updatedDeletedStates
         }));
         
-        // Also update pauseDownloads in case it was changed by backend
-        setPauseDownloads(result.pauseDownloads ?? false);
+        // Also update pausedDownloads in case it was changed by backend
+        setPausedDownloads(result.pausedDownloads ?? false);
       }
 
       // Use optimistic update instead of invalidation
@@ -1294,7 +1294,7 @@ function SeriesPageContent() {
         setProviderSwitches(initialSwitches);
         setProviderDisabledStates(initialDisabledStates);
         setProviderFromChapters(initialFromChapters);
-        setPauseDownloads(series.pauseDownloads ?? false);
+        setPausedDownloads(series.pausedDownloads ?? false);
       }
     }
   }, [series, providerSwitches, searchParams, isDeleting]);
@@ -1468,15 +1468,15 @@ function SeriesPageContent() {
     // We need to modify the updateSeries function to handle explicit fromChapter values
     updateSeriesWithFromChapter(providerId, value);
   };  // Handler for pause downloads toggle
-  const handlePauseDownloadsToggle = () => {
+  const handlePausedDownloadsToggle = () => {
     // Calculate new value
-    const newPauseDownloadsValue = !pauseDownloads;
+    const newPausedDownloadsValue = !pausedDownloads;
     
     // Update state
-    setPauseDownloads(newPauseDownloadsValue);
+    setPausedDownloads(newPausedDownloadsValue);
     
-    // We need to modify the updateSeries function to handle explicit pauseDownloads value
-    updateSeriesWithPauseDownloads(newPauseDownloadsValue);
+    // We need to modify the updateSeries function to handle explicit pausedDownloads value
+    updateSeriesWithPausedDownloads(newPausedDownloadsValue);
   };
 
   // Handler for delete series button click
@@ -1611,7 +1611,7 @@ function SeriesPageContent() {
       // Create updated series object with current state
       const updatedSeries = {
         ...series,
-        pauseDownloads: pauseDownloads,
+        pausedDownloads: pausedDownloads,
         providers: series.providers.map(provider => {
           const switches = providerSwitches[provider.id];
           // Use the modified fromChapter value for the specific provider
@@ -1659,8 +1659,8 @@ function SeriesPageContent() {
           ...updatedDisabledStates
         }));
         
-        // Also update pauseDownloads in case it was changed by backend
-        setPauseDownloads(result.pauseDownloads ?? false);
+        // Also update pausedDownloads in case it was changed by backend
+        setPausedDownloads(result.pausedDownloads ?? false);
       }
       
       // Use optimistic update instead of invalidation
@@ -1710,7 +1710,7 @@ function SeriesPageContent() {
       const updatedSeries = {
         ...series,
         providers: providersToUpdate,
-        pauseDownloads: pauseDownloads
+        pausedDownloads: pausedDownloads
       };
 
       const result = await updateSeriesMutation.mutateAsync(updatedSeries);
@@ -1908,12 +1908,12 @@ function SeriesPageContent() {
                   
                   {/* Pause/Resume Downloads Button */}
                   <Button
-                    variant={pauseDownloads ? "default" : "destructive"}
+                    variant={pausedDownloads ? "default" : "destructive"}
                     size="sm"
-                    onClick={handlePauseDownloadsToggle}
+                    onClick={handlePausedDownloadsToggle}
                     className="flex items-center gap-2"
                   >
-                    {pauseDownloads ? (
+                    {pausedDownloads ? (
                       <>
                         <Play className="h-4 w-4" />
                         Resume Downloads

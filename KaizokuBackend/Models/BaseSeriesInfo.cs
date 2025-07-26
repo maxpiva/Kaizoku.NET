@@ -47,4 +47,6 @@ public class BaseSeriesInfo
     public bool IsActive { get; set; } = true;
     [JsonPropertyName("pausedDownloads")]
     public bool PausedDownloads { get; set; }
+    [JsonPropertyName("hasUnknown")]
+    public bool HasUnknown { get; set; } = false;
 }

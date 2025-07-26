@@ -11,10 +11,6 @@ public class SeriesExtendedInfo : BaseSeriesInfo
     [JsonPropertyName("chapterList")]
     public string ChapterList { get; set; } = string.Empty;
 
-    [JsonPropertyName("pauseDownloads")]
-    public bool PauseDownloads { get; set; } = false;
-
-
     private string _path = string.Empty;
     [JsonPropertyName("path")]
     public string Path

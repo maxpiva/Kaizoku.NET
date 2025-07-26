@@ -339,6 +339,7 @@ export interface BaseSeriesInfo {
   lastChangeUTC: string;
   lastChangeProvider: SmallProviderInfo;
   isActive: boolean;
+  hasUnknown: boolean;
   pausedDownloads: boolean;
 }
 
@@ -349,7 +350,6 @@ export interface SeriesInfo extends BaseSeriesInfo {
 export interface SeriesExtendedInfo extends BaseSeriesInfo {
   providers: ProviderExtendedInfo[];
   chapterList: string;
-  pauseDownloads: boolean;
   path?: string;
 }
 

@@ -73,7 +73,7 @@ namespace KaizokuBackend.Services.Helpers
             {
                 var sp = await _db.SeriesProviders
                     .FirstOrDefaultAsync(s => s.Id == sp2.Id, token).ConfigureAwait(false);
-                if (sp.Chapters == null)
+                if (sp?.Chapters == null)
                     continue;
                 foreach (var chap in sp.Chapters)
                 {

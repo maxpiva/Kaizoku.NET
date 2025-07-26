@@ -81,16 +81,12 @@ namespace KaizokuBackend.Services.Series
             
             List<Chapter> chaps = series.Sources.SelectMany(a => a.Chapters)
                 .Where(a => !string.IsNullOrEmpty(a.Filename)).ToList();
-            
-            SeriesIntegrityResult sr = GetIntegrityResult(series.StoragePath, chaps);
-            bool update = false;
             string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
+            SeriesIntegrityResult sr = GetIntegrityResult(basePath, chaps);
+            bool update = false;
 
             foreach (ArchiveIntegrityResult r in sr.BadFiles)
             {
-                if (r.Result == ArchiveResult.Fine)
-                    continue;
-                
                 if (r.Result == ArchiveResult.NoImages || r.Result == ArchiveResult.NotAnArchive)
                 {
                     string finalName = Path.Combine(basePath, r.Filename);
@@ -103,8 +99,9 @@ namespace KaizokuBackend.Services.Series
                         _logger.LogWarning("Unable to delete file {finalName}", finalName);
                     }
                 }
+                Chapter? chapter = chaps.FirstOrDefault(a => a.Filename == r.Filename);
 
-                // Mark chapters for re-download
+                
                 foreach (SeriesProvider s in series.Sources)
                 {
                     foreach (Chapter ch in s.Chapters.Where(a => a.Filename == r.Filename))

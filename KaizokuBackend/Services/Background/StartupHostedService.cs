@@ -95,6 +95,7 @@ namespace KaizokuBackend.Services.Background
                 settingsService.SetThreadSettings(settings);
                 await settingsService.SetTimesSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
                 AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
                 IHostApplicationLifetime lifetime = scope.ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
                 JobManagementService jobManagement = scope.ServiceProvider.GetRequiredService<JobManagementService>();
                 _logger.LogInformation("Checking Storage folder Status...");

@@ -76,9 +76,14 @@ public static class DownloadsExtensions
                         Chapter? ns = serie.Chapters.FirstOrDefault(a => a.Number == c.ChapterNumber);
                         if (ns != null && !string.IsNullOrEmpty(ns.Filename) && ns.ProviderUploadDate.HasValue)
                         {
-                            int seconds = dt.Subtract(ns.ProviderUploadDate.Value).Seconds;
-                            if (seconds >= 60)
-                                skip_the_filter.Add(c);
+                            if (ns.DownloadDate == null || ns.DownloadDate.Value != ns.ProviderUploadDate.Value)
+                            {
+                                int seconds = dt.Subtract(ns.ProviderUploadDate.Value).Seconds;
+                                if (seconds >= 60)
+                                {
+                                    skip_the_filter.Add(c);
+                                }
+                            }
                         }
                     }
                     catch (Exception e)
@@ -88,7 +93,6 @@ public static class DownloadsExtensions
                     }
                 }
             }
-
             if (!serie.IsStorage)
             {
                 List<decimal?> exists = allSeries.SelectMany(s => s.Chapters)

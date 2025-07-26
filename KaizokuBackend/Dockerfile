@@ -49,9 +49,6 @@ RUN if command -v Xvfb; then \
 COPY --from=build /opt/*.so /opt/
 
 ENV HOME=/config/Suwayomi
-RUN echo "*/30 * * * * root find /tmp -mindepth 1 -delete" > /etc/cron.d/clean-tmp \
-    && chmod 0644 /etc/cron.d/clean-tmp \
-    && crontab /etc/cron.d/clean-tmp
 WORKDIR /app
 COPY ./bin/$TARGETPLATFORM/ .
 COPY ./scripts/entrypoint.sh /app/entrypoint.sh
