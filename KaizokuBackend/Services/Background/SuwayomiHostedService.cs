@@ -61,6 +61,81 @@ namespace KaizokuBackend.Services.Background
             _slogger = LoggerInfrastructure.CreateAppLogger<SuwayomiHostedService>(EnvironmentSetup.AppSuwayomi);
         }
 
+
+        public static void CleanupSuwayomiTempDirectory(string dir, TimeSpan ago, ILogger logger)
+        {
+            try
+            {
+                if (!Directory.Exists(dir))
+                {
+                    logger.LogDebug("Directory {Directory} does not exist, skipping cleanup", dir);
+                    return;
+                }
+
+                var cutoffTime = DateTime.UtcNow - ago;
+                logger.LogInformation("Starting cleanup of directory {Directory} for items older than {CutoffTime}", dir, cutoffTime);
+
+                CleanupDirectoryRecursive(dir, cutoffTime, logger);
+
+                logger.LogInformation("Cleanup of directory {Directory} completed", dir);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error during cleanup of directory {Directory}", dir);
+            }
+        }
+
+        private static void CleanupDirectoryRecursive(string directory, DateTime cutoffTime, ILogger logger)
+        {
+            try
+            {
+                // Clean up files first
+                var files = Directory.GetFiles(directory);
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var fileInfo = new FileInfo(file);
+                        if (fileInfo.LastWriteTimeUtc < cutoffTime)
+                        {
+                            logger.LogDebug("Deleting old file: {File} (last modified: {LastModified})", file, fileInfo.LastWriteTimeUtc);
+                            File.Delete(file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to delete file: {File}", file);
+                    }
+                }
+
+                // Recursively clean subdirectories
+                var subdirectories = Directory.GetDirectories(directory);
+                foreach (var subdirectory in subdirectories)
+                {
+                    CleanupDirectoryRecursive(subdirectory, cutoffTime, logger);
+
+                    // Try to remove the subdirectory if it's empty and old
+                    try
+                    {
+                        var dirInfo = new DirectoryInfo(subdirectory);
+                        if (dirInfo.LastWriteTimeUtc < cutoffTime && !Directory.EnumerateFileSystemEntries(subdirectory).Any())
+                        {
+                            logger.LogDebug("Deleting empty old directory: {Directory} (last modified: {LastModified})", subdirectory, dirInfo.LastWriteTimeUtc);
+                            Directory.Delete(subdirectory);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to delete directory: {Directory}", subdirectory);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error cleaning directory: {Directory}", directory);
+            }
+        }
+
         /// <summary>
         /// Starts the Suwayomi server by running its JAR file
         /// </summary>
@@ -70,11 +145,13 @@ namespace KaizokuBackend.Services.Background
         public async Task<bool> StartAsync(string runtimeDirectory, CancellationToken cancellationToken = default)
         {
             runtimeDirectory = Path.Combine(runtimeDirectory, "Suwayomi");
+            string tmpDir = Path.Combine(runtimeDirectory, "tmp");
             if (_isRunning)
             {
                 _logger.LogInformation("Suwayomi server is already running");
                 return true;
             }
+            CleanupSuwayomiTempDirectory(tmpDir, TimeSpan.FromMinutes(60), _logger);
 
             try
             {
@@ -132,7 +209,7 @@ namespace KaizokuBackend.Services.Background
                 }
 
                 runnerArgs.Add($"-Dsuwayomi.tachidesk.config.server.rootDir={runtimeDirectory.Replace("\\", "/")}");
-                string tmpDir = Path.Combine(runtimeDirectory, "tmp");
+     
                 if (!Directory.Exists(tmpDir))
                 {
                     Directory.CreateDirectory(tmpDir);

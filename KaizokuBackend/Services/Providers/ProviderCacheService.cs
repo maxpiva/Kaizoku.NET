@@ -98,6 +98,15 @@ namespace KaizokuBackend.Services.Providers
                 return;
             }
 
+            //Auto Update
+            foreach (var extension in extensions)
+            {
+                if (extension.HasUpdate)
+                {
+                    await _suwayomiClient.UpdateExtensionAsync(extension.PkgName, token).ConfigureAwait(false);
+                }
+            }
+            extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
             var sources = await _suwayomiClient.GetSourcesAsync(token).ConfigureAwait(false);
             var storages = await _db.Providers.ToListAsync(token).ConfigureAwait(false);
             var newProviders = new List<ProviderStorage>();
@@ -216,6 +225,7 @@ namespace KaizokuBackend.Services.Providers
                 if (existingProvider != null)
                 {
                     provider.IsStorage = existingProvider.IsStorage;
+                    provider.In
                     _db.Providers.Remove(existingProvider);
                     await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 }
