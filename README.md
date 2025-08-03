@@ -13,7 +13,9 @@ Video has brigthness issues, blame Microsoft.
       <img width="150px" src="./KaizokuFrontend/public/kaizoku.net.png" alt="Kaizoku"></img>
     </td>
     <td>
-       <strong>Kaizoku.NET</strong> is a modern fork of the original <strong>Kaizoku</strong> and <strong>Kaizoku Next Gen</strong> by OAE,  built to fill the void and bring a streamlined series manager back to life.
+       <strong>Kaizoku.NET</strong> is a modern fork of the original <strong>Kaizoku</strong> and <strong>Kaizoku Next Gen</strong> by OAE,  built to fill the void and bring a streamlined series manager back to life.<br/>
+<strong>What does it do?</strong>  <br/>
+When you subscribe to a series, it will automatically download it. Whenever the series is updated in any of your configured providers, new chapters will be downloaded automatically, in a “drop and forget” fashion.
     </td>
   </tr>
 </table>
