@@ -190,6 +190,8 @@ namespace KaizokuBackend.Extensions
                     .FormatDecimalRanges(),
                 Providers = new List<ProviderExtendedInfo>()
             };
+            SmallProviderInfo? lastChangeProvider = null;
+            DateTime dt = DateTime.MinValue;
 
             if (s.Sources != null && s.Sources.Count > 0)
             {
@@ -216,9 +218,9 @@ namespace KaizokuBackend.Extensions
                         IsDisabled = provider.IsDisabled,
                         IsUninstalled = provider.IsUninstalled,
                         IsUnknown = provider.IsUnknown,
-                        LastChangeUTC = provider.FetchDate ?? DateTime.MinValue,
+                        LastChangeUTC = provider.Chapters.MaxNull(a => a.DownloadDate) ?? provider.FetchDate ?? DateTime.MinValue,
                         LastChapter = provider.Chapters.MaxNull(c => c.Number),
-                        LastUpdatedUTC = provider.FetchDate ?? DateTime.MinValue,
+                        LastUpdatedUTC = provider.Chapters.MaxNull(a=>a.ProviderUploadDate) ?? provider.FetchDate ?? DateTime.MinValue,
                         ContinueAfterChapter = provider.ContinueAfterChapter,
                         ChapterList = provider.Chapters.Select(c => c.Number).FormatDecimalRanges() ?? "",
                     };
@@ -227,32 +229,32 @@ namespace KaizokuBackend.Extensions
                         providerInfo.IsUnknown = true;
                     info.Providers.Add(providerInfo);
 
-                }
-                Chapter? last = s.Sources.SelectMany(a => a.Chapters)
-                    .Where(c => !c.IsDeleted && !string.IsNullOrEmpty(c.Filename))
-                    .OrderByDescending(a => a.Number).FirstOrDefault();
-                if (last != null)
-                {
-                    info.LastChapter = last.Number;
-                    info.LastChangeUTC = last.ProviderUploadDate ?? DateTime.MinValue;
-                }
-                var lastProvider = s.Sources
-                    .Where(a => !a.IsDisabled && a.FetchDate.HasValue)
-                    .OrderByDescending(a => a.FetchDate!.Value)
-                    .FirstOrDefault();
-
-                if (lastProvider != null)
-                {
-                    info.LastChangeProvider = new SmallProviderInfo
+                    SmallProviderInfo sm = new SmallProviderInfo();
+                    sm.Provider = provider.Provider;
+                    sm.Scanlator = provider.Scanlator;
+                    sm.Language = provider.Language;
+                    sm.IsStorage = provider.IsStorage;
+                    sm.Url = provider.Url;
+                    DateTime? lastm = provider.Chapters.Where(a => !string.IsNullOrEmpty(a.Filename))
+                        .MaxNull(c => c.DownloadDate);
+                    if (lastm != null && lastm > dt)
                     {
-                        Provider = lastProvider.Provider,
-                        Scanlator = lastProvider.Scanlator,
-                        Language = lastProvider.Language,
-                        Url = lastProvider.Url,
-                        IsStorage = lastProvider.IsStorage,
-                    };
-                }
+                        dt = lastm.Value;
+                        lastChangeProvider = sm;
+                    }
 
+                }
+                info.LastChapter = s.Sources.Max((SeriesProvider a) => a.Chapters.Max((Chapter c) => c.Number));
+                if (lastChangeProvider != null)
+                {
+                    info.LastChangeProvider = lastChangeProvider;
+                    info.LastChangeUTC = dt;
+                }
+                else
+                {
+                    info.LastChangeProvider = new SmallProviderInfo();
+                    info.LastChangeUTC = DateTime.MinValue;
+                }
             }
 
             return info;

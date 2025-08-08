@@ -73,7 +73,7 @@ namespace KaizokuBackend.Services.Background
                 }
 
                 var cutoffTime = DateTime.UtcNow - ago;
-                logger.LogInformation("Starting cleanup of directory {Directory} for items older than {CutoffTime}", dir, cutoffTime);
+                logger.LogInformation("Starting cleanup of directory {Directory} for items older than {CutoffTime} UTC", dir, cutoffTime);
 
                 CleanupDirectoryRecursive(dir, cutoffTime, logger);
 
@@ -98,7 +98,7 @@ namespace KaizokuBackend.Services.Background
                         var fileInfo = new FileInfo(file);
                         if (fileInfo.LastWriteTimeUtc < cutoffTime)
                         {
-                            logger.LogDebug("Deleting old file: {File} (last modified: {LastModified})", file, fileInfo.LastWriteTimeUtc);
+                            logger.LogDebug("Deleting file: {File} (last modified: {LastModified})", file, fileInfo.LastWriteTimeUtc);
                             File.Delete(file);
                         }
                     }
@@ -118,9 +118,9 @@ namespace KaizokuBackend.Services.Background
                     try
                     {
                         var dirInfo = new DirectoryInfo(subdirectory);
-                        if (dirInfo.LastWriteTimeUtc < cutoffTime && !Directory.EnumerateFileSystemEntries(subdirectory).Any())
+                        if (!Directory.EnumerateFileSystemEntries(subdirectory).Any())
                         {
-                            logger.LogDebug("Deleting empty old directory: {Directory} (last modified: {LastModified})", subdirectory, dirInfo.LastWriteTimeUtc);
+                            logger.LogDebug("Deleting empty directory: {Directory}", subdirectory);
                             Directory.Delete(subdirectory);
                         }
                     }

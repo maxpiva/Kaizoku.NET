@@ -225,7 +225,6 @@ namespace KaizokuBackend.Services.Providers
                 if (existingProvider != null)
                 {
                     provider.IsStorage = existingProvider.IsStorage;
-                    provider.In
                     _db.Providers.Remove(existingProvider);
                     await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 }

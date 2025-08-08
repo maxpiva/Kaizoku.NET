@@ -400,7 +400,7 @@ public static class SeriesExtensions
                 sm.IsStorage = provider.IsStorage;
                 sm.Url = provider.Url;
                 DateTime? last = provider.Chapters.Where(a => !string.IsNullOrEmpty(a.Filename))
-                    .MaxNull(c => c.ProviderUploadDate);
+                    .MaxNull(c => c.DownloadDate);
                 if (last != null && last > dt)
                 {
                     dt = last.Value;
