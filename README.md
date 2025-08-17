@@ -76,12 +76,23 @@ Kaizoku.NET is composed of:
 
 ---
 
-## ⚙️ Configuration Notes
+## ✅ Requirements for the TRAY Application (NOT DOCKER) [PLEASE READ] 
 
-- By default, **Suwayomi Server is embedded** and auto-launched by Kaizoku.NET.
-- You **can expose Suwayomi’s port** (via Docker or in your Browser when using the Desktop Tray App).
-- You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install).
+Java Runtime: JRE 21+ (recommended: Adoptium Temurin) — https://adoptium.net/
 
+If you have multiple JREs installed, make sure the default is 21+ or Kaizoku.NET may refuse to start.
+
+## ⚙️ Configuration Notes [PLEASE READ]
+
+- By default, **Suwayomi Server is embedded** and auto-launched by Kaizoku.NET. 
+- You **can expose Suwayomi’s port** (via Docker, or in your Browser when using the Desktop Tray App).
+- You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install). `appSettings.json` can be found:
+  -  Docker:  in the config mapped folder.
+  -  Windows: `C:\users\{your user}\local\KaizokuNET\`
+  -  Mac/Linux: User Home folder `/.config/KaizokuNET`
+  Change `UseCustomApi` to true, and put your own Suwayomi Url in `CustomEndpoint`
+- If you have issues: `logs` folder, are in the same directory, you can check in there, or upload for feedback.
+  
 > ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters which in every instance, most likely are different. 
 > If you change servers, **you must reset Kaizoku.NET** by deleting `kaizoku.db`, and start from scratch, as ID mappings will no longer match.
 
@@ -187,7 +198,7 @@ Replace /path/to/your/config and /path/to/your/series with real paths on your ho
 ## 🖥️ Desktop App
 
 - A **tray application** based on Avalonia is available in the [Releases](https://github.com/maxpiva/Kaizoku.NET/releases).
-- Currently tested only on **Windows**  testers for Linux/macOS are welcome!
+- Currently tested only on **Windows**. Testers for Linux and macOS are welcome, as I’m unable to verify it myself.
 
 ---
 
