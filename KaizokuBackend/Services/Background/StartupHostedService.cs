@@ -7,6 +7,7 @@ using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Scaffolding;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace KaizokuBackend.Services.Background
@@ -18,6 +19,7 @@ namespace KaizokuBackend.Services.Background
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly SuwayomiHostedService _service;
         private bool _disposed = false;
+        private bool _do_not_spawn_suwayomi = false;
 
         public StartupHostedService(ILogger<StartupHostedService> logger, 
             IServiceScopeFactory scopeFactory,
@@ -27,6 +29,7 @@ namespace KaizokuBackend.Services.Background
             _service = suwayomi;
             _scopeFactory = scopeFactory;
             _runtimeDir = config["runtimeDirectory"] ?? "";
+            _do_not_spawn_suwayomi = config.GetValue<bool>("Suwayomi:UseCustomApi", false);
         }
 
         public void Dispose()
@@ -83,7 +86,8 @@ namespace KaizokuBackend.Services.Background
             {
 
                 // Start Suwayomi service
-                await _service.StartAsync(_runtimeDir, cancellationToken).ConfigureAwait(false);
+                if (!_do_not_spawn_suwayomi)
+                    await _service.StartAsync(_runtimeDir, cancellationToken).ConfigureAwait(false);
                 
                 // Initialize other services
                 using var scope = _scopeFactory.CreateScope();
