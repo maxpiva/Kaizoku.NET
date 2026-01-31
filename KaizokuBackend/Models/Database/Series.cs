@@ -39,6 +39,9 @@ namespace KaizokuBackend.Models.Database
         [JsonPropertyName("pauseDownloads")]
         public bool PauseDownloads { get; set; } = false;
 
+        [JsonPropertyName("startFromChapter")]
+        public decimal? StartFromChapter { get; set; }
+
         public virtual ICollection<SeriesProvider> Sources { get; set; } = [];
     }
 }

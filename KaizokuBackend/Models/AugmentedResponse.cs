@@ -34,7 +34,11 @@ namespace KaizokuBackend.Models
         [JsonPropertyName("disableJobs")]
         public bool DisableJobs { get; set; } = false;
 
-        [JsonIgnore] public KaizokuInfo LocalInfo { get; set; } = new KaizokuInfo();
+        [JsonPropertyName("startChapter")]
+        public decimal? StartChapter { get; set; } = null;
+
+        [JsonIgnore] 
+        public KaizokuInfo LocalInfo { get; set; } = new KaizokuInfo();
         [JsonIgnore]
         public ImportStatus Status { get; set; }
         [JsonIgnore]

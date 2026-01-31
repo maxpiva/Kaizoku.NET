@@ -390,8 +390,8 @@ public class ImportCommandService
                                 p.AssignArchives(arcs2);
                             }
                         }
-                        s.FillSeriesFromFullSeries(s.Sources.ToFullSeries());
-                        s.Sources.CalculateContinueAfterChapter();
+                        s.FillSeriesFromFullSeries(s.Sources.ToFullSeries(),null);
+                        s.Sources.CalculateContinueAfterChapter(null);
                         import.Status = ImportStatus.DoNotChange;
                         await _db.SaveChangesAsync(token).ConfigureAwait(false);
                         await _seriesProvider.CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(s.Sources, [], token)

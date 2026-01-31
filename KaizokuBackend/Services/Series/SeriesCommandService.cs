@@ -89,11 +89,10 @@ namespace KaizokuBackend.Services.Series
                 existingProviders = ProcessSeriesProviders(fullSeries, existingProviders);
 
                 dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, existingProviders,
-                    fullSeries.StorageFolderPath, fullSeries.DisableJobs, token).ConfigureAwait(false);
+                    fullSeries.StorageFolderPath, fullSeries.DisableJobs, fullSeries.StartChapter, token).ConfigureAwait(false);
                 
                 existingProviders.ForEach(a => a.SeriesId = dbSeries.Id);
-                existingProviders.CalculateContinueAfterChapter();
-                
+                existingProviders.CalculateContinueAfterChapter(fullSeries.StartChapter);
                 await _providerService.CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(
                     existingProviders, [], token).ConfigureAwait(false);
                 
@@ -150,9 +149,9 @@ namespace KaizokuBackend.Services.Series
                 .ConfigureAwait(false);
             
             dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, dbSeries.Sources.ToList(),
-                dbSeries.StoragePath, dbSeries.PauseDownloads, token);
+                dbSeries.StoragePath, dbSeries.PauseDownloads, series.StartFromChapter, token);
             
-            dbSeries.Sources.CalculateContinueAfterChapter();
+            dbSeries.Sources.CalculateContinueAfterChapter(series.StartFromChapter);
             dbSeries.PauseDownloads = series.PausedDownloads;
             
             _db.Series.Update(dbSeries);
@@ -520,18 +519,19 @@ namespace KaizokuBackend.Services.Series
         }
 
         private async Task<Models.Database.Series> ConsolidateDBSeriesFromProvidersAsync(Models.Database.Series? dbSeries,
-            List<SeriesProvider> providers, string path, bool startDisabled, CancellationToken token = default)
+            List<SeriesProvider> providers, string path, bool startDisabled, decimal? startFromChapter, CancellationToken token = default)
         {
             var consolidatedSeries = providers.ToFullSeries();
             
             if (dbSeries != null)
             {
-                dbSeries.FillSeriesFromFullSeries(consolidatedSeries);
+                dbSeries.FillSeriesFromFullSeries(consolidatedSeries, startFromChapter);
             }
             else
             {
                 dbSeries = consolidatedSeries.ToSeries(path);
                 dbSeries.PauseDownloads = startDisabled;
+                dbSeries.StartFromChapter = startFromChapter;
                 await _db.Series.AddAsync(dbSeries, token).ConfigureAwait(false);
             }
 

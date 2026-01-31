@@ -178,6 +178,7 @@ namespace KaizokuBackend.Extensions
                 Genre = s.Genre?.ToDistinctPascalCase() ?? new List<string>(),
                 Status = s.Status,
                 Type = s.Type,
+                StartFromChapter =  s.StartFromChapter,
                 Path = EnvironmentSetup.IsDocker ? s.StoragePath : Path.Combine(settings.StorageFolder, s.StoragePath),
                 IsActive = s.Sources.Any(a => !a.IsDisabled && !a.IsUninstalled),
                 HasUnknown = s.Sources.Any(a=>!a.IsUnknown),

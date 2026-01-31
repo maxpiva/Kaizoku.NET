@@ -550,11 +550,13 @@ public static class SeriesExtensions
     }
 
 
-    public static decimal? CalculateContinueAfterChapter(this IEnumerable<SeriesProvider> providers)
+    public static decimal? CalculateContinueAfterChapter(this IEnumerable<SeriesProvider> providers, decimal? startChapter)
     {
         decimal? continueAfterChapter = providers
             .SelectMany(a => a.Chapters.Where(b => !string.IsNullOrEmpty(b.Filename) && !b.IsDeleted))
             .Max(a => a.Number);
+        if (startChapter.HasValue && (continueAfterChapter == null || startChapter > continueAfterChapter))
+            continueAfterChapter = startChapter - .1m;
         decimal? maxStPossible = providers.Where(a => a.IsStorage).SelectMany(a => a.Chapters).Max(a => a.Number);
         foreach (SeriesProvider s in providers)
         {
@@ -894,7 +896,7 @@ public static class SeriesExtensions
         return null; // No match found
     }
 
-    public static void FillSeriesFromFullSeries(this Models.Database.Series dbSeries, FullSeries consolidatedSeries)
+    public static void FillSeriesFromFullSeries(this Models.Database.Series dbSeries, FullSeries consolidatedSeries, decimal? startFromChapter)
     {
         dbSeries.Title = consolidatedSeries.Title;
         dbSeries.Description = consolidatedSeries.Description ?? string.Empty;
@@ -903,6 +905,7 @@ public static class SeriesExtensions
         dbSeries.Author = consolidatedSeries.Author ?? string.Empty;
         dbSeries.Genre = consolidatedSeries.Genre ?? new List<string>();
         dbSeries.Type = consolidatedSeries.Type;
+        dbSeries.StartFromChapter = startFromChapter;
         if (consolidatedSeries.ChapterCount > dbSeries.ChapterCount)
         {
             dbSeries.ChapterCount = consolidatedSeries.ChapterCount;

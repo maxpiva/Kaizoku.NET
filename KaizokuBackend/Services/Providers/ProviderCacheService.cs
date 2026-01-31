@@ -231,8 +231,8 @@ namespace KaizokuBackend.Services.Providers
 
                 // Get sources for this extension
                 var extensionSources = extension.Lang == "all" 
-                    ? sources.Where(s => s.Name == extension.Name).ToList()
-                    : sources.Where(s => s.Name == extension.Name && s.Lang == extension.Lang).ToList();
+                    ? sources.Where(s => s.IconUrl == extension.IconUrl).ToList()
+                    : sources.Where(s => s.IconUrl == extension.IconUrl && s.Lang == extension.Lang).ToList();
                 
                 var mappings = new ConcurrentBag<Mappings>();
                 await Parallel.ForEachAsync(extensionSources,

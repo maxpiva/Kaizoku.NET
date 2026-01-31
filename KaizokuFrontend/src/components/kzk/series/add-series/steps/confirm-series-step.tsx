@@ -472,6 +472,9 @@ export function ConfirmSeriesStep({
   // State for selected category (optional)
   const [selectedCategory, setSelectedCategory] = React.useState<string>("");  // State for editable storage path
   const [editableStoragePath, setEditableStoragePath] = React.useState<string>("");
+  
+  // Ref to track if category was manually changed by user
+  const categoryManuallyChanged = React.useRef<boolean>(false);
 
   // Handler for storage path changes that updates both local state and form state
   const handleStoragePathChange = React.useCallback((newPath: string) => {
@@ -480,23 +483,41 @@ export function ConfirmSeriesStep({
       ...prev,
       storagePath: newPath
     }));
-  }, [setFormState]);// State to track if scrollbar is visible
+  }, [setFormState]);
+  
+  // Handler for category changes
+  const handleCategoryChange = React.useCallback((newCategory: string) => {
+    categoryManuallyChanged.current = true;
+    setSelectedCategory(newCategory);
+  }, []);// State to track if scrollbar is visible
   const [hasScrollbar, setHasScrollbar] = React.useState<boolean>(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Get the series that has useTitle=true
   const titleSeries = React.useMemo(() => {
     return validFullSeries.find(series => series.useTitle);
-  }, [validFullSeries]);  // Set initial category when titleSeries changes
+  }, [validFullSeries]);
+  
+  // Track the ID of the title series to detect when it actually changes
+  const titleSeriesIdRef = React.useRef<string | null>(null);
+
+  // Set initial category when titleSeries ID actually changes (not just reference)
   React.useEffect(() => {
-    if (titleSeries && titleSeries.categories && titleSeries.categories.length > 0) {
-      // Use series.type if available and exists in categories, otherwise use first category
-      const initialCategory = titleSeries.type && titleSeries.categories.includes(titleSeries.type)
-        ? titleSeries.type
-        : titleSeries.categories[0];
-      setSelectedCategory(initialCategory ?? "");
-    } else {
-      setSelectedCategory("");
+    const currentTitleSeriesId = titleSeries ? `${titleSeries.id}-${titleSeries.provider}` : null;
+    
+    // Only reset category if the series ID changed or if category wasn't manually set
+    if (currentTitleSeriesId !== titleSeriesIdRef.current && !categoryManuallyChanged.current) {
+      titleSeriesIdRef.current = currentTitleSeriesId;
+      
+      if (titleSeries && titleSeries.categories && titleSeries.categories.length > 0) {
+        // Use series.type if available and exists in categories, otherwise use first category
+        const initialCategory = titleSeries.type && titleSeries.categories.includes(titleSeries.type)
+          ? titleSeries.type
+          : titleSeries.categories[0];
+        setSelectedCategory(initialCategory ?? "");
+      } else {
+        setSelectedCategory("");
+      }
     }
   }, [titleSeries]);  // Compute storage path and update editable path when dependencies change
   React.useEffect(() => {
@@ -581,7 +602,7 @@ export function ConfirmSeriesStep({
               <Label htmlFor="category-select" className="text-sm font-medium">
                 Category
               </Label>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <Select value={selectedCategory} onValueChange={handleCategoryChange}>
                 <SelectTrigger id="category-select" className="mt-1 bg-card mb-2">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>

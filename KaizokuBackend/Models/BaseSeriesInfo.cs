@@ -49,4 +49,7 @@ public class BaseSeriesInfo
     public bool PausedDownloads { get; set; }
     [JsonPropertyName("hasUnknown")]
     public bool HasUnknown { get; set; } = false;
+
+    [JsonPropertyName("startFromChapter")]
+    public decimal? StartFromChapter { get; set; }
 }

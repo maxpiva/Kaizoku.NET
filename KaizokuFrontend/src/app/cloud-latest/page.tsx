@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Sparkles } from "lucide-react";
+import { Sparkles, Globe } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -9,6 +9,8 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
+import ReactCountryFlag from "react-country-flag";
+import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { useSearch } from "@/contexts/search-context";
 import { useSearchSources, useLatest } from "@/lib/api/hooks/useSeries";
 import { seriesService } from "@/lib/api/services/seriesService";
@@ -285,10 +287,30 @@ export default function CloudLatestPage() {
                 <SelectValue placeholder="All Sources" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__ALL__">All Sources</SelectItem>
+                <SelectItem value="__ALL__">
+                  <div className="flex items-center gap-2">
+                    <Globe size={16} />
+                    <span>All Sources</span>
+                  </div>
+                </SelectItem>
                 {sortedSources.map((source) => (
                   <SelectItem key={source.sourceId} value={source.sourceId}>
-                    {source.sourceName}
+                    <div className="flex items-center gap-2">
+                      {source.language === "all" ? (
+                        <Globe size={16} />
+                      ) : (
+                        <ReactCountryFlag
+                          countryCode={getCountryCodeForLanguage(source.language)}
+                          svg
+                          style={{
+                            width: "16px",
+                            height: "12px",
+                          }}
+                          title={`${source.language.toUpperCase()}`}
+                        />
+                      )}
+                      <span>{source.sourceName}</span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
