@@ -151,6 +151,7 @@ It is recommended to use **host networking** for optimal performance when downlo
 docker run -d \
   --name kaizoku-net \
   --network host \
+  -p 9833:9833 \
   -e UID=99 \
   -e PGID=100 \
   -e UMASK=022 \
@@ -159,6 +160,28 @@ docker run -d \
   maxpiva/kaizoku-net:latest
 ```
 Replace /path/to/your/config and /path/to/your/series with real paths on your host.
+
+
+---
+
+## Docker Compose Example
+
+```yaml
+services:
+  kaizoku-net:
+    container_name: kaizoku-net
+    image: 'maxpiva/kaizoku-net:latest'
+    volumes:
+        - '/path/to/your/series:/series'
+        - '/path/to/your/config:/config'
+    environment:
+        - UMASK=022
+        - PGID=100
+        - UID=99
+    ports:
+        - '9833:9833'
+```
+
 
 ---
 
