@@ -1,7 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -23,13 +28,13 @@ interface ProviderCardProps {
   showNsfwIndicator?: boolean;
 }
 
-function ProviderCard({ 
-  extension, 
-  onInstall, 
-  onUninstall, 
-  isLoading = false, 
+function ProviderCard({
+  extension,
+  onInstall,
+  onUninstall,
+  isLoading = false,
   isCompact = false,
-  showNsfwIndicator = true 
+  showNsfwIndicator = true,
 }: ProviderCardProps) {
   const handleAction = () => {
     if (extension.installed && onUninstall) {
@@ -45,60 +50,81 @@ function ProviderCard({
     <Card className="w-full">
       <CardHeader className={isCompact ? "p-3" : "p-2 pr-4"}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="relative flex-shrink-0">
               <LazyImage
                 src={extension.iconUrl}
                 alt={`${extension.name} icon`}
-                className={`${isCompact ? 'h-12 w-12' : 'h-20 w-20'} rounded-lg object-cover`}
+                className={`${isCompact ? "h-12 w-12" : "h-20 w-20"} rounded-lg object-cover`}
                 fallbackSrc="/kaizoku.net.png"
                 loading="lazy"
               />
               {showNsfwIndicator && extension.isNsfw && (
                 <div className="absolute -top-1 -right-1">
                   {isCompact ? (
-                    <div className="rounded-full bg-red-500 text-white text-[9px] px-1">18+</div>
+                    <div className="rounded-full bg-red-500 px-1 text-[9px] text-white">
+                      18+
+                    </div>
                   ) : (
-                    <svg className="h-5 w-5 text-red-500" xmlns="http://www.w3.org/2000/svg" data-name="Layer 2" viewBox="0 0 1850 1850">
+                    <svg
+                      className="h-5 w-5 text-red-500"
+                      xmlns="http://www.w3.org/2000/svg"
+                      data-name="Layer 2"
+                      viewBox="0 0 1850 1850"
+                    >
                       <g fill="currentColor" data-name="Layer 1">
-                        <path d="M778.46 1414.4H595.17V710.23c-66.97 63.83-145.89 111.04-236.78 141.63V682.3c47.83-15.96 99.8-46.21 155.89-90.76 56.1-44.55 94.58-96.53 115.45-155.93h148.72v978.79zm244.16-533.83c-47.4-20.04-81.86-47.59-103.39-82.66-21.53-35.07-32.29-73.51-32.29-115.32 0-71.44 24.9-130.46 74.69-177.07 49.79-46.61 120.56-69.91 212.32-69.91s161.44 23.3 211.66 69.91 75.34 105.63 75.34 177.07c0 44.43-11.52 83.96-34.57 118.59-23.05 34.63-55.44 61.09-97.19 79.39 53.05 21.34 93.38 52.49 121 93.44 27.61 40.95 41.42 88.21 41.42 141.79 0 88.43-28.16 160.3-84.47 215.62-56.31 55.32-131.22 82.98-224.71 82.98-86.97 0-159.37-22.87-217.21-68.61-68.27-54.02-102.41-128.07-102.41-222.16 0-51.84 12.83-99.43 38.48-142.77 25.66-43.34 66.1-76.78 121.32-100.3zm37.83-184.91c0 36.59 10.33 65.12 30.98 85.59 20.66 20.47 48.16 30.71 82.51 30.71s62.62-10.35 83.49-31.04c20.87-20.69 31.31-49.33 31.31-85.92 0-34.41-10.33-61.96-30.98-82.66-20.66-20.69-47.94-31.04-81.86-31.04s-63.27 10.45-84.14 31.36c-20.87 20.91-31.31 48.57-31.31 82.98zm-16.96 410.33c0 50.53 12.94 89.95 38.81 118.27 25.87 28.31 58.16 42.47 96.86 42.47s69.14-13.61 93.93-40.84c24.79-27.23 37.18-66.54 37.18-117.94 0-44.87-12.61-80.91-37.83-108.14-25.22-27.22-57.18-40.84-95.89-40.84-44.79 0-78.17 15.46-100.12 46.39-21.96 30.93-32.94 64.47-32.94 100.62z"/>
-                        <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="150" d="M925 75c469.13 0 850 380.87 850 850s-380.87 850-850 850S75 1394.13 75 925 455.87 75 925 75h0z"/>
-                        <path fill="currentColor" fill-rule="evenodd" d="M400.96 299.44 299.44 400.96l1149.6 1149.6 101.52-101.52-1149.6-1149.6z"/>
+                        <path d="M778.46 1414.4H595.17V710.23c-66.97 63.83-145.89 111.04-236.78 141.63V682.3c47.83-15.96 99.8-46.21 155.89-90.76 56.1-44.55 94.58-96.53 115.45-155.93h148.72v978.79zm244.16-533.83c-47.4-20.04-81.86-47.59-103.39-82.66-21.53-35.07-32.29-73.51-32.29-115.32 0-71.44 24.9-130.46 74.69-177.07 49.79-46.61 120.56-69.91 212.32-69.91s161.44 23.3 211.66 69.91 75.34 105.63 75.34 177.07c0 44.43-11.52 83.96-34.57 118.59-23.05 34.63-55.44 61.09-97.19 79.39 53.05 21.34 93.38 52.49 121 93.44 27.61 40.95 41.42 88.21 41.42 141.79 0 88.43-28.16 160.3-84.47 215.62-56.31 55.32-131.22 82.98-224.71 82.98-86.97 0-159.37-22.87-217.21-68.61-68.27-54.02-102.41-128.07-102.41-222.16 0-51.84 12.83-99.43 38.48-142.77 25.66-43.34 66.1-76.78 121.32-100.3zm37.83-184.91c0 36.59 10.33 65.12 30.98 85.59 20.66 20.47 48.16 30.71 82.51 30.71s62.62-10.35 83.49-31.04c20.87-20.69 31.31-49.33 31.31-85.92 0-34.41-10.33-61.96-30.98-82.66-20.66-20.69-47.94-31.04-81.86-31.04s-63.27 10.45-84.14 31.36c-20.87 20.91-31.31 48.57-31.31 82.98zm-16.96 410.33c0 50.53 12.94 89.95 38.81 118.27 25.87 28.31 58.16 42.47 96.86 42.47s69.14-13.61 93.93-40.84c24.79-27.23 37.18-66.54 37.18-117.94 0-44.87-12.61-80.91-37.83-108.14-25.22-27.22-57.18-40.84-95.89-40.84-44.79 0-78.17 15.46-100.12 46.39-21.96 30.93-32.94 64.47-32.94 100.62z" />
+                        <path
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="150"
+                          d="M925 75c469.13 0 850 380.87 850 850s-380.87 850-850 850S75 1394.13 75 925 455.87 75 925 75h0z"
+                        />
+                        <path
+                          fill="currentColor"
+                          fill-rule="evenodd"
+                          d="M400.96 299.44 299.44 400.96l1149.6 1149.6 101.52-101.52-1149.6-1149.6z"
+                        />
                       </g>
                     </svg>
                   )}
                 </div>
               )}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <CardTitle className={`${isCompact ? 'text-sm' : 'text-lg'} truncate`}>
+                <CardTitle
+                  className={`${isCompact ? "text-sm" : "text-lg"} truncate`}
+                >
                   {extension.name}
                 </CardTitle>
-               
               </div>
-              <CardDescription className={`${isCompact ? 'text-xs' : 'text-xs'} truncate flex items-center`}>
+              <CardDescription
+                className={`${isCompact ? "text-xs" : "text-xs"} flex items-center truncate`}
+              >
                 <span className="text-muted-foreground">
                   v{extension.versionName}
-                      &nbsp;&nbsp;                      
-                       <ReactCountryFlag
-                  countryCode={countryCode}
-                  svg
-                  style={{
-                    width: isCompact ? "14px" : "14px",
-                    height: isCompact ? "10px" : "10px",
-                    marginBottom: isCompact ? "2px" : "2px",
-                  }}
-                  title={`${extension.lang.toUpperCase()} (${countryCode})`}
-                />
+                  &nbsp;&nbsp;
+                  <ReactCountryFlag
+                    countryCode={countryCode}
+                    svg
+                    style={{
+                      width: isCompact ? "14px" : "14px",
+                      height: isCompact ? "10px" : "10px",
+                      marginBottom: isCompact ? "2px" : "2px",
+                    }}
+                    title={`${extension.lang.toUpperCase()} (${countryCode})`}
+                  />
                 </span>
               </CardDescription>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex flex-shrink-0 items-center gap-2">
             {extension.installed && (
               <ProviderSettingsButton
-                variant={isCompact ? 'default' : undefined}
+                variant={isCompact ? "default" : undefined}
                 apkName={extension.apkName}
                 providerName={extension.name}
                 size="sm"
@@ -176,7 +202,7 @@ export function ProviderManager({
   description,
   onError,
   onLoadingChange,
-  onExtensionsChange
+  onExtensionsChange,
 }: ProviderManagerProps) {
   const [extensions, setExtensions] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,13 +227,14 @@ export function ProviderManager({
         setExtensions(data);
         onExtensionsChange?.(data);
       } catch (error) {
-        console.error('Failed to load extensions:', error);
-        onError?.('Failed to load sources. Please try again.');
+        console.error("Failed to load extensions:", error);
+        onError?.("Failed to load sources. Please try again.");
       } finally {
         setLoading(false);
         onLoadingChange?.(false);
       }
-    };    void loadExtensions();
+    };
+    void loadExtensions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array - only run on mount
 
@@ -217,53 +244,54 @@ export function ProviderManager({
   }, [extensions, onExtensionsChange]);
 
   // Installed extensions should not be filtered by search term
-  const installedExtensions = useMemo(() =>
-    extensions.filter(ext => ext.installed),
-    [extensions]
+  const installedExtensions = useMemo(
+    () => extensions.filter((ext) => ext.installed),
+    [extensions],
   );
 
   // Filter available extensions based on search term
   const availableExtensions = useMemo(() => {
-    const available = extensions.filter(ext => !ext.installed);
+    const available = extensions.filter((ext) => !ext.installed);
     if (!searchTerm.trim()) {
       return available;
     }
     const search = searchTerm.toLowerCase();
-    return available.filter(ext =>
-      ext.name.toLowerCase().includes(search) ||
-      ext.lang.toLowerCase().includes(search)
+    return available.filter(
+      (ext) =>
+        ext.name.toLowerCase().includes(search) ||
+        ext.lang.toLowerCase().includes(search),
     );
   }, [extensions, searchTerm]);
 
-  const availableTotalCount = extensions.filter(ext => !ext.installed).length;
+  const availableTotalCount = extensions.filter((ext) => !ext.installed).length;
 
   const handleInstall = async (pkgName: string) => {
     try {
       setActionLoading(pkgName);
       onError?.(null);
       await providerService.installProvider(pkgName);
-      
+
       // Update local state optimistically instead of full refresh
-      setExtensions(prevExtensions => 
-        prevExtensions.map(ext => 
-          ext.pkgName === pkgName 
-            ? { ...ext, installed: true }
-            : ext
-        )
+      setExtensions((prevExtensions) =>
+        prevExtensions.map((ext) =>
+          ext.pkgName === pkgName ? { ...ext, installed: true } : ext,
+        ),
       );
       clearSearch?.(); // Clear search after successful installation
-      
+
       // Find the installed extension to get its details for preferences
-      const installedExtension = extensions.find(ext => ext.pkgName === pkgName);
+      const installedExtension = extensions.find(
+        (ext) => ext.pkgName === pkgName,
+      );
       if (installedExtension) {
         setShowPreferencesFor({
           apkName: installedExtension.apkName,
-          name: installedExtension.name
+          name: installedExtension.name,
         });
       }
     } catch (error) {
-      console.error('Failed to install extension:', error);
-      onError?.('Failed to install extension. Please try again.');
+      console.error("Failed to install extension:", error);
+      onError?.("Failed to install extension. Please try again.");
     } finally {
       setActionLoading(null);
     }
@@ -274,19 +302,17 @@ export function ProviderManager({
       setActionLoading(pkgName);
       onError?.(null);
       await providerService.uninstallProvider(pkgName);
-      
+
       // Update local state optimistically instead of full refresh
-      setExtensions(prevExtensions => 
-        prevExtensions.map(ext => 
-          ext.pkgName === pkgName 
-            ? { ...ext, installed: false }
-            : ext
-        )
+      setExtensions((prevExtensions) =>
+        prevExtensions.map((ext) =>
+          ext.pkgName === pkgName ? { ...ext, installed: false } : ext,
+        ),
       );
       clearSearch?.(); // Clear search after successful uninstallation
     } catch (error) {
-      console.error('Failed to uninstall extension:', error);
-      onError?.('Failed to uninstall extension. Please try again.');
+      console.error("Failed to uninstall extension:", error);
+      onError?.("Failed to uninstall extension. Please try again.");
     } finally {
       setActionLoading(null);
     }
@@ -296,29 +322,33 @@ export function ProviderManager({
     try {
       setIsUploadingApk(true);
       onError?.(null);
-      
+
       // Install the APK file and get the pkgName
       const pkgName = await providerService.installProviderFromFile(file);
-      
+
       if (pkgName) {
         // Refresh the extensions list to get the newly installed provider
         const updatedExtensions = await providerService.getProviders();
         setExtensions(updatedExtensions);
         onExtensionsChange?.(updatedExtensions);
-        
+
         // Find the newly installed extension by pkgName (same as normal install)
-        const newExtension = updatedExtensions.find(ext => ext.pkgName === pkgName);
+        const newExtension = updatedExtensions.find(
+          (ext) => ext.pkgName === pkgName,
+        );
         if (newExtension) {
           // Open preference requester for the newly installed provider
           setShowPreferencesFor({
             apkName: newExtension.apkName,
-            name: newExtension.name
+            name: newExtension.name,
           });
         }
       }
     } catch (error) {
-      console.error('Failed to install APK:', error);
-      onError?.('Failed to install APK file. Please check the file and try again.');
+      console.error("Failed to install APK:", error);
+      onError?.(
+        "Failed to install APK file. Please check the file and try again.",
+      );
     } finally {
       setIsUploadingApk(false);
     }
@@ -330,13 +360,13 @@ export function ProviderManager({
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.name.endsWith('.apk')) {
+    if (file && file.name.endsWith(".apk")) {
       handleInstallFromApk(file);
     } else {
-      onError?.('Please select a valid APK file.');
+      onError?.("Please select a valid APK file.");
     }
     // Reset the input so the same file can be selected again
-    event.target.value = '';
+    event.target.value = "";
   };
 
   useEffect(() => {
@@ -355,13 +385,13 @@ export function ProviderManager({
     checkScrollbars();
 
     // Also check on window resize
-    window.addEventListener('resize', checkScrollbars);
-    return () => window.removeEventListener('resize', checkScrollbars);
+    window.addEventListener("resize", checkScrollbars);
+    return () => window.removeEventListener("resize", checkScrollbars);
   }, [installedExtensions, availableExtensions]); // Re-check when content changes
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[200px]">
+      <div className="flex min-h-[200px] items-center justify-center">
         <div className="text-muted-foreground">Loading sources...</div>
       </div>
     );
@@ -370,15 +400,13 @@ export function ProviderManager({
   return (
     <div className="space-y-4">
       {(showSearch || description) && (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {description && (
-            <div className="text-sm text-muted-foreground">
-              {description}
-            </div>
+            <div className="text-muted-foreground text-sm">{description}</div>
           )}
           {showSearch && (
-            <div className="relative flex-shrink-0 w-full sm:w-80">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <div className="relative w-full flex-shrink-0 sm:w-80">
+              <Search className="text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4" />
               <Input
                 type="search"
                 placeholder="Search sources..."
@@ -393,17 +421,21 @@ export function ProviderManager({
 
       {installedExtensions.length > 0 && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
+          <div className="flex items-center justify-between">
+            <h2
+              className={`${isCompact ? "text-lg font-medium" : "text-xl font-semibold"}`}
+            >
               {installedTitle}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              {installedExtensions.length} provider{installedExtensions.length !== 1 ? 's' : ''} installed
+            <p className="text-muted-foreground text-sm">
+              {installedExtensions.length} provider
+              {installedExtensions.length !== 1 ? "s" : ""} installed
             </p>
           </div>
-          <div 
+          <div
             ref={installedContainerRef}
-            className={`grid ${installedGridCols} gap-${isCompact ? '2' : '4'} ${installedMaxHeight ? `${installedMaxHeight} overflow-y-auto` : ''} ${hasInstalledScrollbar ? 'pr-2' : ''}`}>
+            className={`grid ${installedGridCols} gap-${isCompact ? "2" : "4"} ${installedMaxHeight ? `${installedMaxHeight} overflow-y-auto` : ""} ${hasInstalledScrollbar ? "pr-2" : ""}`}
+          >
             {installedExtensions.map((extension) => (
               <ProviderCard
                 key={extension.pkgName}
@@ -422,31 +454,35 @@ export function ProviderManager({
         <Separator />
       )}
 
-      {availableExtensions.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
-              {availableTitle}
-            </h2>
-            <div className="flex items-center gap-4">
-              <p className="text-sm text-muted-foreground">
-                {availableTotalCount} provider{availableTotalCount !== 1 ? 's' : ''} available
-              </p>
-              <Button
-                onClick={handleApkButtonClick}
-                disabled={isUploadingApk}
-                variant="default"
-                size="sm"
-                className="gap-2"
-              >
-                <Upload className="h-4 w-4" />
-                {isUploadingApk ? 'Installing...' : 'Install From APK'}
-              </Button>
-            </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2
+            className={`${isCompact ? "text-lg font-medium" : "text-xl font-semibold"}`}
+          >
+            {availableTitle}
+          </h2>
+          <div className="flex items-center gap-4">
+            <p className="text-muted-foreground text-sm">
+              {availableTotalCount} provider
+              {availableTotalCount !== 1 ? "s" : ""} available
+            </p>
+            <Button
+              onClick={handleApkButtonClick}
+              disabled={isUploadingApk}
+              variant="default"
+              size="sm"
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              {isUploadingApk ? "Installing..." : "Install From APK"}
+            </Button>
           </div>
-          <div 
+        </div>
+        {availableExtensions.length > 0 && (
+          <div
             ref={availableContainerRef}
-            className={`grid ${availableGridCols} gap-${isCompact ? '2' : '4'} ${availableMaxHeight ? `${availableMaxHeight} overflow-y-auto` : ''} ${hasAvailableScrollbar ? 'pr-2' : ''}`}>
+            className={`grid ${availableGridCols} gap-${isCompact ? "2" : "4"} ${availableMaxHeight ? `${availableMaxHeight} overflow-y-auto` : ""} ${hasAvailableScrollbar ? "pr-2" : ""}`}
+          >
             {availableExtensions.map((extension) => (
               <ProviderCard
                 key={extension.pkgName}
@@ -458,18 +494,18 @@ export function ProviderManager({
               />
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {installedExtensions.length === 0 && availableExtensions.length === 0 && (
-        <div className="text-center text-muted-foreground py-8">
+        <div className="text-muted-foreground py-8 text-center">
           {searchTerm.trim() ? (
             <>
-              No sources found matching &ldquo;{searchTerm}&rdquo;. 
+              No sources found matching &ldquo;{searchTerm}&rdquo;.
               <br />
-              Try adjusting your search or{' '}
-              <button 
-                onClick={() => setSearchTerm('')}
+              Try adjusting your search or{" "}
+              <button
+                onClick={() => setSearchTerm("")}
                 className="text-primary underline hover:no-underline"
               >
                 view all sources
@@ -477,7 +513,7 @@ export function ProviderManager({
               .
             </>
           ) : (
-            'No sources available.'
+            "No sources available."
           )}
         </div>
       )}
@@ -487,7 +523,7 @@ export function ProviderManager({
         ref={fileInputRef}
         type="file"
         accept=".apk"
-        style={{ display: 'none' }}
+        style={{ display: "none" }}
         onChange={handleFileChange}
       />
 
