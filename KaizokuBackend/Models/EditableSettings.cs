@@ -49,4 +49,16 @@ public class EditableSettings
     [JsonPropertyName("numberOfSimultaneousDownloadsPerProvider")]
     public int NumberOfSimultaneousDownloadsPerProvider { get; set; } = 3;
 
+    [JsonPropertyName("nsfwVisibility")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public NsfwVisibility NsfwVisibility { get; set; } = NsfwVisibility.HideByDefault;
+
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum NsfwVisibility
+{
+    AlwaysHide = 0,
+    HideByDefault = 1,
+    Show = 2,
 }
