@@ -18,6 +18,10 @@ import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping"
 import { LazyImage } from "@/components/ui/lazy-image";
 import { ProviderSettingsButton } from "@/components/kzk/provider-settings-button";
 import { ProviderPreferencesRequester } from "@/components/kzk/provider-preferences-requester";
+import { Checkbox } from "../ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { MultiSelectLanguages } from "@/components/ui/multi-select-languages";
+import { useSettings } from "@/lib/api/hooks/useSettings";
 
 interface ProviderCardProps {
   extension: Provider;
@@ -217,6 +221,11 @@ export function ProviderManager({
   const [hasInstalledScrollbar, setHasInstalledScrollbar] = useState(false);
   const [hasAvailableScrollbar, setHasAvailableScrollbar] = useState(false);
   const [isUploadingApk, setIsUploadingApk] = useState(false);
+  const [hideNsfwProviders, setHideNsfwProviders] = useState(true);
+  const [filteredLanguages, setFilteredLanguages] = useState<string[] | null>(
+    null,
+  );
+  const { data: settings } = useSettings();
 
   useEffect(() => {
     const loadExtensions = async () => {
@@ -243,15 +252,68 @@ export function ProviderManager({
     onExtensionsChange?.(extensions);
   }, [extensions, onExtensionsChange]);
 
+  // Derive language options from available (non-installed) providers
+  const availableLanguageOptions = useMemo(() => {
+    const langs = [
+      ...new Set(
+        extensions
+          .filter((ext) => !ext.installed)
+          .map((ext) => ext.lang)
+          .filter((lang) => lang !== "all"),
+      ),
+    ].sort();
+    return langs.map((lang) => {
+      let displayName = lang;
+      try {
+        displayName =
+          new Intl.DisplayNames(["en"], { type: "language" }).of(lang) ?? lang;
+      } catch {
+        // Fall back to raw code for unrecognized codes
+      }
+      return { value: lang, label: displayName };
+    });
+  }, [extensions]);
+
+  // Initialise language filter from user's preferred languages
+  useEffect(() => {
+    if (filteredLanguages !== null) return;
+    if (availableLanguageOptions.length === 0) return;
+
+    const availableLangs = new Set(
+      availableLanguageOptions.map((o) => o.value),
+    );
+
+    if (settings?.preferredLanguages?.length) {
+      const validPreferred = settings.preferredLanguages.filter((lang) =>
+        availableLangs.has(lang),
+      );
+      if (validPreferred.length > 0) {
+        setFilteredLanguages(validPreferred);
+        return;
+      }
+    }
+    // No preferred languages or none match available — default to all
+    setFilteredLanguages([...availableLangs]);
+  }, [settings, availableLanguageOptions, filteredLanguages]);
+
   // Installed extensions should not be filtered by search term
   const installedExtensions = useMemo(
     () => extensions.filter((ext) => ext.installed),
     [extensions],
   );
 
-  // Filter available extensions based on search term
+  // Filter available extensions based on search term, NSFW, and language
   const availableExtensions = useMemo(() => {
-    const available = extensions.filter((ext) => !ext.installed);
+    let available = extensions.filter((ext) => !ext.installed);
+    if (hideNsfwProviders) {
+      available = available.filter((ext) => !ext.isNsfw);
+    }
+    if (filteredLanguages !== null) {
+      available = available.filter(
+        (ext) => ext.lang === "all" || filteredLanguages.includes(ext.lang),
+      );
+    }
+
     if (!searchTerm.trim()) {
       return available;
     }
@@ -261,7 +323,7 @@ export function ProviderManager({
         ext.name.toLowerCase().includes(search) ||
         ext.lang.toLowerCase().includes(search),
     );
-  }, [extensions, searchTerm]);
+  }, [extensions, searchTerm, hideNsfwProviders, filteredLanguages]);
 
   const availableTotalCount = extensions.filter((ext) => !ext.installed).length;
 
@@ -462,6 +524,28 @@ export function ProviderManager({
             {availableTitle}
           </h2>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <Checkbox
+                id="hide-nsfw"
+                checked={hideNsfwProviders}
+                onCheckedChange={(checked) => {
+                  setHideNsfwProviders(!!checked);
+                }}
+              />
+              <Label
+                htmlFor="hide-nsfw"
+                className="text-muted-foreground cursor-pointer text-sm"
+              >
+                Hide NSFW
+              </Label>
+            </div>
+            <div className="w-48">
+              <MultiSelectLanguages
+                options={availableLanguageOptions}
+                selectedValues={filteredLanguages ?? []}
+                onSelectionChange={setFilteredLanguages}
+              />
+            </div>
             <p className="text-muted-foreground text-sm">
               {availableTotalCount} provider
               {availableTotalCount !== 1 ? "s" : ""} available
