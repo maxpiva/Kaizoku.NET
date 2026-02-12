@@ -78,6 +78,10 @@ namespace KaizokuBackend.Services.Settings
                     case "datetime":
                         setting.Value = ((DateTime)(p.GetValue(editableSettings) ?? new DateTime(0,1,1,4,0,0))).ToString("o"); // ISO 8601 format
                         break;
+                    default:
+                        if (p.PropertyType.IsEnum)
+                            setting.Value = p.GetValue(editableSettings)?.ToString() ?? string.Empty;
+                        break;
                 }
                 serializedSettings.Add(setting);
             }
@@ -135,6 +139,10 @@ namespace KaizokuBackend.Services.Settings
                         break;
                     case "datetime":
                         p.SetValue(newEditableSettings, DateTime.TryParse(setting.Value, out DateTime dateTimeValue) ? dateTimeValue : DateTime.MinValue);
+                        break;
+                    default:
+                        if (p.PropertyType.IsEnum)
+                            p.SetValue(newEditableSettings, Enum.TryParse(p.PropertyType, setting.Value, out var enumValue) ? enumValue : p.GetValue(defaultValues));
                         break;
                 }
             }
@@ -266,9 +274,10 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrSessionTtl = settings.FlareSolverrSessionTtl,
                 FlareSolverrAsResponseFallback = settings.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = settings.IsWizardSetupComplete,
-                WizardSetupStepCompleted = settings.WizardSetupStepCompleted
+                WizardSetupStepCompleted = settings.WizardSetupStepCompleted,
+                NsfwVisibility = settings.NsfwVisibility
             };
-            
+
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
         }
         
@@ -294,7 +303,8 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrSessionTtl = ed.FlareSolverrSessionTtl,
                 FlareSolverrAsResponseFallback = ed.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = ed.IsWizardSetupComplete,
-                WizardSetupStepCompleted = ed.WizardSetupStepCompleted
+                WizardSetupStepCompleted = ed.WizardSetupStepCompleted,
+                NsfwVisibility = ed.NsfwVisibility
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;
             return set;
