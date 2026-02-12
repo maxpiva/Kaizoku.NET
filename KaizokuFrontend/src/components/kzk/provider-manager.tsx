@@ -524,28 +524,6 @@ export function ProviderManager({
             {availableTitle}
           </h2>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Checkbox
-                id="hide-nsfw"
-                checked={hideNsfwProviders}
-                onCheckedChange={(checked) => {
-                  setHideNsfwProviders(!!checked);
-                }}
-              />
-              <Label
-                htmlFor="hide-nsfw"
-                className="text-muted-foreground cursor-pointer text-sm"
-              >
-                Hide NSFW
-              </Label>
-            </div>
-            <div className="w-48">
-              <MultiSelectLanguages
-                options={availableLanguageOptions}
-                selectedValues={filteredLanguages ?? []}
-                onSelectionChange={setFilteredLanguages}
-              />
-            </div>
             <p className="text-muted-foreground text-sm">
               {availableTotalCount} provider
               {availableTotalCount !== 1 ? "s" : ""} available
@@ -560,6 +538,30 @@ export function ProviderManager({
               <Upload className="h-4 w-4" />
               {isUploadingApk ? "Installing..." : "Install From APK"}
             </Button>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <Checkbox
+              id="hide-nsfw"
+              checked={hideNsfwProviders}
+              onCheckedChange={(checked) => {
+                setHideNsfwProviders(!!checked);
+              }}
+            />
+            <Label
+              htmlFor="hide-nsfw"
+              className="text-muted-foreground cursor-pointer text-sm"
+            >
+              Hide NSFW
+            </Label>
+          </div>
+          <div className="w-48">
+            <MultiSelectLanguages
+              options={availableLanguageOptions}
+              selectedValues={filteredLanguages ?? []}
+              onSelectionChange={setFilteredLanguages}
+            />
           </div>
         </div>
         {availableExtensions.length > 0 && (
