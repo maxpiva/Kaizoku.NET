@@ -1,23 +1,26 @@
-﻿using KaizokuBackend.Extensions;
+using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Import;
 
 public class SeriesComparer
 {
-    public List<KaizokuBackend.Models.Database.Series> FindMatchingSeries(IEnumerable<KaizokuBackend.Models.Database.Series> allSeries, KaizokuInfo kaizokuInfo)
+    public List<KaizokuBackend.Models.Database.SeriesEntity> FindMatchingSeries(IEnumerable<KaizokuBackend.Models.Database.SeriesEntity> allSeries, ImportSeriesSnapshot ImportSeriesSnapshot)
     {
-        var result = new List<KaizokuBackend.Models.Database.Series>();
-        if (kaizokuInfo == null || allSeries == null)
+        var result = new List<KaizokuBackend.Models.Database.SeriesEntity>();
+        if (ImportSeriesSnapshot == null || allSeries == null)
             return result;
+
+        ImportSeriesResult seriesMetadata = ImportSeriesSnapshot.Series;
 
         // 1. Try to find a direct path match
         foreach (var series in allSeries)
         {
             if (!string.IsNullOrEmpty(series.StoragePath) &&
-                !string.IsNullOrEmpty(kaizokuInfo.Path) &&
-                string.Equals(series.StoragePath, kaizokuInfo.Path, StringComparison.InvariantCultureIgnoreCase))
+                !string.IsNullOrEmpty(ImportSeriesSnapshot.Path) &&
+                string.Equals(series.StoragePath, ImportSeriesSnapshot.Path, StringComparison.InvariantCultureIgnoreCase))
             {
                 result.Add(series);
                 return result;
@@ -34,8 +37,8 @@ public class SeriesComparer
             foreach (var provider in series.Sources)
             {
                 if (!string.IsNullOrEmpty(provider.Title) &&
-                    !string.IsNullOrEmpty(kaizokuInfo.Title) &&
-                    provider.Title.AreStringSimilar(kaizokuInfo.Title, 0))
+                    !string.IsNullOrEmpty(seriesMetadata.Title) &&
+                    provider.Title.AreStringSimilar(seriesMetadata.Title, 0))
                 {
                     result.Add(series);
                     break; // Only add each series once
@@ -47,42 +50,20 @@ public class SeriesComparer
     }
 
 
-    public ArchiveCompare CompareArchives(KaizokuInfo kaizokuInfo, KaizokuBackend.Models.Database.Series series)
+    public ArchiveCompare CompareArchives(ImportSeriesSnapshot ImportSeriesSnapshot, KaizokuBackend.Models.Database.SeriesEntity series)
     {
-        if (kaizokuInfo == null || series == null || kaizokuInfo.Providers == null || series.Sources == null)
+        if (ImportSeriesSnapshot == null || series == null)
             return 0;
 
-        // Collect all archive names from KaizokuInfo (full paths, case-insensitive)
-        var kaizokuArchives = kaizokuInfo.Providers
+        var archiveList = ImportSeriesSnapshot.Series.Providers?
             .Where(p => p.Archives != null)
-            .SelectMany(p => p.Archives)
-            .Select(a => a.ArchiveName)
-            .Where(n => !string.IsNullOrEmpty(n))
-            .Select(n => n.Trim())
-            .ToHashSet(StringComparer.InvariantCultureIgnoreCase);
+            .SelectMany(p => p.Archives) ?? Enumerable.Empty<ProviderArchiveSnapshot>();
 
-        // Collect all file names from Series->Sources->Chapters (case-insensitive)
-        var seriesArchives = series.Sources?
+        var existing = series.Sources?
             .Where(sp => sp.Chapters != null)
-            .SelectMany(sp => sp.Chapters)
-            .Select(c => c.Filename)
-            .Where(n => !string.IsNullOrEmpty(n))
-            .Select(n => n?.Trim())
-            .ToHashSet(StringComparer.InvariantCultureIgnoreCase) ?? new HashSet<string?>(StringComparer.InvariantCultureIgnoreCase);
+            .SelectMany(sp => sp.Chapters) ?? Enumerable.Empty<Chapter>();
 
-        bool missingInDb = kaizokuArchives.Except(seriesArchives).Any();
-        bool missingInArchives = seriesArchives.Except(kaizokuArchives).Any();
-
-        ArchiveCompare result = 0;
-        if (!missingInDb && !missingInArchives)
-            result = ArchiveCompare.Equal;
-        else
-        {
-            if (missingInDb)
-                result |= ArchiveCompare.MissingDB;
-            if (missingInArchives)
-                result |= ArchiveCompare.MissingArchive;
-        }
-        return result;
+        return ImportMetricsExtensions.CompareArchives(archiveList, existing);
     }
 }
+

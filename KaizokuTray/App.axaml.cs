@@ -133,8 +133,6 @@ public partial class App : Application
             {
                 SetupTrayIcon();
             });
-            
-            Console.WriteLine("ASP.NET Core host started successfully");
         }
         catch (Exception ex)
         {

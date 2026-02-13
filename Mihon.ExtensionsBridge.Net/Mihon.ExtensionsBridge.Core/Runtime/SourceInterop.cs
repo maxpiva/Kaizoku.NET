@@ -12,6 +12,7 @@ using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Mihon.ExtensionsBridge.Models.Extensions;
 using Page = Mihon.ExtensionsBridge.Models.Extensions.Page;
+using System.Net;
 
 namespace Mihon.ExtensionsBridge.Core.Runtime
 {
@@ -128,18 +129,40 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 _cachedList = _catalogueSource.getFilterList();
             }
         }
+        public async Task<T> WrapHttpException<T>(Func<Task<T>> func)
+        {
+            try
+            {
+                return await func().ConfigureAwait(false);
+            }
+            catch(java.io.IOException ioe)
+            {
+                throw new HttpRequestException(ioe.getMessage(), ioe);
+            }
+            catch(HttpException ex)
+            {
+                throw new HttpRequestException(ex.getMessage(), ex, (HttpStatusCode)ex.getCode());
+            }
+            catch(Exception z)
+            {
+                throw;
+            }
+        }
 
 
         private static MangasPage EmptyMangasPage() => new MangasPage(new java.util.ArrayList(), false);
 
         // Generic helper to create default instance via factory
-        
+
         public async Task<MangaList> GetPopularAsync(int page, CancellationToken token = default)
         {
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-            var mangaPage = await _catalogueSource.fetchPopularManga(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-            return mangaPage!.ToMangaList();
+            return await WrapHttpException(async () => 
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                var mangaPage = await _httpSource.fetchPopularManga(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
+                return mangaPage!.ToMangaList(_httpSource);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -153,15 +176,15 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// </exception>
         public async Task<MangaList> GetLatestAsync(int page, CancellationToken token = default)
         {
-   
-
-
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-            if (!SupportsLatest)
-                throw new InvalidOperationException("Source does not support latest updates.");
-            var mangaPage = await _catalogueSource.fetchLatestUpdates(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-            return mangaPage!.ToMangaList();
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                if (!SupportsLatest)
+                    throw new InvalidOperationException("Source does not support latest updates.");
+                var mangaPage = await _httpSource.fetchLatestUpdates(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
+                return mangaPage!.ToMangaList(_httpSource);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -174,11 +197,14 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// <exception cref="InvalidOperationException">Thrown when the source does not support catalogue operations.</exception>
         public async Task<MangaList> SearchAsync(int page, string query, CancellationToken token = default)
         {
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-            PopulateFilterList();
-            var mangaPage = await _catalogueSource.fetchSearchManga(page, query, _cachedList).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-            return mangaPage!.ToMangaList();
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                PopulateFilterList();
+                var mangaPage = await _httpSource.fetchSearchManga(page, query, _cachedList).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
+                return mangaPage!.ToMangaList(_httpSource);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -188,13 +214,18 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// <param name="token">The cancellation token.</param>
         /// <returns>The detailed <see cref="Manga"/>.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the source does not support HTTP operations.</exception>
-        public async Task<Manga> GetDetailsAsync(Manga manga, CancellationToken token = default)
+        public async Task<ParsedManga> GetDetailsAsync(Manga manga, CancellationToken token = default)
         {
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-            SManga mangaImpl = manga.ToSManga();
-            var mangaDetails = await _catalogueSource.fetchMangaDetails(mangaImpl).ConsumeObservableOneOrDefaultAsync<SManga>(mangaImpl, token).ConfigureAwait(false);
-            return mangaDetails!.ToManga(manga);
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                SManga mangaImpl = manga.ToSManga();
+                var mangaDetails = await _httpSource.fetchMangaDetails(mangaImpl).ConsumeObservableOneOrDefaultAsync<SManga>(mangaImpl, token).ConfigureAwait(false);
+                ParsedManga m = mangaDetails!.ToManga<ParsedManga>(manga);
+                m.RealUrl = _httpSource.getMangaUrl(mangaDetails ?? mangaImpl);
+                return m;
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -204,14 +235,16 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// <param name="token">The cancellation token.</param>
         /// <returns>A list of <see cref="Chapter"/> items.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the source does not support HTTP operations.</exception>
-        public async Task<List<Chapter>> GetChaptersAsync(Manga manga, CancellationToken token = default)
+        public async Task<List<ParsedChapter>> GetChaptersAsync(Manga manga, CancellationToken token = default)
         {
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-            eu.kanade.tachiyomi.source.model.SManga mangaImpl = manga.ToSManga();
-            var chapters = await _catalogueSource.fetchChapterList(mangaImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
-            
-            return chapters!.toArray().Cast<SChapter>().Select(a => a.ToChapter()).ToList();
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                SManga mangaImpl = manga.ToSManga();
+                var chapters = await _httpSource.fetchChapterList(mangaImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
+                return chapters!.toArray().Cast<SChapter>().ToParsedChapters(manga.Title, mangaImpl, _httpSource);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -223,63 +256,61 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// <exception cref="InvalidOperationException">Thrown when the source does not support HTTP operations.</exception>
         public async Task<List<Page>> GetPagesAsync(Chapter chapter, CancellationToken token = default)
         {
-            if (_catalogueSource == null)
-                throw new InvalidOperationException("Source does not support catalogue operations.");
-
-            SChapterImpl chasImpl = chapter.ToSChapter();
-
-
-            var pages = await _catalogueSource.fetchPageList(chasImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
-            return pages!.toArray().Cast<eu.kanade.tachiyomi.source.model.Page>().Select(a => a.ToPage()).ToList();
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                SChapterImpl chasImpl = chapter.ToSChapter();
+                var pages = await _httpSource.fetchPageList(chasImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
+                return pages!.toArray().Cast<eu.kanade.tachiyomi.source.model.Page>().Select(a => a.ToPage()).ToList();
+            }).ConfigureAwait(false);
         }
         public async Task<ContentTypeStream> DownloadUrlAsync(string url, CancellationToken token = default)
         {
- 
-
-            if (_httpSource == null)
-                throw new InvalidOperationException("Source does not support http operations.");
-            if (string.IsNullOrEmpty(url))
-                throw new ArgumentNullException(nameof(url));
-
-            Request r = RequestsKt.GET(url, _httpSource.getHeaders(), CacheControl.FORCE_NETWORK);
-            // Replace the direct call with an awaited execution to get the Response asynchronously
-            var response = await Task.Run(() => _httpSource.getClient().newCall(r).execute(), token).ConfigureAwait(false);
-
-            if (response == null)
-                throw new InvalidOperationException("Image response was null.");
-
-            if (response.code() != 200)
-                throw new InvalidOperationException($"Request error! {response.code()}");
-            return new ContentTypeStreamImplementation(response);
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support http operations.");
+                if (string.IsNullOrEmpty(url))
+                    throw new ArgumentNullException(nameof(url));
+                Request r = RequestsKt.GET(url, _httpSource.getHeaders(), CacheControl.FORCE_NETWORK);
+                // Replace the direct call with an awaited execution to get the Response asynchronously
+                var response = await Task.Run(() => _httpSource.getClient().newCall(r).execute(), token).ConfigureAwait(false);
+                if (response == null)
+                    throw new HttpRequestException("Image response was null.");
+                if (response.code() != 200)
+                    throw new HttpRequestException($"Request error! {response.code()}",null, (HttpStatusCode)response.code());
+                return new ContentTypeStreamImplementation(response);
+            }).ConfigureAwait(false);
         }
         public async Task<ContentTypeStream> GetPageImageAsync(Page page, CancellationToken token = default)
         {
-            if (_httpSource == null)
-                throw new InvalidOperationException("Source does not support http operations.");
-
-            if (string.IsNullOrEmpty(page.ImageUrl))
+            return await WrapHttpException(async () =>
             {
-                var spage2 = page.ToSPage();
-                string newImageUrl = await _httpSource.fetchImageUrl(spage2).ConsumeObservableOneOrDefaultAsync<string>(string.Empty, token).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(newImageUrl))
-                    page.ImageUrl = newImageUrl;
-            }
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support http operations.");
+                if (string.IsNullOrEmpty(page.ImageUrl))
+                {
+                    var spage2 = page.ToSPage();
+                    string newImageUrl = await _httpSource.fetchImageUrl(spage2).ConsumeObservableOneOrDefaultAsync<string>(string.Empty, token).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(newImageUrl))
+                        page.ImageUrl = newImageUrl;
+                }
 
-            if (string.IsNullOrEmpty(page.ImageUrl))
-                throw new ArgumentException("Page URL is null or empty.", nameof(page.ImageUrl));
+                if (string.IsNullOrEmpty(page.ImageUrl))
+                    throw new ArgumentException("Page URL is null or empty.", nameof(page.ImageUrl));
 
-            var spage = page.ToSPage();
-            Response? response = await KotlinSuspendBridge.CallSuspend<Response>((cont) =>
-            {
-                return _httpSource.getImage(spage, cont);
-            }, token).ConfigureAwait(false);
-
-            if (response == null)
-                throw new InvalidOperationException("Image response was null.");
-
-            if (response.code() != 200)
-                throw new InvalidOperationException($"Request error! {response.code()}");
-            return new ContentTypeStreamImplementation(response);
+                var spage = page.ToSPage();
+                Response? response = await KotlinSuspendBridge.CallSuspend<Response>((cont) =>
+                {
+                    return _httpSource.getImage(spage, cont);
+                }, token).ConfigureAwait(false);
+                if (response == null)
+                    throw new HttpRequestException("Image response was null.");
+                if (response.code() != 200)
+                    throw new HttpRequestException($"Request error! {response.code()}", null, (HttpStatusCode)response.code());
+                return new ContentTypeStreamImplementation(response);
+            }).ConfigureAwait(false);
         }
 
 
@@ -332,7 +363,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             if (type == "String")
                 return value;
             else if (type == "Boolean")
-                return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase); // matches Kotlin toBoolean()
+                return new java.lang.Boolean(string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)); // matches Kotlin toBoolean()
             else if (type == "Set<String>")
             {
                 string[]? vals = System.Text.Json.JsonSerializer.Deserialize<string[]>(value);

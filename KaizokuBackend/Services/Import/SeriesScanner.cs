@@ -1,14 +1,18 @@
-﻿using System.Globalization;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
+using com.sun.tools.@internal.xjc;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import.KavitaParser;
 using KaizokuBackend.Services.Import.Models;
 using KaizokuBackend.Services.Jobs.Report;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models;
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Parser = KaizokuBackend.Services.Import.KavitaParser.Parser;
 using SeriesInfo = KaizokuBackend.Services.Import.KavitaParser.SeriesInfo;
 
@@ -18,15 +22,14 @@ namespace KaizokuBackend.Services.Import
     {
         private readonly BasicParser _parser;
         private readonly ILogger _logger;
-        private readonly ContextProvider _baseUrl;
+
         private static readonly Regex KaizokuRegex = new Regex("^\\[(?<provider>[^\\]]+)\\](?:\\[(?<lang>[^\\]]+)\\])?\\s+(?<title>.+?)(?:\\s+(?<chapterNumber>-?\\d+(?:\\.\\d+)?))?\\s*(?:\\((?<chapterName>[^)]+)\\))?$",
             RegexOptions.Compiled | RegexOptions.Singleline);
 
-        public SeriesScanner(ILogger<SeriesScanner> logger, ContextProvider baseUrl)
+        public SeriesScanner(ILogger<SeriesScanner> logger)
         {
             _parser = new BasicParser();
             _logger = logger;
-            _baseUrl = baseUrl;
         }
 
         private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
@@ -35,7 +38,7 @@ namespace KaizokuBackend.Services.Import
         };
 
 
-        public async Task<KaizokuInfo?> ProcessDirectoryAsync(List<SuwayomiExtension> exts, string directoryPath, string seriesFolder, CancellationToken token = default)
+        public async Task<ImportSeriesSnapshot?> ProcessDirectoryAsync(List<TachiyomiRepository> repos, string directoryPath, string seriesFolder, CancellationToken token = default)
         {
             string path = seriesFolder[directoryPath.Length..];
             path = path.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -106,13 +109,18 @@ namespace KaizokuBackend.Services.Import
 
                         string provider = provider_scanlator[0].Trim();
                         string scanlator = provider_scanlator.Length > 1 ? provider_scanlator[1].Trim() : string.Empty;
-                        SuwayomiExtension? ext = exts.FirstOrDefault(a => a.Name.Equals(provider, StringComparison.InvariantCultureIgnoreCase) && a.Lang.Equals(language, StringComparison.InvariantCultureIgnoreCase));
+                        TachiyomiExtension? ext = repos.SelectMany(a=>a.Extensions).FirstOrDefault(a => a.ParsedName().Equals(provider, StringComparison.InvariantCultureIgnoreCase) && a.Sources.Any(a=>a.Language.Equals(language, StringComparison.InvariantCultureIgnoreCase) || a.Language=="all"));
                         if (ext != null)
                         {
+                            TachiyomiRepository repo = repos.First(a => a.Extensions.Contains(ext));
+                            TachiyomiSource? source = ext.Sources.FirstOrDefault(a => a.Language.Equals(language, StringComparison.InvariantCultureIgnoreCase));
+                            if (source==null)
+                                source = ext.Sources.FirstOrDefault(a => a.Language=="all")!;
                             detected[lib].Add(new NewDetectedChapter
                             {
+                                MihonProviderId = ext.Package+"|"+source.Id,
                                 Provider = provider,
-                                ProviderThumb = _baseUrl.RewriteExtensionIcon(ext),
+                                ThumbnailUrl = ext.GetIconUrl(repo),
                                 Scanlator = scanlator,
                                 Title = seriesTitle,
                                 Language = language.ToLowerInvariant(),
@@ -141,13 +149,20 @@ namespace KaizokuBackend.Services.Import
                         string[] provider_scanlator = parsedInfo.Scanlator.Split("-");
                         string provider = provider_scanlator[0].Trim();
                         string scanlator = provider_scanlator.Length > 1 ? provider_scanlator[1].Trim() : string.Empty;
-                        SuwayomiExtension? ext = exts.FirstOrDefault(a => a.Name.Equals(provider, StringComparison.InvariantCultureIgnoreCase));
+                        TachiyomiExtension? ext = repos.SelectMany(a => a.Extensions).FirstOrDefault(a => a.ParsedName().Equals(provider, StringComparison.InvariantCultureIgnoreCase));
                         if (ext != null)
                         {
+                            TachiyomiRepository repo = repos.First(a => a.Extensions.Contains(ext));
+                            TachiyomiSource? source = ext.Sources.FirstOrDefault(a => a.Language.Equals("en", StringComparison.InvariantCultureIgnoreCase));
+                            if (source == null)
+                                source = ext.Sources.FirstOrDefault(a => a.Language == "all");
+                            if (source == null)
+                                source = ext.Sources.First();
                             detected[lib].Add(new NewDetectedChapter
                             {
                                 Provider = provider,
-                                ProviderThumb = _baseUrl.RewriteExtensionIcon(ext),
+                                MihonProviderId = ext.Package + "|" + source.Id,
+                                ThumbnailUrl = ext.GetIconUrl(repo),
                                 Scanlator = scanlator,
                                 Title = parsedInfo.Series,
                                 Language = "en",
@@ -165,7 +180,7 @@ namespace KaizokuBackend.Services.Import
                     var d = new NewDetectedChapter
                     {
                         Provider = string.Empty,
-                        ProviderThumb = $"{_baseUrl.BaseUrl}serie/thumb/unknown",
+                        ThumbnailUrl = "/images/unknown",
                         Scanlator = string.Empty,
                         Title = parsedInfo?.Series ?? "Unknown",
                         Language = "en",
@@ -216,7 +231,7 @@ namespace KaizokuBackend.Services.Import
             var choose = detected[flib];
 
 
-            KaizokuInfo? detectedInfo = choose.ToKaizokuInfo();
+            ImportSeriesSnapshot? detectedInfo = choose.ToImportSeriesSnapshot();
             if (detectedInfo == null)
                 return null;
 
@@ -224,13 +239,13 @@ namespace KaizokuBackend.Services.Import
             detectedInfo.Type = flib == LibraryType.Manga ? "Manga" : "Comics";
 
             // Check if kaizoku.json exists
-            KaizokuInfo? kaizokuInfo = await seriesFolder.LoadKaizokuInfoFromDirectoryAsync(_logger, token).ConfigureAwait(false);
-            if (kaizokuInfo != null)
+            ImportSeriesSnapshot? ImportSeriesSnapshot = await seriesFolder.LoadImportSeriesSnapshotFromDirectoryAsync(_logger, token).ConfigureAwait(false);
+            if (ImportSeriesSnapshot != null)
             {
-                 foreach (ProviderInfo info in kaizokuInfo.Providers.ToList())
+                 foreach (ImportProviderSnapshot info in ImportSeriesSnapshot.Providers.ToList())
                 {
-                    List<ArchiveInfo> archiveInfos = info.Archives.Where(a => !string.IsNullOrEmpty(a.ArchiveName)).ToList();
-                    foreach (ArchiveInfo i in archiveInfos)
+                    List<ProviderArchiveSnapshot> ProviderArchiveSnapshots = info.Archives.Where(a => !string.IsNullOrEmpty(a.ArchiveName)).ToList();
+                    foreach (ProviderArchiveSnapshot i in ProviderArchiveSnapshots)
                     {
                         string fpath = Path.Combine(seriesFolder, i.ArchiveName);
                         if (!File.Exists(fpath))
@@ -240,19 +255,19 @@ namespace KaizokuBackend.Services.Import
                     }
                     if (info.Archives.All(a => string.IsNullOrEmpty(a.ArchiveName)))
                     {
-                        kaizokuInfo.Providers.Remove(info);
+                        ImportSeriesSnapshot.Providers.Remove(info);
                     }
                 }
 
-                (_, detectedInfo) = kaizokuInfo.Merge(detectedInfo);
+                (_, detectedInfo) = ImportSeriesSnapshot.Merge(detectedInfo);
 
             }
             detectedInfo.Path = path;
             return detectedInfo;
         }
 
-        public async Task RecurseDirectoryAsync(List<KaizokuBackend.Models.Database.Series> allseries, List<SuwayomiExtension> exts,
-            List<KaizokuInfo> seriesDict, string directoryPath, string seriesFolder,
+        public async Task RecurseDirectoryAsync(List<KaizokuBackend.Models.Database.SeriesEntity> allseries, List<TachiyomiRepository> repos,
+            List<ImportSeriesSnapshot> seriesDict, string directoryPath, string seriesFolder,
             ProgressReporter scanProgress, CancellationToken token = default)
         {
             var seriesFolders = await Task.Run(() => Directory.GetDirectories(seriesFolder, "*.*", SearchOption.AllDirectories), token).ConfigureAwait(false);
@@ -264,24 +279,24 @@ namespace KaizokuBackend.Services.Import
 
             foreach (var n in seriesFolders)
             {
-                KaizokuInfo? det = await ProcessDirectoryAsync(exts, directoryPath, n, token).ConfigureAwait(false);
+                ImportSeriesSnapshot? det = await ProcessDirectoryAsync(repos, directoryPath, n, token).ConfigureAwait(false);
                 acum += step;
 
                 if (det != null)
                 {
                     var seriesComparer = new SeriesComparer();
-                    List<KaizokuBackend.Models.Database.Series> findMatchingSeries = seriesComparer.FindMatchingSeries(allseries, det);
+                    List<KaizokuBackend.Models.Database.SeriesEntity> findMatchingSeries = seriesComparer.FindMatchingSeries(allseries, det);
 
                     if (findMatchingSeries.Count > 0)
                     {
-                        Dictionary<KaizokuBackend.Models.Database.Series, ArchiveCompare> matches = [];
-                        foreach (KaizokuBackend.Models.Database.Series s in findMatchingSeries)
+                        Dictionary<KaizokuBackend.Models.Database.SeriesEntity, ArchiveCompare> matches = [];
+                        foreach (KaizokuBackend.Models.Database.SeriesEntity s in findMatchingSeries)
                         {
                             matches.Add(s, seriesComparer.CompareArchives(det, s));
                         }
 
                         ArchiveCompare bt = ArchiveCompare.Equal;
-                        KeyValuePair<KaizokuBackend.Models.Database.Series, ArchiveCompare>? r = matches.FirstOrDefault(a => (a.Value & ArchiveCompare.Equal) == ArchiveCompare.Equal);
+                        KeyValuePair<KaizokuBackend.Models.Database.SeriesEntity, ArchiveCompare>? r = matches.FirstOrDefault(a => (a.Value & ArchiveCompare.Equal) == ArchiveCompare.Equal);
                         if (r == null || r?.Key==null)
                         {
                             bt = ArchiveCompare.MissingDB;
@@ -311,3 +326,4 @@ namespace KaizokuBackend.Services.Import
         }
     }
 }
+

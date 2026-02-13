@@ -1,6 +1,7 @@
-﻿using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
+﻿using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Downloads;
+using KaizokuBackend.Services.Helpers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -12,23 +13,29 @@ namespace KaizokuBackend.Controllers
     {
         private readonly DownloadQueryService _downloadQuery;
         private readonly DownloadCommandService _downloadCommand;
+        private readonly ThumbCacheService _thumbs;
         private readonly ILogger _logger;
 
-        public DownloadsController(ILogger<DownloadsController> logger, DownloadQueryService downloadQuery, DownloadCommandService downloadCommand)
+        public DownloadsController(ILogger<DownloadsController> logger,
+            ThumbCacheService thumbs,
+            DownloadQueryService downloadQuery, 
+            DownloadCommandService downloadCommand)
         {
             _downloadQuery = downloadQuery;
             _downloadCommand = downloadCommand;
+            _thumbs = thumbs;
             _logger = logger;
         }
 
         [HttpGet("series")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<List<DownloadInfo>>> GetDownloadsForSeriesAsync([FromQuery] Guid seriesId, CancellationToken token = default)
+        public async Task<ActionResult<List<DownloadInfoDto>>> GetDownloadsForSeriesAsync([FromQuery] Guid seriesId, CancellationToken token = default)
         {
             try
             {
                 var sources = await _downloadQuery.GetDownloadsForSeriesAsync(seriesId, token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(sources, "/api/image/", token).ConfigureAwait(false);
                 return Ok(sources);
             }
             catch (Exception ex)
@@ -41,11 +48,12 @@ namespace KaizokuBackend.Controllers
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<DownloadInfoList>> GetDownloadsAsync([FromQuery] QueueStatus status, int limit = 100, string? keyword = null, CancellationToken token = default)
+        public async Task<ActionResult<DownloadInfoListDto>> GetDownloadsAsync([FromQuery] QueueStatus status, int limit = 100, string? keyword = null, CancellationToken token = default)
         {
             try
             {
                 var result = await _downloadQuery.GetDownloadsAsync(status, limit, keyword, token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(result.Downloads, "/api/image/", token).ConfigureAwait(false);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -58,7 +66,7 @@ namespace KaizokuBackend.Controllers
         [HttpGet("metrics")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<DownloadsMetrics>> GetDownloadsMetricsAsync(CancellationToken token = default)
+        public async Task<ActionResult<DownloadsMetricsDto>> GetDownloadsMetricsAsync(CancellationToken token = default)
         {
             try
             {

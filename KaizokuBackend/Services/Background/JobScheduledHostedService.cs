@@ -9,7 +9,7 @@ namespace KaizokuBackend.Services.Background
     /// <summary>
     /// Background service that processes recurring scheduled jobs
     /// </summary>
-    public class JobScheduledHostedService : BackgroundService
+    public class JobScheduledHostedService : IWorkerService
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<JobScheduledHostedService> _logger;
@@ -23,7 +23,7 @@ namespace KaizokuBackend.Services.Background
             _settings = settings;
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        public async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Job Scheduler Service is starting");
 

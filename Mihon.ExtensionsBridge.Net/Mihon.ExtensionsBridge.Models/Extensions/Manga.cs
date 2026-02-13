@@ -16,4 +16,9 @@ namespace Mihon.ExtensionsBridge.Models.Extensions
         public bool Initialized { get; set; }
 
     }
+
+    public class ParsedManga : Manga
+    {
+        public string RealUrl { get; set; }
+    }
 }

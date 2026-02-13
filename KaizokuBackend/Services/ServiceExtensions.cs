@@ -1,4 +1,7 @@
-﻿using KaizokuBackend.Services.Daily;
+﻿using KaizokuBackend.Migration;
+using KaizokuBackend.Services.Background;
+using KaizokuBackend.Services.Bridge;
+using KaizokuBackend.Services.Daily;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
@@ -18,7 +21,6 @@ namespace KaizokuBackend.Services
         {
             services.TryAddScoped<SeriesScanner>();
             services.TryAddScoped<SeriesComparer>();
-            // services.TryAddScoped<ImportService>();
             services.TryAddScoped<ImportQueryService>();
             services.TryAddScoped<ImportCommandService>();
             return services;
@@ -51,10 +53,17 @@ namespace KaizokuBackend.Services
         public static IServiceCollection AddHelperServices(this IServiceCollection services)
         {
             services.TryAddScoped<SettingsService>();
-            services.TryAddScoped<EtagCacheService>();
-            services.TryAddScoped<ContextProvider>();
+            services.TryAddScoped<ThumbCacheService>();
             services.TryAddScoped<ArchiveHelperService>();
             services.TryAddScoped<DailyService>();
+            services.TryAddScoped<MihonBridgeService>();
+            services.TryAddScoped<MigrationService>();
+            return services;
+        }
+        public static IServiceCollection AddBackgroundServices(this IServiceCollection services)
+        {
+            services.TryAddSingleton<JobQueueHostedService>();
+            services.TryAddSingleton<JobScheduledHostedService>();
             return services;
         }
 
@@ -64,16 +73,11 @@ namespace KaizokuBackend.Services
 
             
             // Provider Services (SRP-focused)
-            services.TryAddScoped<ProviderQueryService>();
-            services.TryAddScoped<ProviderInstallationService>();
+            services.TryAddScoped<ProviderManagerService>();
             services.TryAddScoped<ProviderPreferencesService>();
-            services.TryAddScoped<ProviderResourceService>();
             
             // Provider Cache and Storage
             services.TryAddScoped<ProviderCacheService>();
-            
-            // Legacy services (for gradual migration)
-            services.TryAddScoped<ProviderManager>();
             
             return services;
         }

@@ -18,6 +18,18 @@ public static class MiscExtensions
             repo  = repo[..^(1)];
         return repo;
     }
+
+    public static string CombineUrl(this string repoUrl, params string[] segments)
+    {
+        if (string.IsNullOrEmpty(repoUrl))
+            return string.Empty;
+        var trimmed = repoUrl.TrimEnd('/');
+        foreach (var seg in segments)
+        {
+            trimmed += "/" + seg.Trim('/');
+        }
+        return trimmed;
+    }
     public static java.lang.ClassLoader ClassLoader => java.lang.Class.forName("eu.kanade.tachiyomi.source.SourceFactory").getClassLoader();
     public static T InvokeInJavaContext<T>(this Func<T> function)
     {

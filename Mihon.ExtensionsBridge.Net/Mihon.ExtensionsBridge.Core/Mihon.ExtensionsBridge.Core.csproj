@@ -13,7 +13,7 @@
   </ItemGroup>
 	<ItemGroup>
 		<Reference Include="Android.Compat">
-			<HintPath>..\libs\Android.Compat.dll</HintPath>
+			<HintPath>$(MSBuildProjectDirectory)\..\libs\Android.Compat.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 	<ItemGroup>

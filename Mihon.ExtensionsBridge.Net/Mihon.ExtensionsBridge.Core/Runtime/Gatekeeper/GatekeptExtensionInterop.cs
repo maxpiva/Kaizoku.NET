@@ -1,5 +1,6 @@
 using com.sun.jna;
 using Microsoft.Extensions.Logging;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Mihon.ExtensionsBridge.Models.Extensions;
@@ -12,7 +13,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
         private readonly ILogger _logger;
         private readonly IWorkingFolderStructure _structure;
 
-        private IExtensionInterop _current;
+        private IInternalExtensionInterop _current;
         private List<ISourceInterop> _wrappedSources;
 
         private readonly SemaphoreSlim _gate = new(1, 1); // open gate when not blocked; callers wait when closed
@@ -25,8 +26,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
 
         public string Version { get => _current.Version; private set { /* ignored */ } }
         public List<ISourceInterop> Sources => _wrappedSources;
-        private readonly Func<IWorkingFolderStructure, RepositoryEntry, ILogger, IExtensionInterop> _factory;
-        public GatekeptExtensionInterop(IWorkingFolderStructure structure, RepositoryEntry entry, Func<IWorkingFolderStructure, RepositoryEntry, ILogger, IExtensionInterop> factory, ILogger logger)
+        private readonly Func<IWorkingFolderStructure, RepositoryEntry, ILogger, IInternalExtensionInterop> _factory;
+        public GatekeptExtensionInterop(IWorkingFolderStructure structure, RepositoryEntry entry, Func<IWorkingFolderStructure, RepositoryEntry, ILogger, IInternalExtensionInterop> factory, ILogger logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _structure = structure ?? throw new ArgumentNullException(nameof(structure));
@@ -67,7 +68,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
             }
         }
 
-        public async Task SwapAsync(RepositoryEntry newEntry, CancellationToken token = default)
+        internal async Task SwapAsync(RepositoryEntry newEntry, CancellationToken token = default)
         {
             // Close gate for new calls
             _isClosed = true;
@@ -94,7 +95,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
             _drainTcs = null;
         }
 
-        public void Dispose()
+        internal void Dispose()
         {
             _isClosed = true;
             // best-effort: wait briefly for drain if any
@@ -129,7 +130,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
             finally { Exit(); }
         }
 
-        public async Task ShutdownAsync(CancellationToken token)
+        internal async Task ShutdownAsync(CancellationToken token)
         {
             // Block new calls and drain inflight, then forward shutdown
             _isClosed = true;

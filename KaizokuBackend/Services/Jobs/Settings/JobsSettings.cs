@@ -1,4 +1,4 @@
-﻿using KaizokuBackend.Models;
+﻿using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -35,7 +35,6 @@ namespace KaizokuBackend.Services.Jobs.Settings
             { JobType.GetChapters, TimeSpan.FromHours(2)},
             { JobType.GetLatest, TimeSpan.FromMinutes(30)},
             { JobType.DailyUpdate,TimeSpan.FromDays(1)}
-
         };
     }
 }

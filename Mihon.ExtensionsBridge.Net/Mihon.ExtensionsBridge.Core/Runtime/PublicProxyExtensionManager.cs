@@ -1,4 +1,5 @@
 ﻿using android.view;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
@@ -35,20 +36,25 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             return repo?.Clone();
         }
 
+        public RepositoryGroup? FindExtension(string name)
+        {
+            return _internalExtensionManager.FindExtension(name)?.Clone();
+        }
+
         public Task<IExtensionInterop> GetInteropAsync(RepositoryGroup entry, CancellationToken token = default)
         {
             return _internalExtensionManager.GetInteropAsync(entry, token);
         }
 
-        public async Task<List<RepositoryGroup>> ListExtensionsAsync(CancellationToken token = default)
+        public List<RepositoryGroup> ListExtensions()
         {
-            List<RepositoryGroup> grps = await _internalExtensionManager.ListExtensionsAsync(token).ConfigureAwait(false);
+            List<RepositoryGroup> grps = _internalExtensionManager.ListExtensions();
             return grps.ConvertAll(x => x.Clone());
         }
 
         public async Task<bool> RemoveExtensionAsync(RepositoryGroup group, CancellationToken token = default)
         {
-            RepositoryGroup? internalGroup = await _internalExtensionManager.FindExtensionAsync(group, token).ConfigureAwait(false);
+            RepositoryGroup? internalGroup = _internalExtensionManager.FindExtension(group);
             if (internalGroup == null)
                 return false;
             return await _internalExtensionManager.RemoveExtensionAsync(internalGroup, token).ConfigureAwait(false);

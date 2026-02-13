@@ -3,6 +3,8 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Settings;
@@ -37,28 +39,28 @@ namespace KaizokuBackend.Services.Series
         /// <param name="providerId">The provider's unique identifier</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>The provider match if found</returns>
-        public async Task<ProviderMatch?> GetMatchAsync(Guid providerId, CancellationToken token = default)
+        public async Task<ProviderMatchDto?> GetMatchAsync(Guid providerId, CancellationToken token = default)
         {
 
-            SeriesProvider? provider = await _db.SeriesProviders.Where(a => a.Id == providerId).AsNoTracking()
+            SeriesProviderEntity? provider = await _db.SeriesProviders.Where(a => a.Id == providerId).AsNoTracking()
                 .FirstOrDefaultAsync(token).ConfigureAwait(false);
-            if (provider == null || (provider.SuwayomiId!=0 && !provider.IsUnknown))
+            if (provider == null || (!string.IsNullOrWhiteSpace(provider.MihonId) && !provider.IsUnknown))
                 return null;
             
-            List<SeriesProvider> providers = await _db.SeriesProviders
-                .Where(a => a.SeriesId == provider.SeriesId && !a.IsUnknown && a.SuwayomiId!=0).AsNoTracking().ToListAsync(token)
+            List<SeriesProviderEntity> providers = await _db.SeriesProviders
+                .Where(a => a.SeriesId == provider.SeriesId && !a.IsUnknown && !string.IsNullOrWhiteSpace(a.MihonId)).AsNoTracking().ToListAsync(token)
                 .ConfigureAwait(false);
             if (providers.Count == 0)
                 return null;
             
-            ProviderMatch m = new ProviderMatch
+            ProviderMatchDto m = new ProviderMatchDto
             {
                 Id = provider.Id,
-                MatchInfos = providers.Select(a => new MatchInfo
+                MatchInfos = providers.Select(a => new MatchInfoDto
                     { Id = a.Id, Language = a.Language, Scanlator = a.Scanlator, Provider = a.Provider }).ToList(),
                 Chapters = provider.Chapters
                     .Where(a => !a.IsDeleted && !string.IsNullOrEmpty(a.Filename))
-                    .Select(c => new ProviderMatchChapter
+                    .Select(c => new ProviderMatchChapterDto
                     {
                         ChapterNumber = c.Number,
                         ChapterName = c.Name ?? "",
@@ -75,29 +77,29 @@ namespace KaizokuBackend.Services.Series
         /// <param name="pm">The provider match object</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>True if the match was set successfully</returns>
-        public async Task<bool> SetMatchAsync(ProviderMatch pm, CancellationToken token = default)
+        public async Task<bool> SetMatchAsync(ProviderMatchDto pm, CancellationToken token = default)
         {
-            Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
-            SeriesProvider? unknown = await _db.SeriesProviders.FirstOrDefaultAsync(a => a.Id == pm.Id, token)
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SeriesProviderEntity? unknown = await _db.SeriesProviders.FirstOrDefaultAsync(a => a.Id == pm.Id, token)
                 .ConfigureAwait(false);
             if (unknown == null)
                 return false;
             
-            Models.Database.Series? series = await _db.Series.Include(a => a.Sources)
+            Models.Database.SeriesEntity? series = await _db.Series.Include(a => a.Sources)
                 .FirstOrDefaultAsync(a => a.Id == unknown.SeriesId, token).ConfigureAwait(false);
             if (series == null)
                 return false;
             
-            Dictionary<Guid, SeriesProvider> minfo =
+            Dictionary<Guid, SeriesProviderEntity> minfo =
                 pm.MatchInfos.ToDictionary(a => a.Id, a => series.Sources.First(b => b.Id == a.Id));
             
             bool update = false;
-            foreach (ProviderMatchChapter chap in pm.Chapters)
+            foreach (ProviderMatchChapterDto chap in pm.Chapters)
             {
                 if (chap.MatchInfoId == null)
                     continue;
                 
-                SeriesProvider mi = minfo[chap.MatchInfoId.Value];
+                SeriesProviderEntity mi = minfo[chap.MatchInfoId.Value];
                 Chapter? ch = unknown.Chapters.FirstOrDefault(a => Path.GetFileNameWithoutExtension(a.Filename) == chap.Filename);
                 Chapter? dst = mi.Chapters.FirstOrDefault(a => a.Number == chap.ChapterNumber);
                 
@@ -150,7 +152,7 @@ namespace KaizokuBackend.Services.Series
             if (update)
             {
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                await series.SaveKaizokuInfoToDirectoryAsync(Path.Combine(settings.StorageFolder, series.StoragePath),
+                await series.SaveImportSeriesSnapshotToDirectoryAsync(Path.Combine(settings.StorageFolder, series.StoragePath),
                     _logger, token);
             }
 
@@ -164,10 +166,10 @@ namespace KaizokuBackend.Services.Series
         /// <param name="immediate">Whether to run immediately</param>
         /// <param name="forceDisable">Whether to force disable</param>
         /// <param name="token">Cancellation token</param>
-        public async Task RescheduleIfNeededAsync(IEnumerable<SeriesProvider> providers, bool immediate = true,
+        public async Task RescheduleIfNeededAsync(IEnumerable<SeriesProviderEntity> providers, bool immediate = true,
             bool forceDisable = false, CancellationToken token = default)
         {
-            foreach (SeriesProvider p in providers.Where(a => !a.IsUnknown))
+            foreach (SeriesProviderEntity p in providers.Where(a => !a.IsUnknown))
             {
                 await _jobBusinessService.ManageSeriesProviderJobAsync(p, immediate, forceDisable, token)
                     .ConfigureAwait(false);
@@ -181,21 +183,33 @@ namespace KaizokuBackend.Services.Series
         /// <param name="deletedIds">Collection of deleted series IDs</param>
         /// <param name="token">Cancellation token</param>
         public async Task CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(
-            IEnumerable<SeriesProvider> providers, IEnumerable<int> deletedIds, CancellationToken token = default)
+            IEnumerable<SeriesProviderEntity> providers, IEnumerable<string> deletedIds, CancellationToken token = default)
         {
-            List<int> ids = providers.Select(a => a.SuwayomiId).Union(deletedIds).ToList();
-            List<LatestSerie> latest = await _db.LatestSeries.Where(a => ids.Contains(a.SuwayomiId)).ToListAsync(token)
+            var deletedList = deletedIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+            List<string> ids = providers.Select(a => a.MihonId!)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Union(deletedList)
+                .ToList();
+
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
+            List<LatestSerieEntity> latest = await _db.LatestSeries
+                .Where(a => ids.Contains(a.MihonId!))
+                .ToListAsync(token)
                 .ConfigureAwait(false);
             
-            foreach (LatestSerie l in latest)
+            foreach (LatestSerieEntity l in latest)
             {
-                if (deletedIds.Contains(l.SuwayomiId))
+                if (deletedList.Contains(l.MihonId))
                 {
                     l.InLibrary = InLibraryStatus.NotInLibrary;
                 }
                 else
                 {
-                    SeriesProvider? sp = providers.First(a => a.SuwayomiId == l.SuwayomiId);
+                    SeriesProviderEntity? sp = providers.First(a => a.MihonId == l.MihonId);
                     InLibraryStatus status = InLibraryStatus.InLibrary;
                     if (sp.IsUninstalled || sp.IsDisabled)
                         status = InLibraryStatus.InLibraryButDisabled;
@@ -213,13 +227,13 @@ namespace KaizokuBackend.Services.Series
         /// <param name="dbSeries">Database series entity</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of deleted source IDs</returns>
-        public async Task<List<int>> DeleteSourcesIfNeededAsync(SeriesExtendedInfo series, Models.Database.Series dbSeries,
+        public async Task<List<string>> DeleteSourcesIfNeededAsync(SeriesExtendedDto series, Models.Database.SeriesEntity dbSeries,
             CancellationToken token = default)
         {
-            List<int> deletes = new List<int>();
-            foreach (ProviderExtendedInfo p in series.Providers)
+            List<string> deletes = new List<string>();
+            foreach (ProviderExtendedDto p in series.Providers)
             {
-                SeriesProvider toBeDeleted = dbSeries.Sources.First(a => a.Id == p.Id);
+                SeriesProviderEntity toBeDeleted = dbSeries.Sources.First(a => a.Id == p.Id);
                 if (toBeDeleted.IsUnknown && toBeDeleted.Chapters.All(a => a.Filename == null))
                     p.IsDeleted = true;
                 
@@ -231,7 +245,7 @@ namespace KaizokuBackend.Services.Series
                     List<Chapter> chapters = toBeDeleted.Chapters.Where(a => !string.IsNullOrEmpty(a.Filename)).ToList();
                     if (chapters.Count > 0)
                     {
-                        SeriesProvider? unknown = dbSeries.Sources.FirstOrDefault(a => a.Provider == "Unknown");
+                        SeriesProviderEntity? unknown = dbSeries.Sources.FirstOrDefault(a => a.Provider == "Unknown");
                         if (unknown != null)
                         {
                             unknown.Chapters.AddRange(chapters);
@@ -243,7 +257,9 @@ namespace KaizokuBackend.Services.Series
                         else
                         {
                             // Convert provider to unknown
-                            toBeDeleted.SuwayomiId = 0;
+                            toBeDeleted.MihonId = string.Empty;
+                            toBeDeleted.MihonProviderId = string.Empty;
+                            toBeDeleted.BridgeItemInfo = string.Empty;
                             toBeDeleted.Provider = "Unknown";
                             toBeDeleted.Scanlator = string.Empty;
                             toBeDeleted.Url = string.Empty;
@@ -253,6 +269,7 @@ namespace KaizokuBackend.Services.Series
                             toBeDeleted.ContinueAfterChapter = toBeDeleted.Chapters.Max(a => a.Number);
                             toBeDeleted.IsTitle = false;
                             toBeDeleted.IsCover = false;
+                            toBeDeleted.IsLocal = true;
                             toBeDeleted.IsDisabled = false;
                             toBeDeleted.Status = SeriesStatus.UNKNOWN;
                         }
@@ -261,7 +278,10 @@ namespace KaizokuBackend.Services.Series
                     {
                         dbSeries.Sources.Remove(toBeDeleted);
                         _db.SeriesProviders.Remove(toBeDeleted);
-                        deletes.Add(toBeDeleted.SuwayomiId);
+                        if (!string.IsNullOrWhiteSpace(toBeDeleted.MihonId))
+                        {
+                            deletes.Add(toBeDeleted.MihonId);
+                        }
                     }
 
                     // Cleanup downloads
@@ -275,16 +295,16 @@ namespace KaizokuBackend.Services.Series
         /// <summary>
         /// Cleans up download jobs for a deleted provider
         /// </summary>
-        private async Task CleanupDownloadsAsync(string provider, string scanlator, Models.Database.Series dbSeries, 
+        private async Task CleanupDownloadsAsync(string provider, string scanlator, Models.Database.SeriesEntity dbSeries, 
             Guid providerId, CancellationToken token)
         {
-            List<Enqueue> queues = await _db.Queues
+            List<EnqueueEntity> queues = await _db.Queues
                 .Where(a => a.JobType == JobType.Download &&
                             a.ExtraKey == dbSeries.Id.ToString().ToLowerInvariant()).AsNoTracking()
                 .ToListAsync(token).ConfigureAwait(false);
             
             List<Guid> toBeDeleted = [];
-            foreach (Enqueue q in queues)
+            foreach (EnqueueEntity q in queues)
             {
                 if (string.IsNullOrEmpty(q.JobParameters))
                     continue;
@@ -299,7 +319,7 @@ namespace KaizokuBackend.Services.Series
                 }
             }
 
-            await _jobBusinessService.DeleteSeriesProviderJobAsync(new SeriesProvider { Id = providerId }, token);
+            await _jobBusinessService.DeleteSeriesProviderJobAsync(new SeriesProviderEntity { Id = providerId }, token);
             if (toBeDeleted.Count > 0)
                 await _jobManagementService.DeleteQueuedJobsAsync(toBeDeleted, token).ConfigureAwait(false);
         }

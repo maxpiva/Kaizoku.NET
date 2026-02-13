@@ -1,4 +1,4 @@
-using KaizokuBackend.Models;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using System.Reflection;
 
@@ -35,15 +35,14 @@ namespace KaizokuBackend.Services.Jobs
                     return JobResult.Failed;
                 }
 
-                _logger.LogInformation("Executing job {Key} of type {JobType}", jobInfo.Key, jobInfo.JobType);
+                _logger.LogInformation("Executing {JobType} on {groupKey}", jobInfo.JobType, jobInfo.GroupKey ?? jobInfo.Key);
                 JobResult result = await command.ExecuteAsync(jobInfo, token).ConfigureAwait(false);
-                
-                _logger.LogInformation("Job {Key} completed with result {Result}", jobInfo.Key, result);
+                _logger.LogInformation("Job {JobType} on {groupKey} {Result}", jobInfo.JobType, jobInfo.GroupKey ?? jobInfo.Key, result);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error executing job {Key} of type {JobType}", jobInfo.Key, jobInfo.JobType);
+                _logger.LogError(ex, "Error executing job {JobType} on {groupKey}", jobInfo.JobType, jobInfo.Key);
                 return JobResult.Failed;
             }
         }

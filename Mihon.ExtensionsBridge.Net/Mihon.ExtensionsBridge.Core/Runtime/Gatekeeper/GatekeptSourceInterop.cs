@@ -6,7 +6,7 @@ using Mihon.ExtensionsBridge.Models.Extensions;
 namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
 {
     // Wrapper for ISourceInterop that coordinates entry/exit with gatekeeper
-    internal sealed class GatekeptSourceInterop : ISourceInterop 
+    internal sealed class GatekeptSourceInterop : ISourceInterop
     {
         private readonly GatekeptExtensionInterop _gate;
         private readonly ISourceInterop _inner;
@@ -28,9 +28,9 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
         public string Name => _inner.Name;
         public bool SupportsLatest => _inner.SupportsLatest;
 
-        public async Task<List<Chapter>> GetChaptersAsync(Manga manga, CancellationToken token = default)
+        public async Task<List<ParsedChapter>> GetChaptersAsync(Manga manga, CancellationToken token = default)
         { await _gate.EnterAsync(token); try { return await _inner.GetChaptersAsync(manga, token).ConfigureAwait(false); } finally { _gate.Exit(); } }
-        public async Task<Manga> GetDetailsAsync(Manga manga, CancellationToken token = default)
+        public async Task<ParsedManga> GetDetailsAsync(Manga manga, CancellationToken token = default)
         { await _gate.EnterAsync(token); try { return await _inner.GetDetailsAsync(manga, token).ConfigureAwait(false); } finally { _gate.Exit(); } }
         public async Task<ContentTypeStream> DownloadUrlAsync(string url, CancellationToken token = default)
         { await _gate.EnterAsync(token); try { return await _inner.DownloadUrlAsync(url, token).ConfigureAwait(false); } finally { _gate.Exit(); } }

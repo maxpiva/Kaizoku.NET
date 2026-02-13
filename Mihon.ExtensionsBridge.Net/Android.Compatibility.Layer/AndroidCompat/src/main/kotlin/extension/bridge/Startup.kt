@@ -88,6 +88,7 @@ import kotlin.reflect.KTypeProjection
 import kotlin.reflect.KTypeParameter
 import kotlin.reflect.KVariance
 import extension.bridge.logging.AndroidCompatLogBridge
+import extension.bridge.logging.AndroidCompatJulHandler
 import extension.bridge.logging.AndroidCompatLogSink
 import extension.bridge.logging.AndroidCompatLogger
 import extension.bridge.logging.androidCompatLogger
@@ -236,13 +237,20 @@ fun unloadExtension(jarPath: String)
         System.gc()
     }        
 }
+private fun installJulBridge() {
+    val logManager = java.util.logging.LogManager.getLogManager()
+    val root = java.util.logging.Logger.getLogger("")
+    logManager.reset()
+    val handler = AndroidCompatJulHandler()
+    root.addHandler(handler)
+}
 
 fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogSink)
 {
     val logger = androidCompatLogger(SettingsConfig::class.java)
     // Register sink via manager
     AndroidCompatRuntime.registerSink(sink)
-
+    installJulBridge()
     AndroidCompatRuntime.setDefaultUncaughtHandler(Thread.UncaughtExceptionHandler { _, throwable ->
         logger.error(throwable) { "unhandled exception" }
     })

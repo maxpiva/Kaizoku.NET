@@ -2,7 +2,7 @@
 {
     public class MangaList
     {
-        public List<Manga> Mangas { get; set; }
+        public List<ParsedManga> Mangas { get; set; }
         public bool HasNextPage { get; set; }
 
     }

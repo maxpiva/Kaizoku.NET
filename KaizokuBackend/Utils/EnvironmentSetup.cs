@@ -18,7 +18,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace KaizokuBackend.Utils
@@ -26,15 +26,11 @@ namespace KaizokuBackend.Utils
 
     public static class EnvironmentSetup
     {
-        public const string SuwayomiJar = "Suwayomi-Server-{version}.jar";
-        public const string SuwayomiJarUrl = "https://github.com/Suwayomi/Suwayomi-Server/releases/download/{version}/{jar}";
-        public const string SuwayomiJarPreviewUrl = "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/{version}/{jar}";
-
-        public const string AppKaizokuNET = "Kaiz.NET";
-        public const string AppSuwayomi = "Suwayomi";
+        public const string AppKaizokuNET = "Kaizoku";
+        public const string AppMihon = "MihonEx";
+        public const string AppAndroid = "Android";
 
         public const string AppSettings = "appsettings.json";
-        public const string SuwayomiConfig = "server.conf";
 
         public const string wwwRootSHA256 = "wwwroot.sha256";
         public const string wwwRootZip = "wwwroot.zip";
@@ -42,9 +38,7 @@ namespace KaizokuBackend.Utils
         /// Gets the resolved path to the application's data directory.
         /// </summary>
         public static string Path { get; }
-
-        public static string JavaRunner { get; set; } = "java";
-
+     
         public static IConfiguration? Configuration { get; private set; }
 
         private static ILogger? _logger = null;
@@ -65,7 +59,34 @@ namespace KaizokuBackend.Utils
         {
             Path = ResolveDataDirectory();
         }
-
+        private static bool ReplacePath(JsonNode node, string key, string[] expectedparts)
+        {
+            var path = node[key];
+            string? nPath = path?.ToString();
+            if (string.IsNullOrWhiteSpace(nPath))
+                return false;
+            string[] parts = nPath?.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+            if (parts.Length == expectedparts.Length)
+            {
+                for (int i = 0; i < expectedparts.Length; i++)
+                {
+                    if (parts[i] != expectedparts[i])
+                    {
+                        //Already changed
+                        return false;
+                    }
+                }
+            }
+            List<string> newparts = new List<string>();
+            newparts.Add(Path);
+            newparts.AddRange(expectedparts);
+            string absolutePath = System.IO.Path.Combine(newparts.ToArray());
+            string dir = System.IO.Path.GetDirectoryName(absolutePath)!;
+            if (!System.IO.Directory.Exists(dir))
+                System.IO.Directory.CreateDirectory(dir);
+            node[key] = absolutePath;
+            return true;
+        }
         public static async Task WriteToAppSettingsAsync(string? storageDirectory, CancellationToken token = default)
         {
           
@@ -138,6 +159,7 @@ namespace KaizokuBackend.Utils
 
             bool updated = false;
 
+
             // Merge new properties from source to destination if both exist
             if (sourceJson != null && destinationJson != null)
             {
@@ -146,6 +168,11 @@ namespace KaizokuBackend.Utils
 
             if (destinationJson != null)
             {
+                if (destinationJson is JsonObject destObject && destObject.Remove("Suwayomi"))
+                {
+                    updated = true;
+                }
+
                 // Apply runtime-specific modifications
                 if (!string.IsNullOrEmpty(storageDirectory) && Directory.Exists(storageDirectory))
                 {
@@ -167,6 +194,9 @@ namespace KaizokuBackend.Utils
                         updated = true;
                     }
                 }
+                updated |= ReplacePath(destinationJson!, "BridgeFolder", new string[] { "extensions" });
+                updated |= ReplacePath(destinationJson!, "ThumbCacheFolder", new string[] { "thumbs" });
+                updated |= ReplacePath(destinationJson!, "TempFolder", new string[] { "" });
 
                 var seriLog = destinationJson["Serilog"];
                 if (seriLog != null)
@@ -184,16 +214,7 @@ namespace KaizokuBackend.Utils
                                 var args = n["Args"];
                                 if (args != null)
                                 {
-                                    var path = args["path"];
-                                    string expectedPath = "logs/log-.txt";
-                                    string? nPath = path?.ToString();
-                                    string expectedAbsoluteDb = System.IO.Path.Combine(Path,
-                                        "logs" + System.IO.Path.DirectorySeparatorChar + "log-.txt");
-                                    if (nPath != null && nPath == expectedPath)
-                                    {
-                                        args["path"] = expectedAbsoluteDb;
-                                        updated = true;
-                                    }
+                                    updated |= ReplacePath(args, "path", new string[] { "logs", "log-.txt" });
                                 }
                             }
                         }
@@ -290,17 +311,6 @@ namespace KaizokuBackend.Utils
             BuildConfiguration();
             LoggerInfrastructure.BuildLogger(Configuration!);
             ExtractWWWRoot();
-            CopyInitialSuwayomiConfig();
-            if (!CheckJavaVersion())
-            {
-                Logger.LogError("Java Runtime Environment (JRE) 21 or later is required to run Suwayomi. Please install Java 21 or later.");
-                throw new InvalidOperationException("Java Runtime Environment (JRE) 21 or later is required.");
-            }
-            if (!await DownloadSuwayomiIfNeededAsync(token))
-            {
-                Logger.LogError("Unable to download Suwayomi, check if the version and preview settings are allright and the app have internet connection, otherwise download manually and put it in the Suwayomi Directory make sure versions match.");
-                throw new InvalidOperationException("Unable to download Suwayomi, check if the version and preview settings are allright and the app have internet connection, otherwise download manually and put it in the Suwayomi Directory make sure versions match.");
-            }
         }
 
         /// <summary>
@@ -393,205 +403,6 @@ namespace KaizokuBackend.Utils
 
             File.WriteAllText(sha256Path, sha256);
 
-        }
-        /// <summary>
-        /// Checks if Java Runtime Environment (JRE) 21 or later is available
-        /// </summary>
-        /// <returns>True if JRE 21 or later is available, false otherwise</returns>
-        public static bool CheckJavaVersion()
-        {
-            Logger.LogInformation("Checking if JRE 21 is installed.");
-
-            try
-            {
-                // Try to execute 'java -version' command
-                var processStartInfo = new ProcessStartInfo
-                {
-                    FileName = "java",
-                    Arguments = "-version",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                using var process = Process.Start(processStartInfo);
-                if (process == null)
-                {
-                    Logger.LogWarning("Java command not found in PATH.");
-                    return false;
-                }
-
-                // Java version information is typically output to stderr
-                string output = process.StandardError.ReadToEnd();
-                string stdOut = process.StandardOutput.ReadToEnd();
-                
-                process.WaitForExit();
-
-                if (process.ExitCode != 0)
-                {
-                    Logger.LogWarning("Java command failed with exit code {ExitCode}", process.ExitCode);
-                    return false;
-                }
-
-                // Combine both outputs as Java version can appear in either
-                string fullOutput = output + " " + stdOut;
-                
-                // Parse the Java version from the output
-                var version = ParseJavaVersion(fullOutput);
-                
-                if (version.HasValue)
-                {
-                    Logger.LogInformation("Found Java version {Version}", version.Value);
-                    return version.Value >= 21;
-                }
-                else
-                {
-                    Logger.LogWarning("Unable to parse Java version from output: {Output}", fullOutput);
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Error checking Java version: {Message}", ex.Message);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Parses the Java version from the output of 'java -version'
-        /// </summary>
-        /// <param name="versionOutput">The output from java -version command</param>
-        /// <returns>The major version number if successfully parsed, null otherwise</returns>
-        private static int? ParseJavaVersion(string versionOutput)
-        {
-            if (string.IsNullOrWhiteSpace(versionOutput))
-                return null;
-
-            // Java version patterns:
-            // Java 8: java version "1.8.0_XXX"
-            // Java 9+: java version "11.0.XX", "17.0.XX", "21.0.XX", etc.
-            // OpenJDK: openjdk version "11.0.XX", "17.0.XX", "21.0.XX", etc.
-            
-            // Look for version patterns
-            var patterns = new[]
-            {
-                // Pattern for Java 9+ (e.g., "21.0.1", "17.0.8")
-                @"(?:java|openjdk)\s+version\s+""(\d+)\.[\d\.]+.*?""",
-                // Pattern for Java 8 and below (e.g., "1.8.0_XXX")
-                @"(?:java|openjdk)\s+version\s+""1\.(\d+)\.[\d_\.]+.*?""",
-                // Alternative pattern without quotes
-                @"(?:java|openjdk)\s+(\d+)\.[\d\.]+",
-                // Pattern for newer format without "version" keyword
-                @"""(\d+)\.[\d\.]+.*?"""
-            };
-
-            foreach (var pattern in patterns)
-            {
-                var match = Regex.Match(versionOutput, pattern, RegexOptions.IgnoreCase);
-                if (match.Success && int.TryParse(match.Groups[1].Value, out int version))
-                {
-                    // For Java 8 and below, the version number is in the second group
-                    // For Java 9+, it's directly the major version
-                    if (pattern.Contains("1\\."))
-                    {
-                        // This is the Java 8 pattern (1.8.0_XXX), so the actual version is the second number
-                        return version;
-                    }
-                    else
-                    {
-                        // This is Java 9+ pattern
-                        return version;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        public static async Task<bool> DownloadSuwayomiIfNeededAsync(CancellationToken token = default)
-        {
-            _logger?.LogInformation("Checking if Suwayomi is downloaded and up to date.");
-            bool useCustomApi = Configuration!.GetValue<bool>("Suwayomi:UseCustomApi", false);
-            if (useCustomApi)
-                return true;
-            bool usePreview = Configuration!.GetValue<bool>("Suwayomi:UsePreview", false);
-            string version = Configuration!.GetValue<string>("Suwayomi:Version", "v2.0.1727");
-            string jar = SuwayomiJar;
-            string url = SuwayomiJarUrl;
-            if (usePreview)
-                url = SuwayomiJarPreviewUrl;
-            jar = jar.Replace("{version}", version);
-            url = url.Replace("{version}", version).Replace("{jar}", jar);
-            string suwayomiPath = System.IO.Path.Combine(Path, "Suwayomi");
-            string suwayomiJarFullPath = System.IO.Path.Combine(suwayomiPath, jar);
-            if (File.Exists(suwayomiJarFullPath))
-                return true;
-
-
-            //Delete other versions
-            string[] jars = Directory.GetFiles(suwayomiPath, "*.jar", SearchOption.TopDirectoryOnly);
-            foreach (string s in jars)
-            {
-                try { File.Delete(s); } catch (Exception) { }
-            }
-            _logger?.LogInformation("Downloading Suwayomi version {version} ...", version);
-
-            return await DownloadFileAsync(url, jar, suwayomiPath, token).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Downloads a file from the internet and saves it to the specified directory
-        /// </summary>
-        /// <param name="url">The URL to download from</param>
-        /// <param name="fileName">The name of the file to save</param>
-        /// <param name="destinationDirectory">The directory to save the file to</param>
-        /// <param name="cancellationToken">Cancellation token</param>
-        /// <returns>True if the download was successful, false otherwise</returns>
-        public static async Task<bool> DownloadFileAsync(string url, string fileName, string destinationDirectory, CancellationToken cancellationToken = default)
-        {
-            if (string.IsNullOrWhiteSpace(url))
-                throw new ArgumentException("URL cannot be null or empty", nameof(url));
-            
-            if (string.IsNullOrWhiteSpace(fileName))
-                throw new ArgumentException("File name cannot be null or empty", nameof(fileName));
-            
-            if (string.IsNullOrWhiteSpace(destinationDirectory))
-                throw new ArgumentException("Destination directory cannot be null or empty", nameof(destinationDirectory));
-
-            try
-            {
-                // Ensure the destination directory exists
-                if (!Directory.Exists(destinationDirectory))
-                {
-                    Directory.CreateDirectory(destinationDirectory);
-                }
-
-                // Combine the directory and filename to get the full path
-                var filePath = System.IO.Path.Combine(destinationDirectory, fileName);
-                if (File.Exists(filePath))
-                    return true;
-                HttpClient httpClient = new HttpClient();
-
-                // Download the file
-                using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-                
-                if (!response.IsSuccessStatusCode)
-                {
-                    return false;
-                }
-
-                // Save the file to disk
-                using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                await response.Content.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
-                
-                return true;
-            }
-            catch (Exception)
-            {
-                // Return false on any exception (network issues, file system issues, etc.)
-                return false;
-            }
         }
         public static bool FileExistsEvenIfNoAccess(string path)
         {
@@ -722,46 +533,7 @@ namespace KaizokuBackend.Utils
 
 
 
-
-
-        private static void CopyInitialSuwayomiConfig()
-        {
-            Logger.LogInformation("Initializing Suwayomi Configuration.");
-            string suwayomiPath = System.IO.Path.Combine(Path, "Suwayomi");
-
-            if (!Directory.Exists(suwayomiPath))
-            {
-                Directory.CreateDirectory(suwayomiPath);
-            }
-            var serverConfig = System.IO.Path.Combine(suwayomiPath, SuwayomiConfig);
-            if (File.Exists(serverConfig))
-            {
-                return;
-            }
-            var sourceConfig = System.IO.Path.Combine(AppContext.BaseDirectory, AppSuwayomi, SuwayomiConfig);
-            if (File.Exists(sourceConfig))
-            {
-                File.Copy(sourceConfig, serverConfig);
-            }
-            else
-            {
-                string resourceName = nameof(KaizokuBackend) + "." + AppSuwayomi + "." + SuwayomiConfig;
-                using Stream? stream = Assembly.GetExecutingAssembly()
-                    .GetManifestResourceStream(resourceName);
-                if (stream != null)
-                {
-                    using FileStream dstream  = File.Create(serverConfig);
-                    stream.CopyTo(dstream);
-                }
-                else
-                {
-                    Logger.LogError("The initial Suwayomi server.conf was not found in '{sourceConfig}'.", sourceConfig);
-                    throw new FileNotFoundException($"The initial Suwayomi server.conf was not found in '{sourceConfig}'.");
-                }
-            }
-        }
     }
 
-   
 
 }

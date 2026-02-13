@@ -1,13 +1,19 @@
 ﻿using androidx.preference;
 using eu.kanade.tachiyomi.source;
+using eu.kanade.tachiyomi.source.model;
 using Mihon.ExtensionsBridge;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Core.Utilities;
+using Mihon.ExtensionsBridge.Models;
+using Mihon.ExtensionsBridge.Models.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using Mihon.ExtensionsBridge.Core.Extensions;
-using Mihon.ExtensionsBridge.Models.Extensions;
 using System.Reflection;
+using System.Text;
+using static android.telecom.Call;
+using Page = Mihon.ExtensionsBridge.Models.Extensions.Page;
+using UpdateStrategy = Mihon.ExtensionsBridge.Models.Extensions.UpdateStrategy;
 
 namespace Mihon.ExtensionsBridge.Core.Extensions
 {
@@ -33,6 +39,13 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 return defaultValue;
             }
         }
+        public static string ParsedName(this TachiyomiExtension extension)
+        {
+            if (extension.Name.StartsWith("Tachiyomi:"))
+                return extension.Name.Substring(10).Trim();
+            return extension.Name;
+        }
+        
 
         /*
         public static eu.kanade.tachiyomi.source.model.FilterList ToFilterList(this ExtensionBridge.Repository.Extensions.Filters.FilterList filterList)
@@ -62,11 +75,16 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             return fl;
         }
         */
-        public static MangaList ToMangaList(this eu.kanade.tachiyomi.source.model.MangasPage mangaPage)
+        public static MangaList ToMangaList(this eu.kanade.tachiyomi.source.model.MangasPage mangaPage, eu.kanade.tachiyomi.source.online.HttpSource source)
         {
             return new MangaList
             {
-                Mangas = mangaPage.getMangas().toArray().Cast<eu.kanade.tachiyomi.source.model.SManga>().Select(m => m.ToManga()).ToList(),
+                Mangas = mangaPage.getMangas().toArray().Cast<eu.kanade.tachiyomi.source.model.SManga>()
+                .Select(m => {
+                    ParsedManga p = m.ToManga<ParsedManga>();
+                    p.RealUrl = source.getMangaUrl(m);
+                    return p;
+                }).ToList(),
                 HasNextPage = mangaPage.getHasNextPage()
             };
         }
@@ -114,10 +132,34 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             }
             return pref;
         }
+        public static List<ParsedChapter> ToParsedChapters(this IEnumerable<eu.kanade.tachiyomi.source.model.SChapter> chapters, string mangaTitle, eu.kanade.tachiyomi.source.model.SManga manga, eu.kanade.tachiyomi.source.online.HttpSource source)
+        {
+            ArgumentNullException.ThrowIfNull(chapters);
+            ArgumentNullException.ThrowIfNull(source);
+
+            var parsedChapters = chapters
+                .Select(chapter =>
+                {
+                    source.prepareNewChapter(chapter,manga);
+                    var parsed = chapter.ToChapter<ParsedChapter>();
+                    parsed.ParsedNumber = ChapterUtils.ParseChapterNumber(mangaTitle, parsed.Name, parsed.ChapterNumber);
+                    parsed.ParsedName = ChapterUtils.Sanitize(parsed.Name, mangaTitle);
+                    parsed.RealUrl = source.getChapterUrl(chapter);
+                    return parsed;
+                })
+                .OrderBy(ch => ch.ParsedNumber)
+                .ToList();
+
+            for (var i = 0; i < parsedChapters.Count; i++)
+            {
+                parsedChapters[i].Index = i;
+            }
+
+            return parsedChapters;
+        }
 
 
-
-        public static Chapter ToChapter(this eu.kanade.tachiyomi.source.model.SChapter chapter)
+        public static T ToChapter<T>(this eu.kanade.tachiyomi.source.model.SChapter chapter) where T: Chapter,new()
         {
             if (chapter == null) 
                 throw new ArgumentNullException(nameof(chapter));
@@ -128,7 +170,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             long uploaded = ReadField<long>(chapter, "date_upload", 0);
             // chapter_number is a float in Tachiyomi
             float chNum = ReadField<float>(chapter, "chapter_number", 0f);
-            return new Chapter
+            return new T
             {
                 Name = name,
                 Url = url,
@@ -191,10 +233,35 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             smanga.setInitialized(manga.Initialized);
             return smanga;
         }
+        private static void ReplaceFieldIfNeeded(eu.kanade.tachiyomi.source.model.SManga details, string? original, string field, Action<string> action)
+        {
+            string val = ReadField<string>(details, field, string.Empty);
+            if (string.IsNullOrEmpty(val))
+            {
+                action(original ?? "");
+            }
+        }
 
-        public static Manga ToManga(this eu.kanade.tachiyomi.source.model.SManga smanga, Manga backup = null)
+        public static void PrefillMissing(eu.kanade.tachiyomi.source.model.SManga details, Manga original)
+        {
+            if (details == null)
+                return;
+            if (original == null)
+                return;
+            ReplaceFieldIfNeeded(details, original.Title, "title", details.setTitle);
+            ReplaceFieldIfNeeded(details, original.Url, "url", details.setUrl);
+            ReplaceFieldIfNeeded(details, original.Artist, "artist", details.setArtist);
+            ReplaceFieldIfNeeded(details, original.Author, "author", details.setAuthor);
+            ReplaceFieldIfNeeded(details, original.Description, "description", details.setDescription);
+            ReplaceFieldIfNeeded(details, original.Genre, "genre", details.setGenre);
+            ReplaceFieldIfNeeded(details, original.ThumbnailUrl, "thumbnail_url", details.setThumbnail_url);
+        }
+
+
+        public static T ToManga<T>(this eu.kanade.tachiyomi.source.model.SManga smanga, Manga backup = null) where T: Manga, new()
         {
             if (smanga == null) throw new ArgumentNullException(nameof(smanga));
+            PrefillMissing(smanga, backup);
             // Read Kotlin backing fields directly to avoid late-init getter exceptions
             string title = ReadField<string>(smanga, "title", string.Empty);
             string url = ReadField<string>(smanga, "url", string.Empty);
@@ -207,11 +274,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             var strategy = ReadField<eu.kanade.tachiyomi.source.model.UpdateStrategy>(
                 smanga, "update_strategy", eu.kanade.tachiyomi.source.model.UpdateStrategy.ONLY_FETCH_ONCE);
             bool initialized = ReadField<bool>(smanga, "initialized", false);
-            if (string.IsNullOrEmpty(title) && backup != null)
-                title = backup.Title;
-            if (string.IsNullOrEmpty(url) && backup != null)
-                url = backup.Url;
-            return new Manga
+            return new T
             {
                 Title = title,
                 Url = url,

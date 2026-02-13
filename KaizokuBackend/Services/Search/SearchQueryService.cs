@@ -1,15 +1,16 @@
 using KaizokuBackend.Extensions;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Providers;
-using KaizokuBackend.Services.Series;
 using KaizokuBackend.Services.Settings;
 using Microsoft.Extensions.Caching.Memory;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using Mihon.ExtensionsBridge.Core.Extensions;
 using System.Collections.Concurrent;
 using System.Globalization;
-using static Microsoft.Extensions.Logging.EventSource.LoggingEventSource;
+using KaizokuBackend.Models.Dto;
 
 namespace KaizokuBackend.Services.Search
 {
@@ -18,26 +19,24 @@ namespace KaizokuBackend.Services.Search
     /// </summary>
     public class SearchQueryService
     {
-        private readonly SuwayomiClient _suwayomi;
+        private readonly MihonBridgeService _mihon;
         private readonly SettingsService _settings;
         private readonly ProviderCacheService _providerCache;
         private readonly IMemoryCache _memoryCache;
-        private readonly ContextProvider _baseUrl;
         private readonly ILogger<SearchQueryService> _logger;
 
+
         public SearchQueryService(
-            SuwayomiClient suwayomi,
+            MihonBridgeService mihon,
             SettingsService settings,
             ProviderCacheService providerCache,
             IMemoryCache memoryCache,
-            ContextProvider baseUrl,
             ILogger<SearchQueryService> logger)
         {
-            _suwayomi = suwayomi;
+            _mihon = mihon;
             _settings = settings;
             _providerCache = providerCache;
             _memoryCache = memoryCache;
-            _baseUrl = baseUrl;
             _logger = logger;
         }
 
@@ -46,7 +45,7 @@ namespace KaizokuBackend.Services.Search
         /// </summary>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of available search sources</returns>
-        public async Task<List<SearchSource>> GetAvailableSearchSourcesAsync(CancellationToken token = default)
+        public async Task<List<SearchSourceDto>> GetAvailableSearchSourcesAsync(CancellationToken token = default)
         {
             var settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             var languages = settings.PreferredLanguages.ToList();
@@ -54,15 +53,28 @@ namespace KaizokuBackend.Services.Search
             {
                 languages = ["en"]; // Default to English if no languages set
             }
-            
-            var allSources = await _providerCache.GetSourcesForLanguagesAsync(languages, token).ConfigureAwait(false);
-            return allSources.Keys.Select(a => new SearchSource
+
+            var summarySources = await _providerCache.GetProviderSummariesForLanguagesAsync(languages, token).ConfigureAwait(false);
+            List<SearchSourceDto> views = new List<SearchSourceDto>();
+            foreach ((string mihonProviderId, SmallProviderDto summary) in summarySources)
             {
-                SourceId = a.Id.ToString(),
-                SourceName = a.Name,
-                Language = a.Lang.ToLowerInvariant(),
-            }).ToList();
+                SearchSourceDto v = new SearchSourceDto
+                {
+                    Name = summary.Title,
+                    Language = summary.Language,
+                    Provider = summary.Provider,
+                    Scanlator = summary.Scanlator,
+                    IsStorage = summary.IsStorage,
+                    ThumbnailUrl = summary.ThumbnailUrl,
+                    Status = summary.Status,
+                    Url = summary.Url,
+                    MihonProviderId = mihonProviderId
+                };
+                views.Add(v);
+            }
+            return views;
         }
+
 
         /// <summary>
         /// Searches for series across multiple sources with language and source filtering
@@ -73,7 +85,7 @@ namespace KaizokuBackend.Services.Search
         /// <param name="threshold">Similarity threshold for linking series</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of linked series matching the search criteria</returns>
-        public async Task<List<LinkedSeries>> SearchSeriesAsync(string keyword, List<string> languages,
+        public async Task<List<LinkedSeriesDto>> SearchSeriesAsync(string keyword, List<string> languages,
             List<string>? searchSources = null, double threshold = 0.1f, CancellationToken token = default)
         {
             if (string.IsNullOrWhiteSpace(keyword) || languages == null || languages.Count == 0)
@@ -84,20 +96,15 @@ namespace KaizokuBackend.Services.Search
             var appSettings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             var filteredSources = await _providerCache.GetSourcesForLanguagesAsync(languages, token).ConfigureAwait(false);
 
-            if (searchSources != null && searchSources.Count != 0)
-            {
-                filteredSources = filteredSources.Where(a => searchSources.Contains(a.Key.Id.ToString())).ToDictionary(a => a.Key, a => a.Value);
-            }
-
             string langs = languages.Count == 0 ? "all" : string.Join(",", languages);
             _logger.LogInformation("Searching for '{keyword}' across {Count} providers in languages: {langs}", keyword, filteredSources.Count, langs);
-            
+
             return await SearchSeriesAsync(keyword, filteredSources, appSettings, threshold, token).ConfigureAwait(false);
         }
 
-        public async Task<List<LinkedSeries>> SearchSeriesAsync(List<(string, SuwayomiSource, ProviderStorage)> sources, KaizokuBackend.Models.Settings? appSettings, double threshold = 0.1f, CancellationToken token = default)
+        public async Task<List<LinkedSeriesDto>> SearchSeriesAsync(List<(string keyword, ProviderStorageEntity ps)> sources, SettingsDto? appSettings, double threshold = 0.1f, CancellationToken token = default)
         {
-            var results = new ConcurrentBag<(string, SuwayomiSource Source, ProviderStorage Storag, SuwayomiSeriesResult Result)>();
+            var results = new ConcurrentBag<(string Keyword, ProviderStorageEntity Storage, MangaList Result)>();
             var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
 
             await Parallel.ForEachAsync(
@@ -111,62 +118,63 @@ namespace KaizokuBackend.Services.Search
                     {
                         try
                         {
-                            var searchResult = await _suwayomi.SearchSeriesAsync(source.Item2.Id, source.Item1, 1, ct).ConfigureAwait(false);
-                            if (searchResult != null && searchResult.MangaList.Count > 0)
+                            var src = await _mihon.SourceFromProviderIdAsync(source.ps.MihonProviderId).ConfigureAwait(false);
+                            var searchResult = await src.SearchAsync(1, source.keyword, ct).ConfigureAwait(false);
+                            if (searchResult != null && searchResult.Mangas.Count > 0)
                             {
                                 // Remove duplicates within the same source
-                                var uniqueSeries = new List<SuwayomiSeries>();
-                                foreach (var series in searchResult.MangaList)
+                                var uniqueSeries = new List<ParsedManga>();
+                                foreach (var series in searchResult.Mangas)
                                 {
-                                    if (uniqueSeries.All(a => a.Id != series.Id))
+                                    if (uniqueSeries.All(a => a.Url != series.Url))
                                         uniqueSeries.Add(series);
                                 }
 
-                                searchResult.MangaList = uniqueSeries;
-                                results.Add((source.Item1, source.Item2, source.Item3, searchResult));
+                                searchResult.Mangas = uniqueSeries;
+                                results.Add((source.keyword, source.ps, searchResult));
                                 break;
                             }
                         }
                         catch (HttpRequestException r)
                         {
-                            _logger.LogWarning("Error searching provider {DisplayName}: Http Error {StatusCode}.", source.Item2.DisplayName, r.StatusCode);
+                            _logger.LogWarning("Error searching provider {Name}: Http Error {StatusCode}.", source.ps.Name, r.StatusCode);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error searching provider {DisplayName}: {Message}", source.Item2.DisplayName, ex.Message);
+                            _logger.LogError(ex, "Error searching provider {Name}: {Message}", source.ps.Name, ex.Message);
                         }
 
                         retries++;
-                    } while (retries<3);
-                   
+                    } while (retries < 3);
+
                 }).ConfigureAwait(false);
 
-            var allSeries = new List<SuwayomiSeries>();
-            foreach (var (pi, source, providerStorage, result) in results)
+
+            var allSeries = new List<(ParsedManga Manga, string MihonProiderId, string Language)>();
+            foreach (var (pi, providerStorage, result) in results)
             {
-                foreach (SuwayomiSeries l in result.MangaList)
+                foreach (ParsedManga l in result.Mangas)
                 {
-                    if (!allSeries.Any(b=>b.Id==l.Id))
-                        allSeries.Add(l);
+                    if (!allSeries.Any(a=>a.Manga.Url == l.Url && a.MihonProiderId == providerStorage.MihonProviderId))
+                        allSeries.Add((l, providerStorage.MihonProviderId, providerStorage.Language));
                 }
             }
 
+            var linked = allSeries.FindAndLinkSimilarSeries(threshold);
 
-            var linked = allSeries.FindAndLinkSimilarSeries(_baseUrl, threshold);
 
-            Dictionary<string, (SuwayomiSource, ProviderStorage)> sourceDict = new Dictionary<string, (SuwayomiSource, ProviderStorage)>();
+            Dictionary<string, ProviderStorageEntity> sourceDict = new Dictionary<string, ProviderStorageEntity>();
             foreach (var n in sources)
             {
-                if (!sourceDict.ContainsKey(n.Item2.Id))
-                    sourceDict.Add(n.Item2.Id, (n.Item2, n.Item3));
+                if (!sourceDict.ContainsKey(n.ps.MihonProviderId))
+                    sourceDict.Add(n.ps.MihonProviderId, n.ps);
             }
 
             // Enrich linked series with provider information
             linked.ForEach(a =>
             {
-                a.Provider = sourceDict[a.ProviderId].Item1.Name;
-                a.Lang = sourceDict[a.ProviderId].Item1.Lang.ToLowerInvariant();
-                a.IsStorage = sourceDict[a.ProviderId].Item2.IsStorage;
+                a.Provider = sourceDict[a.MihonProviderId!].Name;
+                a.IsStorage = sourceDict[a.MihonProviderId!].IsStorage;
             });
 
             return linked.ToList();
@@ -183,79 +191,78 @@ namespace KaizokuBackend.Services.Search
         /// <param name="threshold">Similarity threshold for linking series</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of linked series matching the search criteria</returns>
-        public async Task<List<LinkedSeries>> SearchSeriesAsync(string keyword, Dictionary<SuwayomiSource, ProviderStorage> sources,
-            KaizokuBackend.Models.Settings? appSettings, double threshold = 0.1f, CancellationToken token = default)
+        public async Task<List<LinkedSeriesDto>> SearchSeriesAsync(string keyword, List<ProviderStorageEntity> sources,
+            SettingsDto? appSettings, double threshold = 0.1f, CancellationToken token = default)
         {
             try
             {
-                // Check cache first
-                string cacheKey = "S" + keyword + threshold.ToString(CultureInfo.InvariantCulture) + "_" + string.Join(',', sources.Keys.Select(a => a.Id));
-                
-                if (_memoryCache.TryGetValue(cacheKey, out List<LinkedSeries>? cachedResult))
+                Dictionary<string, ProviderStorageEntity> sourceDict = sources.ToDictionary(s => s.MihonProviderId, s => s);
+                string cacheKey = "S" + keyword + threshold.ToString(CultureInfo.InvariantCulture) + "_" + string.Join(',', sourceDict.Keys);
+
+                if (_memoryCache.TryGetValue(cacheKey, out List<LinkedSeriesDto>? cachedResult))
                 {
                     _logger.LogInformation("Returning cached search result for keyword '{keyword}' with threshold {threshold}", keyword, threshold);
                     return cachedResult!;
                 }
-
                 // Execute parallel search across sources
-                var results = new ConcurrentBag<(SuwayomiSource Source, SuwayomiSeriesResult Result)>();
+                var results = new ConcurrentBag<(string providerId, string lang, MangaList)>();
                 var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
 
                 await Parallel.ForEachAsync(
-                    sources.Keys,
+                    sourceDict.Keys,
                     new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
-                    async (source, ct) =>
+                    async (providerId, ct) =>
                     {
                         try
                         {
-                            var searchResult = await _suwayomi.SearchSeriesAsync(source.Id, keyword, 1, ct).ConfigureAwait(false);
-                            if (searchResult != null && searchResult.MangaList.Count > 0)
+                            var src = await _mihon.SourceFromProviderIdAsync(providerId).ConfigureAwait(false);
+                            var searchResult = await src.SearchAsync(1, keyword, ct).ConfigureAwait(false);
+                            if (searchResult != null && searchResult.Mangas.Count > 0)
                             {
                                 // Remove duplicates within the same source
-                                var uniqueSeries = new List<SuwayomiSeries>();
-                                foreach (var series in searchResult.MangaList)
+                                var uniqueSeries = new List<ParsedManga>();
+                                foreach (var series in searchResult.Mangas)
                                 {
-                                    if (uniqueSeries.All(a => a.Id != series.Id))
+                                    if (uniqueSeries.All(a => a.Url != series.Url))
                                         uniqueSeries.Add(series);
                                 }
 
-                                searchResult.MangaList = uniqueSeries;
-                                results.Add((source, searchResult));
+                                searchResult.Mangas = uniqueSeries;
+                                results.Add((providerId, src.Language, searchResult));
                             }
                         }
                         catch (HttpRequestException r)
                         {
-                            _logger.LogWarning("Error searching provider {Name}: Http Error {StatusCode}.", source.Name, r.StatusCode);
+                            _logger.LogWarning("Error searching provider {Name}: Http Error {StatusCode}.", sourceDict[providerId].Name, r.StatusCode);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error searching provider {Name}: {Message}", source.Name, ex.Message);
+                            _logger.LogError(ex, "Error searching provider {Name}: {Message}", sourceDict[providerId].Name, ex.Message);
                         }
                     }).ConfigureAwait(false);
 
                 // Process and link similar series
-                var allSeries = new List<SuwayomiSeries>();
-                foreach (var (source, result) in results)
+                var allSeries = new List<(ParsedManga Manga, string ProviderId, string Language)>();
+                foreach (var (providerId, lang, result) in results)
                 {
-                    allSeries.AddRange(result.MangaList);
+                    allSeries.AddRange(result.Mangas.Select(m => (m, providerId, lang)));
                 }
 
-                var linked = allSeries.FindAndLinkSimilarSeries(_baseUrl, threshold);
-                var sourcesDict = sources.Keys.ToDictionary(a => a.Id, a => a);
-                
+                var linked = allSeries.FindAndLinkSimilarSeries(threshold);
+
+
                 // Enrich linked series with provider information
                 linked.ForEach(a =>
                 {
-                    a.Provider = sourcesDict[a.ProviderId].Name;
-                    a.Lang = sourcesDict[a.ProviderId].Lang.ToLowerInvariant();
-                    a.IsStorage = sources[sourcesDict[a.ProviderId]].IsStorage;
+                    a.Provider = sourceDict[a.MihonProviderId!].Name;
+                    a.IsStorage = sourceDict[a.MihonProviderId!].IsStorage;
                 });
 
-                var finalResults = linked.DistinctBy(a => a.Id).OrderByLevenshteinDistance(a => a.Title, keyword).ToList();
-                
+                var finalResults = linked.DistinctBy(a => a.MihonId).OrderByLevenshteinDistance(a => a.Title, keyword).ToList();
+
                 // Cache results for 30 seconds
                 _memoryCache.Set(cacheKey, finalResults, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
-                
+
                 return finalResults;
             }
             catch (Exception ex)

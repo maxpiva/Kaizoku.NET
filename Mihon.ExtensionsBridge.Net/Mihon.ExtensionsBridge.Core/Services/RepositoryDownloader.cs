@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Mihon.ExtensionsBridge.Core.Models;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 
 namespace Mihon.ExtensionsBridge.Core.Services
@@ -97,7 +98,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
                 foreach (var fileName in repos)
                 {
-                    var candidateUrl = CombineUrl(repository.Url, fileName);
+                    var candidateUrl = repository.Url.CombineUrl(fileName);
                     using var request = new HttpRequestMessage(HttpMethod.Get, candidateUrl);
                     var tempResponse = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
@@ -129,7 +130,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 // Try index candidates first
                 foreach (var fileName in index)
                 {
-                    var candidateUrl = CombineUrl(repository.Url, fileName);
+                    var candidateUrl = repository.Url.CombineUrl(fileName);
                     using var request = new HttpRequestMessage(HttpMethod.Get, candidateUrl);
                     var tempResponse = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
@@ -202,7 +203,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Version)) throw new ArgumentException("Extension Version cannot be null or whitespace.", nameof(workUnit));
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Package)) throw new ArgumentException("Extension Package cannot be null or whitespace.", nameof(workUnit));
 
-            var apkUrl = CombineUrl(repository.Url, "apk", workUnit.Entry.Extension.Apk);
+            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.Apk);
            
             var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.Apk);
             var client = CreateHttpClient();
@@ -242,17 +243,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             }
         }
 
-        private static string CombineUrl(string repoUrl, params string[] segments)
-        {
-            if (string.IsNullOrEmpty(repoUrl)) 
-                return string.Empty;
-            var trimmed = repoUrl.TrimEnd('/');
-            foreach (var seg in segments)
-            {
-                trimmed += "/" + seg.Trim('/');
-            }
-            return trimmed;
-        }
+
 
         private static async Task DownloadFileAsync(HttpClient client, string url, string destinationPath, CancellationToken cancellationToken)
         {

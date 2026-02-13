@@ -65,6 +65,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Directory.CreateDirectory(versionFolder);
             return versionFolder;
         }
+
         public static async Task SavePreferencesAsync(this IWorkingFolderStructure workingStructure, Mihon.ExtensionsBridge.Models.Preferences prefs, CancellationToken token = default)
         {
             if (workingStructure == null)

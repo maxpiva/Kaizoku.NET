@@ -1,6 +1,6 @@
 namespace Mihon.ExtensionsBridge.Models.Abstractions;
 
-public interface IBridgeManager 
+public interface IBridgeManager
 {
     public bool Initialized { get; }
     IExtensionManager LocalExtensionManager { get; }

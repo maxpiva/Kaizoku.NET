@@ -238,7 +238,7 @@ namespace KaizokuBackend.Extensions
 
 
   
-        public static bool IsMatchingProvider(this SeriesProvider sp, FullSeries fs)
+        public static bool IsMatchingProvider(this SeriesProviderEntity sp, ProviderSeriesDetails fs)
         {
             if (fs.Scanlator == fs.Provider || (string.IsNullOrEmpty(fs.Scanlator) && string.IsNullOrEmpty(fs.Provider)))
             {

@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
-using KaizokuBackend.Models;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Daily;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Jobs.Models;

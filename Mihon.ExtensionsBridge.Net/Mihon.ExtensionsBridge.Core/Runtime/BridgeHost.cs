@@ -17,8 +17,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         private readonly IBridgeManager _manager;
         private readonly ILoggerFactory _loggerFactory;
         private ILogger _androidLogger;
+        private IkvmAssemblyLoadContext alc;
 
-        /*
         public sealed class IkvmAssemblyLoadContext : AssemblyLoadContext
         {
             private readonly AssemblyDependencyResolver _resolver;
@@ -44,7 +44,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 return path is null ? null : LoadFromAssemblyPath(path);
             }
         }
-        */
+
 
         public BridgeHost(ILogger<BridgeHost> logger, IWorkingFolderStructure folder, IBridgeManager manager, ILoggerFactory loggerFactory)
         {
@@ -53,13 +53,13 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         }
-        static void Preload(string simpleName)
+        public 
+        static void Preload(IkvmAssemblyLoadContext alc, string simpleName)
         {
             var asmPath = Path.Combine(AppContext.BaseDirectory, $"{simpleName}.dll");
             if (File.Exists(asmPath))
-            { 
-
-                Assembly.LoadFrom(asmPath);
+            {
+                alc.LoadFromAssemblyPath(asmPath);
             }
         }
         private async Task InitAndroidAppAsync(IWorkingFolderStructure folder, ILogger logger, CancellationToken cancellationToken = default)
@@ -72,23 +72,27 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             {
                 prefs = new Mihon.ExtensionsBridge.Models.Preferences();
             }
+            var baseDir = Path.GetFullPath(AppContext.BaseDirectory);
+            Startup.addBootClassPathAssembly(Assembly.LoadFrom(Path.Combine(baseDir, "Android.Compat.dll")));
+            /*
+
             // Create and pre-warm an isolated, non-reentrant ALC for IKVM
             var baseDir = Path.GetFullPath(AppContext.BaseDirectory);
-            //var ikvmAlc = new IkvmAssemblyLoadContext(baseDir);
+            alc = new IkvmAssemblyLoadContext(baseDir);
 
             // Eager-load IKVM bits and dependent Java/Android bridge assemblies before using them.
             // This prevents on-demand resolution from happening under loader locks.
-            Preload("IKVM.Java");
-            Preload("IKVM.Runtime");
-            Preload("IKVM.CoreLib");
-            Preload("Android.Compat");
+            Preload(alc, "IKVM.Java");
+            Preload(alc, "IKVM.Runtime");
+            Preload(alc, "IKVM.CoreLib");
+            Preload(alc, "Android.Compat");
             // Preload critical assemblies using a custom ALC to avoid dynamic emission during resolution
-         
+         */
 
-            ((Action)(()=>{
+           //(Action)(()=>{
                 StartupKt.applicationSetup(folder.AndroidFolder, folder.TempFolder, new AndroidCompatLogManager.LoggerSink(logger));
                 AndroidCompatLogManager.SetLoglevel(logger);
-            })).InvokeInJavaContext();
+           //)).InvokeInJavaContext();
     
             await _manager.SetPreferencesAsync(prefs, cancellationToken);
             _logger.LogInformation("Android App initialized.");
@@ -151,6 +155,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 ((Action)(() => {
                     StartupKt.applicationShutdown(extension.bridge.logging.AndroidCompatLoggerKt.androidCompatLogger(typeof(BridgeManager)));
                 })).InvokeInJavaContext();
+                alc.Unload();
             }
             catch (Exception ex)
             {

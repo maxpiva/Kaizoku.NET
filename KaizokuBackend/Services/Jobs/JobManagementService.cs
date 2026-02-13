@@ -1,7 +1,7 @@
 using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Settings;
 using KaizokuBackend.Utils;
@@ -63,7 +63,7 @@ namespace KaizokuBackend.Services.Jobs
             if (job == null)
             {
                 added = true;
-                job = new Job
+                job = new JobEntity
                 {
                     Id = Guid.NewGuid(),
                     JobType = jobType,
@@ -176,16 +176,16 @@ namespace KaizokuBackend.Services.Jobs
 
         public async Task<bool?> GetRecurringJobStatusAsync(JobType jobType, string key, CancellationToken token = default)
         {
-            Job? job = await _db.Jobs.Where(j => j.JobType == jobType && j.Key == key).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
+            JobEntity? job = await _db.Jobs.Where(j => j.JobType == jobType && j.Key == key).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
             return job?.IsEnabled;
         }
 
-        public async Task<List<Job>> GetRecurringJobsAsync(CancellationToken token = default)
+        public async Task<List<JobEntity>> GetRecurringJobsAsync(CancellationToken token = default)
         {
             return await _db.Jobs.ToListAsync(token).ConfigureAwait(false);
         }
 
-        public async Task<List<Job>> GetRecurringJobsByTypeAsync(JobType jobType, CancellationToken token = default)
+        public async Task<List<JobEntity>> GetRecurringJobsByTypeAsync(JobType jobType, CancellationToken token = default)
         {
             return await _db.Jobs.Where(j => j.JobType == jobType).ToListAsync(token).ConfigureAwait(false);
         }
@@ -248,15 +248,15 @@ namespace KaizokuBackend.Services.Jobs
                             existingJob.ScheduledDate = DateTime.UtcNow;
                             existingJob.RetryCount = 0;
                             await UpdateJobAsync(existingJob, token).ConfigureAwait(false);
-                            _logger.LogInformation("Job with key {key} with status {oldStatus}. Set to Reprocessing...", key, oldStatus);
+                            _logger.LogInformation("Job {type} {key} with status {oldStatus}. Set to Reprocessing...", jobType, groupKey ?? key, oldStatus);
                             return existingJob.Id;
                         }
-                        _logger.LogInformation("Job with key {key} already running or waiting. Skipping...", key);
+                        _logger.LogInformation("Job {type} {key} already running or waiting. Skipping...", jobType, groupKey ?? key);
                         return existingJob.Id;
                     }
 
                     // Create a new job entry
-                    var job = new Enqueue
+                    var job = new EnqueueEntity
                     {
                         Id = Guid.NewGuid(),
                         JobType = jobType,
@@ -325,7 +325,7 @@ namespace KaizokuBackend.Services.Jobs
                 }
 
                 // Create a new job entry
-                var job = new Enqueue
+                var job = new EnqueueEntity
                 {
                     Id = Guid.NewGuid(),
                     JobType = jobType,
@@ -375,7 +375,7 @@ namespace KaizokuBackend.Services.Jobs
 
         #region System Operations
 
-        public DbSet<Enqueue> QueuedJobs => _db.Queues;
+        public DbSet<EnqueueEntity> QueuedJobs => _db.Queues;
 
         public async Task StartupAsync(CancellationToken token = default)
         {
@@ -385,7 +385,7 @@ namespace KaizokuBackend.Services.Jobs
                 .ConfigureAwait(false);
         }
 
-        public void DetachJob(Enqueue job)
+        public void DetachJob(EnqueueEntity job)
         {
             _db.Entry(job).State = EntityState.Detached;
         }
@@ -394,13 +394,13 @@ namespace KaizokuBackend.Services.Jobs
 
         #region Private Helper Methods
 
-        private async Task UpdateJobAsync(Enqueue job, CancellationToken token = default)
+        private async Task UpdateJobAsync(EnqueueEntity job, CancellationToken token = default)
         {
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
 //            await _reportService.ReportJobAsync(job, token).ConfigureAwait(false);
         }
 
-        private async Task AddJobAsync(Enqueue job, CancellationToken token = default)
+        private async Task AddJobAsync(EnqueueEntity job, CancellationToken token = default)
         {
             _db.Queues.Add(job);
             await _db.SaveChangesAsync(token).ConfigureAwait(false);

@@ -10,6 +10,7 @@ using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Core.Models;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Services
 {

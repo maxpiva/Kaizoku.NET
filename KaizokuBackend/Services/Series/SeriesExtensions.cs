@@ -3,33 +3,45 @@ using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Import.Models;
 using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Bridge;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using Action = KaizokuBackend.Models.Database.Action;
+using Action = KaizokuBackend.Models.Action;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using Mihon.ExtensionsBridge.Models.Abstractions;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Models.Abstractions;
+using KaizokuBackend.Models.Dto;
+using Chapter = KaizokuBackend.Models.Chapter;
+using ImportEntity = KaizokuBackend.Models.Database.ImportEntity;
+using DbSeriesEntity = KaizokuBackend.Models.Database.SeriesEntity;
 
 namespace KaizokuBackend.Services.Series;
 
 public static class SeriesExtensions
 {
-    public static LatestSerie PopulateSeries(this LatestSerie l, SuwayomiSource source, SuwayomiSeries fs)
+    public static async Task<LatestSerieEntity> PopulateSeriesAsync(this LatestSerieEntity l,
+        ISourceInterop source, 
+        ParsedManga fs, 
+        ThumbCacheService cache)
     {
         l.Artist = fs.Artist;
         l.Provider = source.Name;
-        l.Language = source.Lang;
-        l.Status = fs.Status;
+        l.Language = source.Language;
+        l.Status = (SeriesStatus)(int)fs.Status;
         l.Title = fs.Title;
-        l.ThumbnailUrl = fs.RewriteToKaizokuPath();
-        l.ChapterCount = fs.ChapterCount;
+        if (!string.IsNullOrWhiteSpace(fs.ThumbnailUrl))
+            l.ThumbnailUrl = await cache.AddUrlAsync(fs.ThumbnailUrl);
         l.Author = fs.Author;
         l.Description = fs.Description;
-        l.Genre = fs.Genre;
-        l.SuwayomiId = fs.Id;
+        l.Genre = fs.GetGenres();
         l.Url = fs.RealUrl;
-        l.SuwayomiSourceId = fs.SourceId;
+        fs.FillBridgeItemInfo(l);
         return l;
     }
 
-    public static void ApplyImportInfo(this KaizokuBackend.Models.Database.Import import, ImportInfo info)
+    public static void ApplyImportSeriesEntry(this ImportEntity import, ImportSeriesEntry info)
     {
         import.Status = info.Status;
         import.Action = info.Action;
@@ -38,10 +50,10 @@ public static class SeriesExtensions
             return;
         if (info.Series != null)
         {
-            foreach (SmallSeries s in info.Series)
+            foreach (ProviderSeriesOption s in info.Series)
             {
-                FullSeries? fs = import.Series.FirstOrDefault(a =>
-                    a.Id == s.Id &&
+                ProviderSeriesDetails? fs = import.Series.FirstOrDefault(a =>
+                    a.MihonId == s.MihonId &&
                     a.Title == s.Title &&
                     a.Provider == s.Provider &&
                     a.Lang == s.Lang &&
@@ -58,30 +70,27 @@ public static class SeriesExtensions
         }
     }
 
-    public static ImportInfo ToImportInfo(this KaizokuBackend.Models.Database.Import import, string baseUrl)
+    public static ImportSeriesEntry ToImportSeriesEntry(this ImportEntity import)
     {
-        decimal? lastRecordChap = import.Info.Providers.Max((ProviderInfo a) => a.Archives.Max((ArchiveInfo c) => c.ChapterNumber));
-        var importInfo = new ImportInfo
+        decimal? lastRecordChap = import.Info.Providers.Max((ImportProviderSnapshot a) => a.Archives.Max((ProviderArchiveSnapshot c) => c.ChapterNumber));
+        var importSeriesEntry = new ImportSeriesEntry
         {
             Path = import.Info.Path,
             Title = import.Info.Title,
             Status = import.Status,
             Action = import.Action,
             ContinueAfterChapter = lastRecordChap ?? -1,
-            Series = new List<SmallSeries>()
+            Series = new List<ProviderSeriesOption>()
         };
         if (import.Series == null || import.Series.Count == 0)
-            return importInfo;
+            return importSeriesEntry;
         foreach (var fs in import.Series)
         {
-            if (string.IsNullOrEmpty(fs.ThumbnailUrl))
-                fs.ThumbnailUrl = baseUrl + "serie/thumb/unknown";
-            else if (!fs.ThumbnailUrl.StartsWith("http"))
-                fs.ThumbnailUrl = baseUrl + fs.ThumbnailUrl;
-            var smallSeries = new SmallSeries
+            var seriesOption = new ProviderSeriesOption
             {
-                Id = fs.Id,
-                ProviderId = fs.ProviderId,
+                MihonId = fs.MihonId,
+                MihonProviderId = fs.MihonProviderId,
+                BridgeItemInfo = fs.BridgeItemInfo,
                 Provider = fs.Provider,
                 Lang = fs.Lang,
                 ThumbnailUrl = fs.ThumbnailUrl,
@@ -96,37 +105,37 @@ public static class SeriesExtensions
                 UseTitle = fs.UseTitle,
                 Preferred = fs.IsSelected
             };
-            importInfo.Series.Add(smallSeries);
+            importSeriesEntry.Series.Add(seriesOption);
         }
-        SetPreferredSeries(importInfo.Series, import.Info.Providers);
-        EnsurePreferredStorageSeries(importInfo.Series);
-        decimal? from = importInfo.ContinueAfterChapter;
-        decimal? to = importInfo.Series.Max(a => a.LastChapter);
+        SetPreferredSeries(importSeriesEntry.Series, import.Info.Providers);
+        EnsurePreferredStorageSeries(importSeriesEntry.Series);
+        decimal? from = importSeriesEntry.ContinueAfterChapter;
+        decimal? to = importSeriesEntry.Series.Max(a => a.LastChapter);
         if (from.HasValue && to.HasValue)
         {
-            AddCompletition(importInfo.Series, import.Series, from.Value, to.Value);
+            AddCompletition(importSeriesEntry.Series, import.Series, from.Value, to.Value);
         }
         if (import.Series.Any(a => a.Status == SeriesStatus.COMPLETED || a.Status == SeriesStatus.PUBLISHING_FINISHED))
         {
-            decimal? chap = import.Series.Max((FullSeries a) => a.Chapters.Max((Chapter b) => b.Number));
-            if (chap <= importInfo.ContinueAfterChapter && importInfo.Action != Action.Skip)
+            decimal? chap = import.Series.Max((ProviderSeriesDetails a) => a.Chapters.Max((Chapter b) => b.Number));
+            if (chap <= importSeriesEntry.ContinueAfterChapter && importSeriesEntry.Action != Action.Skip)
             {
-                importInfo.Status = ImportStatus.Completed;
-                importInfo.Action = Action.Add;
+                importSeriesEntry.Status = ImportStatus.Completed;
+                importSeriesEntry.Action = Action.Add;
             }
             if (import.Series.Where(a => a.ExistingProvider).Any(a => a.Chapters.Max(b => b.Number) < chap))
             {
-                if (importInfo.Action != Action.Skip)
+                if (importSeriesEntry.Action != Action.Skip)
                 {
-                    importInfo.Status = ImportStatus.DoNotChange;
-                    importInfo.Action = Action.Skip;
+                    importSeriesEntry.Status = ImportStatus.DoNotChange;
+                    importSeriesEntry.Action = Action.Skip;
                 }
             }
         }
-        SmallSeries? series = importInfo.Series.FirstOrDefault(a => a.Preferred && a.IsStorage);
+        ProviderSeriesOption? series = importSeriesEntry.Series.FirstOrDefault(a => a.Preferred && a.IsStorage);
         if (series == null)
         {
-            series = importInfo.Series.FirstOrDefault(a => a.Preferred);
+            series = importSeriesEntry.Series.FirstOrDefault(a => a.Preferred);
             if (series != null)
                 series.IsStorage = true;
         }
@@ -135,19 +144,19 @@ public static class SeriesExtensions
             series.UseTitle = true;
             series.UseCover = true;
         }
-        return importInfo;
+        return importSeriesEntry;
     }
 
-    public static void SetPreferredSeries(List<SmallSeries> seriesList, List<ProviderInfo> providers)
+    public static void SetPreferredSeries(List<ProviderSeriesOption> seriesList, List<ImportProviderSnapshot> providers)
     {
         if (seriesList == null || seriesList.Count == 0)
             return;
         if (seriesList.Any(a => a.Preferred))
             return;
-        var exactMatches = new List<SmallSeries>();
-        foreach (ProviderInfo p in providers)
+        var exactMatches = new List<ProviderSeriesOption>();
+        foreach (ImportProviderSnapshot p in providers)
         {
-            List<SmallSeries> matchs = [];
+            List<ProviderSeriesOption> matchs = [];
             if (p.Provider == p.Scanlator || string.IsNullOrEmpty(p.Scanlator))
             {
                 matchs = seriesList.Where(s => s.Provider.Equals(p.Provider, StringComparison.OrdinalIgnoreCase) &&
@@ -184,7 +193,7 @@ public static class SeriesExtensions
         }
     }
 
-    public static void EnsurePreferredStorageSeries(List<SmallSeries> seriesList)
+    public static void EnsurePreferredStorageSeries(List<ProviderSeriesOption> seriesList)
     {
         if (seriesList == null || seriesList.Count == 0)
             return;
@@ -202,17 +211,17 @@ public static class SeriesExtensions
         }
     }
 
-    public static void AddCompletition(List<SmallSeries> seriesList, List<FullSeries> fullSeries, decimal FromChapter, decimal maxChapter)
+    public static void AddCompletition(List<ProviderSeriesOption> seriesList, List<ProviderSeriesDetails> ProviderSeriesDetails, decimal FromChapter, decimal maxChapter)
     {
-        Dictionary<SmallSeries, List<StartStop>> fStartStop = new Dictionary<SmallSeries, List<StartStop>>();
-        foreach (SmallSeries s in seriesList)
+        Dictionary<ProviderSeriesOption, List<StartStop>> fStartStop = new Dictionary<ProviderSeriesOption, List<StartStop>>();
+        foreach (ProviderSeriesOption s in seriesList)
         {
-            FullSeries f = fullSeries.First(a => a.Id == s.Id && a.Provider == s.Provider && a.Lang == s.Lang && a.Scanlator == s.Scanlator);
+            ProviderSeriesDetails f = ProviderSeriesDetails.First(a => a.MihonId == s.MihonId && a.Provider == s.Provider && a.Lang == s.Lang && a.Scanlator == s.Scanlator);
             fStartStop[s] = f.Chapters.Select(a => a.Number).DecimalRanges()
                 .Select(c => new StartStop { Start = c.From, End = c.To }).ToList();
         }
         List<List<StartStop>> ls = fStartStop.Where(a => a.Key.Preferred).Select(a => a.Value).ToList();
-        Dictionary<SmallSeries, List<StartStop>> notPrefs = fStartStop.Where(a => !a.Key.Preferred).ToDictionary(a => a.Key, a => a.Value);
+        Dictionary<ProviderSeriesOption, List<StartStop>> notPrefs = fStartStop.Where(a => !a.Key.Preferred).ToDictionary(a => a.Key, a => a.Value);
         List<StartStop> current = MergeAllRanges(ls);
         if (IsRangeCompleted(new StartStop { Start = FromChapter, End = maxChapter }, current))
             return;
@@ -221,7 +230,7 @@ public static class SeriesExtensions
             return;
         if (notPrefs.Count == 0)
             return;
-        Dictionary<StartStop, List<SmallSeries>> matches = new Dictionary<StartStop, List<SmallSeries>>();
+        Dictionary<StartStop, List<ProviderSeriesOption>> matches = new Dictionary<StartStop, List<ProviderSeriesOption>>();
         foreach (StartStop m in missing)
         {
             foreach (var k in notPrefs)
@@ -229,14 +238,14 @@ public static class SeriesExtensions
                 if (IsRangeCompleted(m, k.Value))
                 {
                     if (!matches.ContainsKey(m))
-                        matches[m] = new List<SmallSeries>();
+                        matches[m] = new List<ProviderSeriesOption>();
                     matches[m].Add(k.Key);
                 }
             }
         }
         if (matches.Count == 0)
             return;
-        List<SmallSeries> final = MinimalCoveringSmallSeries(matches);
+        List<ProviderSeriesOption> final = MinimalCoveringProviderSeriesOption(matches);
         final.ForEach(a => a.Preferred = true);
     }
 
@@ -325,9 +334,9 @@ public static class SeriesExtensions
         return MergeRanges(all, null);
     }
 
-    public static List<SmallSeries> MinimalCoveringSmallSeries(Dictionary<StartStop, List<SmallSeries>> keyToSeries)
+    public static List<ProviderSeriesOption> MinimalCoveringProviderSeriesOption(Dictionary<StartStop, List<ProviderSeriesOption>> keyToSeries)
     {
-        var seriesToKeys = new Dictionary<SmallSeries, HashSet<StartStop>>();
+        var seriesToKeys = new Dictionary<ProviderSeriesOption, HashSet<StartStop>>();
         foreach (var kvp in keyToSeries)
         {
             StartStop key = kvp.Key;
@@ -342,10 +351,10 @@ public static class SeriesExtensions
             }
         }
         var uncovered = new HashSet<StartStop>(keyToSeries.Keys);
-        var result = new List<SmallSeries>();
+        var result = new List<ProviderSeriesOption>();
         while (uncovered.Count > 0)
         {
-            SmallSeries? best = null;
+            ProviderSeriesOption? best = null;
             int bestCover = -1;
             foreach (var kvp in seriesToKeys)
             {
@@ -367,14 +376,14 @@ public static class SeriesExtensions
     }
 
 
-    public static SeriesInfo ToSeriesInfo(this Models.Database.Series series, ContextProvider cp)
+    public static SeriesInfoDto ToSeriesInfo(this DbSeriesEntity series)
     {
-        var info = new SeriesInfo
+        var info = new SeriesInfoDto
         {
             Id = series.Id,
             Title = series.Title,
             Description = series.Description,
-            ThumbnailUrl = cp.BaseUrl + series.ThumbnailUrl,
+            ThumbnailUrl = series.ThumbnailUrl,
             Artist = series.Artist,
             Author = series.Author,
             Genre = series.Genre?.ToDistinctPascalCase() ?? new List<string>(),
@@ -388,17 +397,12 @@ public static class SeriesExtensions
 
         if (series.Sources != null && series.Sources.Count > 0)
         {
-            SmallProviderInfo? lastChangeProvider = null;
+            SmallProviderDto? lastChangeProvider = null;
             DateTime dt = DateTime.MinValue;
 
             foreach (var provider in series.Sources.Where(a => !a.IsDisabled))
             {
-                SmallProviderInfo sm = new SmallProviderInfo();
-                sm.Provider = provider.Provider;
-                sm.Scanlator = provider.Scanlator;
-                sm.Language = provider.Language;
-                sm.IsStorage = provider.IsStorage;
-                sm.Url = provider.Url;
+                    SmallProviderDto sm = provider.ToSmallProviderDto();
                 DateTime? last = provider.Chapters.Where(a => !string.IsNullOrEmpty(a.Filename))
                     .MaxNull(c => c.DownloadDate);
                 if (last != null && last > dt)
@@ -410,7 +414,7 @@ public static class SeriesExtensions
                 info.Providers.Add(sm);
             }
 
-            info.LastChapter = series.Sources.Max((SeriesProvider a) => a.Chapters.Max((Chapter c) => c.Number));
+            info.LastChapter = series.Sources.Max((SeriesProviderEntity a) => a.Chapters.Max((Chapter c) => c.Number));
             if (lastChangeProvider != null)
             {
                 info.LastChangeProvider = lastChangeProvider;
@@ -418,7 +422,7 @@ public static class SeriesExtensions
             }
             else
             {
-                info.LastChangeProvider = new SmallProviderInfo();
+                info.LastChangeProvider = new SmallProviderDto();
                 info.LastChangeUTC = DateTime.MinValue;
             }
         }
@@ -430,9 +434,9 @@ public static class SeriesExtensions
     /// </summary>
     /// <param name="consolidatedSeries">Consolidated full series data</param>
     /// <returns>New Series entity</returns>
-    public static Models.Database.Series ToSeries(this FullSeries consolidatedSeries, string storagePath)
+    public static DbSeriesEntity ToSeries(this ProviderSeriesDetails consolidatedSeries, string storagePath)
     {
-        return new Models.Database.Series
+        return new DbSeriesEntity
         {
             Id = Guid.NewGuid(),
             Title = consolidatedSeries.Title,
@@ -444,16 +448,16 @@ public static class SeriesExtensions
             Status = consolidatedSeries.Status,
             StoragePath = storagePath,
             Type = consolidatedSeries.Type,
-            ChapterCount = consolidatedSeries.ChapterCount,
-            Sources = new List<SeriesProvider>()
+            ChapterCount = SeriesModelExtensions.ClampChapterCount(consolidatedSeries.ChapterCount),
+            Sources = new List<SeriesProviderEntity>()
         };
     }
     /// <summary>
-    /// Consolidates data from multiple full series into a single FullSeries object
+    /// Consolidates data from multiple full series into a single ProviderSeriesDetails object
     /// </summary>
     /// <param name="seriesList">List of full series with details from different sources</param>
-    /// <returns>A consolidated FullSeries object</returns>
-    public static FullSeries ConsolidateSeriesData(this List<FullSeries> seriesList)
+    /// <returns>A consolidated ProviderSeriesDetails object</returns>
+    public static ProviderSeriesDetails ConsolidateSeriesData(this List<ProviderSeriesDetails> seriesList)
     {
         if (seriesList.Count == 0)
         {
@@ -529,11 +533,11 @@ public static class SeriesExtensions
     }
 
     /// <summary>
-    /// Count the number of non-null fields in a FullSeries object
+    /// Count the number of non-null fields in a ProviderSeriesDetails object
     /// </summary>
     /// <param name="series">The series to analyze</param>
     /// <returns>The number of non-null fields</returns>
-    public static int CountNonNullFields(this FullSeries series)
+    public static int CountNonNullFields(this ProviderSeriesDetails series)
     {
         int count = 0;
 
@@ -550,7 +554,7 @@ public static class SeriesExtensions
     }
 
 
-    public static decimal? CalculateContinueAfterChapter(this IEnumerable<SeriesProvider> providers, decimal? startChapter)
+    public static decimal? CalculateContinueAfterChapter(this IEnumerable<SeriesProviderEntity> providers, decimal? startChapter)
     {
         decimal? continueAfterChapter = providers
             .SelectMany(a => a.Chapters.Where(b => !string.IsNullOrEmpty(b.Filename) && !b.IsDeleted))
@@ -558,7 +562,7 @@ public static class SeriesExtensions
         if (startChapter.HasValue && (continueAfterChapter == null || startChapter > continueAfterChapter))
             continueAfterChapter = startChapter - .1m;
         decimal? maxStPossible = providers.Where(a => a.IsStorage).SelectMany(a => a.Chapters).Max(a => a.Number);
-        foreach (SeriesProvider s in providers)
+        foreach (SeriesProviderEntity s in providers)
         {
             decimal? proposedMax = Decimal.MaxValue;
 
@@ -588,14 +592,14 @@ public static class SeriesExtensions
         return continueAfterChapter;
     }
 
-    public static void AssignArchives(this SeriesProvider provider, List<ArchiveInfo>? archives)
+    public static void AssignArchives(this SeriesProviderEntity provider, List<ProviderArchiveSnapshot>? archives)
     {
         if (provider.Chapters.Count > 0 && archives != null)
         {
-            List<ArchiveInfo> processed = new List<ArchiveInfo>();
-            List<ArchiveInfo> notProcessed = new List<ArchiveInfo>();
+            List<ProviderArchiveSnapshot> processed = new List<ProviderArchiveSnapshot>();
+            List<ProviderArchiveSnapshot> notProcessed = new List<ProviderArchiveSnapshot>();
             //map existing chapters to archives
-            foreach (ArchiveInfo arch in archives)
+            foreach (ProviderArchiveSnapshot arch in archives)
             {
                 Chapter? c = provider.Chapters.FirstOrDefault(a => a.Number == arch.ChapterNumber);
                 if (c != null)
@@ -616,7 +620,7 @@ public static class SeriesExtensions
         if (archives != null)
         {
             List<Chapter> toBeDeletedChapters = provider.Chapters.ToList();
-            foreach (ArchiveInfo a in archives)
+            foreach (ProviderArchiveSnapshot a in archives)
             {
                 Chapter? pc = provider.Chapters.FirstOrDefault(c => c.Number == a.ChapterNumber);
 
@@ -649,12 +653,12 @@ public static class SeriesExtensions
     }
 
 
-    public static SeriesProvider CreateOrUpdate(this FullSeries fs,
-        SeriesProvider? provider = null)
+    public static SeriesProviderEntity CreateOrUpdate(this ProviderSeriesDetails fs,
+        SeriesProviderEntity? provider = null)
     {
         if (provider == null)
         {
-            provider = new SeriesProvider
+            provider = new SeriesProviderEntity
             {
                 Id = Guid.NewGuid(),
                 Provider = fs.Provider,
@@ -667,9 +671,11 @@ public static class SeriesExtensions
         }
 
 
-        provider.SuwayomiId = int.Parse(fs.Id);
+        provider.MihonId = fs.MihonId;
+        provider.MihonProviderId = fs.MihonProviderId;
+        provider.BridgeItemInfo = fs.BridgeItemInfo;
         provider.Url = fs.Url;
-        provider.ThumbnailUrl = fs.ThumbnailUrl.RemoveSchemaDomainFromUrl();
+        provider.ThumbnailUrl = fs.ThumbnailUrl;
         provider.Artist = fs.Artist;
         provider.Author = fs.Author;
         provider.Description = fs.Description;
@@ -683,6 +689,7 @@ public static class SeriesExtensions
         provider.FetchDate = fs.LastUpdatedUTC;
         provider.IsTitle = fs.UseTitle;
         provider.IsCover = fs.UseCover;
+        provider.IsLocal = fs.IsLocal;
         foreach (Chapter c in fs.Chapters)
         {
             Chapter? pc = provider.Chapters.FirstOrDefault(a => a.Number == c.Number);
@@ -705,9 +712,9 @@ public static class SeriesExtensions
         return provider;
     }
 
-    public static SeriesStatus BestStatus(IEnumerable<SeriesProvider> providers)
+    public static SeriesStatus BestStatus(IEnumerable<SeriesProviderEntity> providers)
     {
-        SeriesProvider? p = providers.Where(a => a.Status != SeriesStatus.UNKNOWN).OrderBy(a=>a.Status).FirstOrDefault();
+        SeriesProviderEntity? p = providers.Where(a => a.Status != SeriesStatus.UNKNOWN).OrderBy(a=>a.Status).FirstOrDefault();
         if (p == null)
             p = providers.FirstOrDefault();
         if (p == null)
@@ -715,14 +722,14 @@ public static class SeriesExtensions
         return p.Status;
     }
 
-    // Consolidates data from multiple SeriesProvider into a single FullSeries-like object
-    public static FullSeries ToFullSeries(this IEnumerable<SeriesProvider> providers)
+    // Consolidates data from multiple SeriesProvider into a single ProviderSeriesDetails-like object
+    public static ProviderSeriesDetails ToProviderSeriesDetails(this IEnumerable<SeriesProviderEntity> providers)
     {
         if (!providers.Any())
             throw new ArgumentException("No providers given for consolidation");
 
         // Find the provider with the most complete data
-        SeriesProvider best = providers.First();
+        SeriesProviderEntity best = providers.First();
         int bestScore = best.CountNonNullFields();
         string? bestCover = best.ThumbnailUrl;
         foreach (var prov in providers)
@@ -745,10 +752,13 @@ public static class SeriesExtensions
                 foreach (var genre in prov.Genre)
                     allGenres.Add(genre);
 
-        // Build a FullSeries-like object (do not mutate providers)
-        FullSeries fs = new FullSeries
+        // Build a ProviderSeriesDetails-like object (do not mutate providers)
+        ProviderSeriesDetails fs = new ProviderSeriesDetails
         {
             Title = best.Title,
+            MihonId = best.MihonId,
+            BridgeItemInfo = best.BridgeItemInfo,
+            MihonProviderId = best.MihonProviderId,
             Description = string.IsNullOrEmpty(best.Description)
                 ? providers.FirstOrDefault(p => !string.IsNullOrEmpty(p.Description))?.Description ?? string.Empty
                 : best.Description,
@@ -774,7 +784,7 @@ public static class SeriesExtensions
 
 
     // Helper: Count non-null fields in SeriesProvider
-    public static int CountNonNullFields(this SeriesProvider provider)
+    public static int CountNonNullFields(this SeriesProviderEntity provider)
     {
         int count = 0;
         if (!string.IsNullOrEmpty(provider.Title)) count++;
@@ -833,24 +843,23 @@ public static class SeriesExtensions
         }
     }
 
-    public static SeriesProvider ToSeriesProvider(this ProviderInfo providerInfo)
+    public static SeriesProviderEntity ToSeriesProvider(this ImportProviderSnapshot ImportProviderSnapshot)
     {
-        return new SeriesProvider
+        return new SeriesProviderEntity
         {
             Id = Guid.NewGuid(),
-            Provider = providerInfo.Provider,
-            Language = providerInfo.Language,
-            Scanlator = providerInfo.Scanlator ?? string.Empty,
-            Title = providerInfo.Title,
+            Provider = ImportProviderSnapshot.Provider,
+            Language = ImportProviderSnapshot.Language,
+            Scanlator = ImportProviderSnapshot.Scanlator ?? string.Empty,
+            Title = ImportProviderSnapshot.Title,
             IsDisabled = false,
             Chapters = [],
-            IsUnknown = providerInfo.Provider == "Unknown",
-            SuwayomiId = 0,
-            ThumbnailUrl = providerInfo.ThumbnailUrl,
-            ChapterCount = providerInfo.ChapterCount > 0 ? providerInfo.ChapterCount : null,
-            ContinueAfterChapter = providerInfo.Archives?.Max(a => a.ChapterNumber),
-            IsStorage = providerInfo.IsStorage,
-            Status = providerInfo.Status,
+            IsUnknown = ImportProviderSnapshot.Provider == "Unknown",
+            ThumbnailUrl = ImportProviderSnapshot.ThumbnailUrl,
+            ChapterCount = ImportProviderSnapshot.ChapterCount > 0 ? ImportProviderSnapshot.ChapterCount : null,
+            ContinueAfterChapter = ImportProviderSnapshot.Archives?.Max(a => a.ChapterNumber),
+            IsStorage = ImportProviderSnapshot.IsStorage,
+            Status = ImportProviderSnapshot.Status,
             FetchDate = DateTime.UtcNow,
             IsTitle = false,
             IsCover = false,
@@ -896,7 +905,7 @@ public static class SeriesExtensions
         return null; // No match found
     }
 
-    public static void FillSeriesFromFullSeries(this Models.Database.Series dbSeries, FullSeries consolidatedSeries, decimal? startFromChapter)
+    public static void FillSeriesFromProviderSeriesDetails(this DbSeriesEntity dbSeries, ProviderSeriesDetails consolidatedSeries, decimal? startFromChapter)
     {
         dbSeries.Title = consolidatedSeries.Title;
         dbSeries.Description = consolidatedSeries.Description ?? string.Empty;
@@ -906,9 +915,13 @@ public static class SeriesExtensions
         dbSeries.Genre = consolidatedSeries.Genre ?? new List<string>();
         dbSeries.Type = consolidatedSeries.Type;
         dbSeries.StartFromChapter = startFromChapter;
-        if (consolidatedSeries.ChapterCount > dbSeries.ChapterCount)
+        int normalizedChapterCount = SeriesModelExtensions.ClampChapterCount(consolidatedSeries.ChapterCount);
+        if (normalizedChapterCount > dbSeries.ChapterCount)
         {
-            dbSeries.ChapterCount = consolidatedSeries.ChapterCount;
+            dbSeries.ChapterCount = normalizedChapterCount;
         }
     }
+
 }
+
+

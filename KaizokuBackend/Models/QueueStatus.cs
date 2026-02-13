@@ -1,3 +1,0 @@
-﻿namespace KaizokuBackend.Models;
-
-

@@ -15,7 +15,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
     /// Manages the collectible <see cref="AssemblyLoadContext"/> for unloading and creates source bridges.
     /// </summary>
     
-    public class ExtensionInterop : IExtensionInterop
+    public class ExtensionInterop : IExtensionInterop, IDisposable
     {
         /// <summary>
         /// Logger instance for diagnostics and tracing.

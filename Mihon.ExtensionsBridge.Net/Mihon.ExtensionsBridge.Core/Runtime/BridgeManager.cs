@@ -4,6 +4,7 @@ using extension.bridge;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Runtime
 {
@@ -93,7 +94,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         }
         public async Task SetPreferencesAsync(Mihon.ExtensionsBridge.Models.Preferences prefs, CancellationToken cancellationToken)
         {
-            ((Action)(() => {
+           // ((Action)(() => {
                 SettingsConfig.Settings config = ConfigKt.getSettings();
                 Dictionary<string, Dictionary<string, string>> overrides = MapMapToDictionary(config.getInterceptorOverrides());
                 bool update = false;
@@ -174,7 +175,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                     ConfigKt.setSettings(config);
                 }
               //  SettingsConfig.Settings config2 = ConfigKt.getSettings();
-            })).InvokeInJavaContext();
+            //})).InvokeInJavaContext();
             
 
             await _workingFolderStructure.SavePreferencesAsync(prefs, cancellationToken);
@@ -199,7 +200,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             _logger.LogInformation("Bridge Manager initializing...");
             await _internalRepositoryManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
             await _internalExtensionsManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
-            List<RepositoryEntry> entries = (await _internalExtensionsManager.ListExtensionsAsync(cancellationToken)).SelectMany(a => a.Entries).ToList();
+            List<RepositoryEntry> entries = _internalExtensionsManager.ListExtensions().SelectMany(a => a.Entries).ToList();
             await _internalExtensionsManager.ValidateAndRecompileAsync(entries, cancellationToken).ConfigureAwait(false);
             await _internalRepositoryManager.RefreshAllRepositoriesAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Bridge Manager initialized.");

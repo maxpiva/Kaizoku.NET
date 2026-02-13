@@ -1,8 +1,8 @@
 
 using Microsoft.AspNetCore.Mvc;
-using KaizokuBackend.Models;
 using System.ComponentModel.DataAnnotations;
 using KaizokuBackend.Services.Settings;
+using KaizokuBackend.Models.Dto;
 
 namespace KaizokuBackend.Controllers
 {
@@ -31,9 +31,9 @@ namespace KaizokuBackend.Controllers
         /// <response code="200">Returns the current settings</response>
         /// <response code="500">If an error occurs while retrieving settings</response>
         [HttpGet]
-        [ProducesResponseType(typeof(Settings), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(SettingsDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<Settings>> GetAsync(CancellationToken token = default)
+        public async Task<ActionResult<SettingsDto>> GetAsync(CancellationToken token = default)
         {
             try
             {
@@ -84,7 +84,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> UpdateAsync([FromBody][Required] Settings settings, CancellationToken token = default)
+        public async Task<IActionResult> UpdateAsync([FromBody][Required] SettingsDto settings, CancellationToken token = default)
         {
             if (!ModelState.IsValid)
             {

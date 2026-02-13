@@ -3,6 +3,7 @@ using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Downloads;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Jobs.Commands;
 

@@ -1,7 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Search;
-using KaizokuBackend.Models;
 using KaizokuBackend.Services.Settings;
+using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
 {
@@ -15,17 +16,20 @@ namespace KaizokuBackend.Controllers
         private readonly ILogger _logger;
         private readonly SearchQueryService _searchQueryService;
         private readonly SearchCommandService _searchCommandService;
+        private readonly ThumbCacheService _thumbs;
         private readonly SettingsService _settings;
         
         public SearchController(
             ILogger<SearchController> logger, 
             SearchQueryService searchQueryService,
             SearchCommandService searchCommandService,
+            ThumbCacheService thumbs,
             SettingsService settingsService) 
         {
             _searchQueryService = searchQueryService;
             _searchCommandService = searchCommandService;
             _settings = settingsService;
+            _thumbs = thumbs;
             _logger = logger;
         }
         /// <summary>
@@ -41,7 +45,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<AugmentedResponse>> AugmentSeriesAsync([FromBody] List<LinkedSeries> linkedSeries, CancellationToken token = default)
+        public async Task<ActionResult<AugmentedResponseDto>> AugmentSeriesAsync([FromBody] List<LinkedSeriesDto> linkedSeries, CancellationToken token = default)
         {
             try
             {
@@ -51,6 +55,7 @@ namespace KaizokuBackend.Controllers
                 }
 
                 var augmentedSeries = await _searchCommandService.AugmentSeriesAsync(linkedSeries, token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(augmentedSeries.Series, "/api/image/", token).ConfigureAwait(false);
                 return Ok(augmentedSeries);
             }
             catch (Exception ex)
@@ -67,7 +72,7 @@ namespace KaizokuBackend.Controllers
         [HttpGet("sources")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<List<SearchSource>>> GetAvailableSearchSourcesAsync(CancellationToken token = default)
+        public async Task<ActionResult<List<SearchSourceDto>>> GetAvailableSearchSourcesAsync(CancellationToken token = default)
         {
             try
             {
@@ -91,7 +96,7 @@ namespace KaizokuBackend.Controllers
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<List<LinkedSeries>>> SearchSeriesAsync(
+        public async Task<ActionResult<List<LinkedSeriesDto>>> SearchSeriesAsync(
             [FromQuery] string keyword,
             [FromQuery] string? languages = null, 
             [FromQuery] List<string>? searchSources = null, 
@@ -114,6 +119,7 @@ namespace KaizokuBackend.Controllers
             try
             {
                 var results = await _searchQueryService.SearchSeriesAsync(keyword, languageList, searchSources, 0.1f, token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(results, "/api/image/", token).ConfigureAwait(false);
                 return Ok(results);
             }
             catch (Exception ex)

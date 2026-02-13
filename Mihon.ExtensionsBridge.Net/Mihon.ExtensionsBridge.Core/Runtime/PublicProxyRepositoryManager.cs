@@ -1,4 +1,5 @@
-﻿using Mihon.ExtensionsBridge.Core.Extensions;
+﻿using Mihon.ExtensionsBridge.Core.Abstractions;
+using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 
@@ -18,9 +19,9 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             return _internalRepositoryManager.AddOnlineRepositoryAsync(addRepo, token);
         }
 
-        public async Task<List<TachiyomiRepository>> ListOnlineRepositoryAsync(CancellationToken token = default)
+        public List<TachiyomiRepository> ListOnlineRepositories()
         {
-            List<TachiyomiRepository> repos = await _internalRepositoryManager.ListOnlineRepositoryAsync(token).ConfigureAwait(false);
+            List<TachiyomiRepository> repos = _internalRepositoryManager.ListOnlineRepositories();
             return repos.ConvertAll(x => x.Clone());
         }
 

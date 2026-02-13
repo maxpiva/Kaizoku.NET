@@ -4,6 +4,7 @@ using Mihon.ExtensionsBridge.Models.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Threading;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Services
 {
@@ -74,16 +75,14 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// <remarks>
         /// The returned list is a copy and is safe to use outside the lock.
         /// </remarks>
-        public async Task<List<TachiyomiRepository>> ListOnlineRepositoryAsync(CancellationToken token = default)
+        public List<TachiyomiRepository> ListOnlineRepositories()
         {
             if (!_initialized)
                 throw new InvalidOperationException("RepositoryManager is not initialized. Call InitializeAsync() before using this method.");
-            await _onlineReposLock.WaitAsync(token).ConfigureAwait(false);
+            _onlineReposLock.Wait();
             try
             {
-                var result = new List<TachiyomiRepository>(OnlineRepositories);
-                _logger.LogInformation("Listed {Count} online repositories.", result.Count);
-                return result;
+                return new List<TachiyomiRepository>(OnlineRepositories);
             }
             finally
             {

@@ -1,5 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using KaizokuBackend.Models;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Helpers;
+using Mihon.ExtensionsBridge.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Services.Providers
@@ -9,14 +15,14 @@ namespace KaizokuBackend.Services.Providers
     /// </summary>
     public class ProviderQueryService
     {
-        private readonly SuwayomiClient _suwayomiClient;
         private readonly ProviderCacheService _providerCache;
         private readonly ContextProvider _baseUrl;
+        private readonly ExtensionsBridgeService _extensionsBridge;
         private readonly ILogger<ProviderQueryService> _logger;
 
-        public ProviderQueryService(SuwayomiClient suwayomiClient, ProviderCacheService providerCache, ContextProvider baseUrl, ILogger<ProviderQueryService> logger)
+        public ProviderQueryService(ExtensionsBridgeService extensionsBridge, ProviderCacheService providerCache, ContextProvider baseUrl, ILogger<ProviderQueryService> logger)
         {
-            _suwayomiClient = suwayomiClient;
+            _extensionsBridge = extensionsBridge;
             _providerCache = providerCache;
             _baseUrl = baseUrl;
             _logger = logger;
@@ -31,7 +37,7 @@ namespace KaizokuBackend.Services.Providers
         {
             try
             {
-                return await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
+                return await GetExtensionsWithStatusAsync(token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -49,7 +55,7 @@ namespace KaizokuBackend.Services.Providers
         {
             try
             {
-                var extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
+                var extensions = await GetExtensionsWithStatusAsync(token).ConfigureAwait(false);
                 return extensions.Where(ext => ext.HasUpdate && ext.Installed).ToList();
             }
             catch (Exception ex)
@@ -69,8 +75,14 @@ namespace KaizokuBackend.Services.Providers
         {
             try
             {
-                var iconStream = await _suwayomiClient.GetExtensionIconAsync(apkName, token).ConfigureAwait(false);
-                
+                var realPackageId = apkName?.Split('!')[0] ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(realPackageId))
+                {
+                    return new NotFoundResult();
+                }
+
+                var iconStream = await _extensionsBridge.GetExtensionIconStreamAsync(realPackageId, token).ConfigureAwait(false);
+
                 if (iconStream == null || iconStream.Length == 0)
                 {
                     return new NotFoundResult();
@@ -88,24 +100,52 @@ namespace KaizokuBackend.Services.Providers
         /// <summary>
         /// Gets required extensions for a list of provider infos
         /// </summary>
-        /// <param name="providerInfos">List of provider information</param>
+        /// <param name="ImportProviderSnapshots">List of provider information</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of required extensions</returns>
-        public async Task<List<SuwayomiExtension>> GetRequiredExtensionsAsync(List<ProviderInfo> providerInfos, CancellationToken token = default)
+        public async Task<List<SuwayomiExtension>> GetRequiredExtensionsAsync(List<ImportProviderSnapshot> ImportProviderSnapshots, CancellationToken token = default)
         {
             try
             {
-                var extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
+                if (ImportProviderSnapshots == null || ImportProviderSnapshots.Count == 0)
+                {
+                    return [];
+                }
+
+                var extensions = await GetExtensionsWithStatusAsync(token).ConfigureAwait(false);
                 var requiredExtensions = new List<SuwayomiExtension>();
                 
-                var providerNames = providerInfos.Select(p => p.Provider).Distinct().ToList();
-                
+                var packageIds = ImportProviderSnapshots
+                    .Select(p => p.ExtensionPackageId)
+                    .Where(pkg => !string.IsNullOrWhiteSpace(pkg))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var packageId in packageIds)
+                {
+                    var extension = extensions.FirstOrDefault(ext =>
+                        ext.PkgName.Equals(packageId, StringComparison.OrdinalIgnoreCase) &&
+                        !ext.Installed);
+
+                    if (extension != null)
+                    {
+                        requiredExtensions.Add(extension);
+                    }
+                }
+
+                var providerNames = ImportProviderSnapshots
+                    .Where(p => string.IsNullOrWhiteSpace(p.ExtensionPackageId))
+                    .Select(p => p.Provider)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
                 foreach (var providerName in providerNames)
                 {
-                    var extension = extensions.FirstOrDefault(ext => 
-                        ext.Name.Equals(providerName, StringComparison.OrdinalIgnoreCase) && 
+                    var extension = extensions.FirstOrDefault(ext =>
+                        ext.Name.Equals(providerName, StringComparison.OrdinalIgnoreCase) &&
                         !ext.Installed);
-                        
+
                     if (extension != null)
                     {
                         requiredExtensions.Add(extension);
@@ -131,35 +171,143 @@ namespace KaizokuBackend.Services.Providers
             try
             {
                 await _providerCache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                var extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
-
-                // Update icon URLs to point to the API base URL
-                foreach (var extension in extensions)
-                {
-                    extension.IconUrl = _baseUrl.RewriteExtensionIcon(extension);
-                }
-
-                // Group extensions by name to show only the latest version
-                var groupedExtensions = extensions
-                    .GroupBy(e => e.Name)
-                    .ToDictionary(g => g.Key, g => g.ToList());
-
-                // Keep only the latest version of each extension
-                var latestExtensions = new List<SuwayomiExtension>();
-                foreach (var group in groupedExtensions.Values)
-                {
-                    var latest = group.OrderBy(a => Version.Parse(a.VersionName)).Last();
-                    latestExtensions.Add(latest);
-                }
-
-                // Sort extensions by name and then by language, with 'all' languages first
-                return latestExtensions.OrderBy(a => a.Name).ThenBy(a => a.Lang == "all" ? "!" : a.Lang).ToList();
+                var extensions = await GetExtensionsWithStatusAsync(token).ConfigureAwait(false);
+                return extensions.OrderBy(a => a.Name).ThenBy(a => a.Lang == "all" ? "!" : a.Lang).ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving extensions");
                 throw;
             }
+        }
+
+        private async Task<List<SuwayomiExtension>> GetExtensionsWithStatusAsync(CancellationToken token)
+        {
+            var installed = await _extensionsBridge.GetInstalledExtensionsAsync(false, token).ConfigureAwait(false);
+            var installedLookup = installed.ToDictionary(e => e.PackageId, StringComparer.OrdinalIgnoreCase);
+
+            var repositories = await _extensionsBridge.GetOnlineRepositoriesAsync(false, token).ConfigureAwait(false);
+            var results = new List<SuwayomiExtension>();
+
+            foreach (var repository in repositories)
+            {
+                foreach (var extension in repository.Extensions)
+                {
+                    installedLookup.TryGetValue(extension.Package, out var descriptor);
+                    results.Add(MapExtension(repository, extension, descriptor));
+                    if (descriptor != null)
+                    {
+                        installedLookup.Remove(extension.Package);
+                    }
+                }
+            }
+
+            foreach (var descriptor in installedLookup.Values)
+            {
+                results.Add(MapInstalledDescriptor(descriptor));
+            }
+
+            return results
+                .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderBy(e => Version.Parse(e.VersionName)).Last())
+                .ToList();
+        }
+
+        private SuwayomiExtension MapExtension(TachiyomiRepository repository, TachiyomiExtension extension, BridgeExtensionDescriptor? descriptor)
+        {
+            var dto = new SuwayomiExtension
+            {
+                Repo = repository.Name,
+                Name = extension.Name,
+                PkgName = extension.Package,
+                ExtensionPackageId = extension.Package,
+                ExtensionRepositoryId = repository.Id,
+                VersionName = extension.Version,
+                VersionCode = extension.VersionCode,
+                Lang = extension.Language,
+                ApkName = descriptor?.ApkName ?? extension.Apk,
+                IsNsfw = extension.Nsfw != 0,
+                Installed = descriptor != null,
+                HasUpdate = descriptor != null && extension.VersionCode > descriptor.VersionCode,
+                IconUrl = descriptor != null ? $"/icon/{descriptor.PackageId}" : "/icon/unknown",
+                Obsolete = false
+            };
+
+            dto.IconUrl = _baseUrl.RewriteExtensionIcon(dto);
+            dto.Sources = descriptor != null
+                ? MapSourcesFromDescriptor(descriptor)
+                : MapSourcesFromRepository(extension);
+            return dto;
+        }
+
+        private SuwayomiExtension MapInstalledDescriptor(BridgeExtensionDescriptor descriptor)
+        {
+            var dto = new SuwayomiExtension
+            {
+                Repo = "local",
+                Name = descriptor.Name,
+                PkgName = descriptor.PackageId,
+                ExtensionPackageId = descriptor.PackageId,
+                ExtensionRepositoryId = descriptor.RepositoryId,
+                VersionName = descriptor.Version,
+                VersionCode = descriptor.VersionCode,
+                Lang = descriptor.Language,
+                ApkName = descriptor.ApkName,
+                IsNsfw = descriptor.IsNsfw,
+                Installed = true,
+                HasUpdate = false,
+                IconUrl = $"/icon/{descriptor.PackageId}",
+                Obsolete = false,
+                Sources = MapSourcesFromDescriptor(descriptor)
+            };
+
+            dto.IconUrl = _baseUrl.RewriteExtensionIcon(dto);
+            return dto;
+        }
+
+        private static List<ExtensionSourceSummary> MapSourcesFromRepository(TachiyomiExtension extension)
+        {
+            if (extension.Sources == null || extension.Sources.Count == 0)
+            {
+                return [];
+            }
+
+            var summaries = new List<ExtensionSourceSummary>(extension.Sources.Count);
+            foreach (var source in extension.Sources)
+            {
+                if (!long.TryParse(source.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedId))
+                {
+                    continue;
+                }
+
+                summaries.Add(new ExtensionSourceSummary
+                {
+                    SourceId = parsedId,
+                    Name = source.Name,
+                    Lang = source.Language,
+                    SupportsLatest = false,
+                    IsConfigurable = false
+                });
+            }
+
+            return summaries;
+        }
+
+        private static List<ExtensionSourceSummary> MapSourcesFromDescriptor(BridgeExtensionDescriptor descriptor)
+        {
+            if (descriptor.Sources == null || descriptor.Sources.Count == 0)
+            {
+                return [];
+            }
+
+            return descriptor.Sources.Select(source => new ExtensionSourceSummary
+            {
+                SourceId = source.SourceId,
+                Name = source.Name,
+                Lang = source.Language,
+                SupportsLatest = source.SupportsLatest,
+                IsConfigurable = source.IsConfigurable
+            }).ToList();
         }
     }
 }

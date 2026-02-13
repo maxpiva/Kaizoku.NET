@@ -7,6 +7,18 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
 {
     public static class RepositoriesExtensions
     {
+        public static string GetRelativeVersionFolder(this RepositoryEntry entry)
+        {
+            if (entry == null)
+                throw new ArgumentNullException(nameof(entry));
+            if (string.IsNullOrWhiteSpace(entry.RepositoryId))
+                throw new ArgumentException("RepositoryEntry must have a valid RepositoryId", nameof(entry));
+            if (string.IsNullOrWhiteSpace(entry.Extension.Version))
+                throw new ArgumentException("RepositoryEntry must have a valid Extension.Version", nameof(entry));
+            var versionFolder = Path.Combine(entry.Extension.GetName(), entry.Extension.Version + "_" + entry.RepositoryId);
+            return versionFolder;
+        }
+
         public static RepositoryEntry GetActiveEntry(this RepositoryGroup group)
         {
             if (group == null)

@@ -1,8 +1,8 @@
-﻿using KaizokuBackend.Models;
-using KaizokuBackend.Services.Jobs.Models;
+﻿using KaizokuBackend.Services.Jobs.Models;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using KaizokuBackend.Services.Series;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Jobs.Commands;
 

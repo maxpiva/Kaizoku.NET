@@ -9,10 +9,11 @@ using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Mihon.ExtensionsBridge.Models.Extensions;
 using static kotlin.reflect.jvm.@internal.ReflectProperties;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Runtime
 {
-    public class JarExtensionInterop : IExtensionInterop
+    public class JarExtensionInterop : IInternalExtensionInterop
     {
         private readonly ILogger _logger;
         private readonly IWorkingFolderStructure _structure;
@@ -50,34 +51,38 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
             if (!System.IO.File.Exists(jarPath))
                 throw new System.IO.FileNotFoundException("Jar file not found.", jarPath);
-
             Name = entry.Name;
             Version = entry.Extension.Version;
-
-            // Create URLClassLoader for this jar
-            var jarUrl = new URL(new java.io.File(jarPath).toURI().toURL().toString());
-            _classLoader = new URLClassLoader(new URL[] { jarUrl }, MiscExtensions.ClassLoader);
             string className = entry.Extension.Package + entry.ClassName;
-            object instance = new Func<object>(() =>
-            {
-                var classToLoad = Class.forName(className, true, _classLoader);
-                return classToLoad.newInstance();
-            }).InvokeInJavaContext();
+            java.util.List ops = null;
+            ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
             var list = new List<ISourceInterop>();
-            if (instance is SourceFactory sf)
-            {
-                foreach (var o in sf.createSources().toArray())
-                {
-                    var s = (eu.kanade.tachiyomi.source.Source)o;
-                    list.Add(new SourceInterop(s, logger));
-                }
-            }
-            else if (instance is Source s)
-            {
-                list.Add(new SourceInterop(s, logger));
-            }
-            else
-                throw new InvalidOperationException("The specified class is neither a SourceFactory nor a Source implementation.");
+            ops.toArray().Cast<Source>().ToList().ForEach(s => list.Add(new SourceInterop(s, logger)));
+            /*
+                        /
+                        // Create URLClassLoader for this jar
+                        var jarUrl = new URL(new java.io.File(jarPath).toURI().toURL().toString());
+                        _classLoader = new ChildFirstURLClassLoader(new URL[] { jarUrl }, MiscExtensions.ClassLoader);
+                        / new Action(() =>
+                       // {
+                            var classToLoad = Class.forName(className, false, _classLoader);
+                            object instance = classToLoad.newInstance();
+                            if (instance is SourceFactory sf)
+                            {
+                                foreach (var o in sf.createSources().toArray())
+                                {
+                                    var s = (eu.kanade.tachiyomi.source.Source)o;
+                                    list.Add(new SourceInterop(s, logger));
+                                }
+                            }
+                            else if (instance is Source s)
+                            {
+                                list.Add(new SourceInterop(s, logger));
+                            }
+                            else
+                                throw new InvalidOperationException("The specified class is neither a SourceFactory nor a Source implementation.");
+            */
+            // }).InvokeInJavaContext();
             _sources = list;
         }
 

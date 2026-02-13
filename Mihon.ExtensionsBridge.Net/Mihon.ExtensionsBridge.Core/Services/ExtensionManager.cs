@@ -14,6 +14,7 @@ using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using static kotlin.reflect.jvm.@internal.ReflectProperties;
 using static kotlinx.coroutines.channels.ChannelResult;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Services
 {
@@ -110,11 +111,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// <remarks>
         /// The returned list is a new instance detached from internal state. Modifying it does not affect stored groups.
         /// </remarks>
-        public async Task<List<RepositoryGroup>> ListExtensionsAsync(CancellationToken token = default)
+        public List<RepositoryGroup> ListExtensions()
         {
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
-            await _localExtensionsLock.WaitAsync(token).ConfigureAwait(false);
+            _localExtensionsLock.Wait();
             try
             {
                 return new List<RepositoryGroup>(LocalExtensions);
@@ -167,12 +168,12 @@ namespace Mihon.ExtensionsBridge.Core.Services
                         }
                     }
                 }
+                await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
             }
             finally
             {
                 _localExtensionsLock.Release();
             }
-            await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
             return group;
         }
 
@@ -196,12 +197,12 @@ namespace Mihon.ExtensionsBridge.Core.Services
                         }
                     }
                 }
+                await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
             }
             finally
             {
                 _localExtensionsLock.Release();
             }
-            await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
             return group;
         }
         
@@ -272,16 +273,17 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 throw;
             }
         }
-        public async Task<RepositoryGroup?> FindExtensionAsync(RepositoryGroup grp, CancellationToken token = default)
+        public RepositoryGroup? FindExtension(RepositoryGroup grp) => FindExtension(grp.Name);
+        public RepositoryGroup? FindExtension(string name)
         {
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
-            await _localExtensionsLock.WaitAsync(token).ConfigureAwait(false);
+            _localExtensionsLock.Wait();
             try
             {
                 foreach (var g in LocalExtensions)
                 {
-                    if (g.Name == grp.Name)
+                    if (g.Name == name)
                         return g;
                 }
             }
@@ -291,7 +293,6 @@ namespace Mihon.ExtensionsBridge.Core.Services
             }
             return null;
         }
-
 
         /// <summary>
         /// Removes a local extension repository group and disposes any cached interop.
@@ -462,8 +463,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 throw new ArgumentException("APK Tachiyomi library version is not a valid number.");
             }
             unit.Entry.Extension.Name = meta.getLabel();
-            if (unit.Entry.Extension.Name.StartsWith("Tachiyomi:"))
-                unit.Entry.Extension.Name = unit.Entry.Extension.Name.Substring(10).Trim();
+            unit.Entry.Extension.Name = unit.Entry.Extension.ParsedName();
             unit.Entry.Extension.Package = meta.getPackageName();
             unit.Entry.Extension.Version = meta.getVersionName();
             unit.Entry.Extension.VersionCode = meta.getVersionCode().intValue();
@@ -682,9 +682,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
         private async Task ObtainInformationAsync(ExtensionWorkUnit unitofWork, CancellationToken token = default) 
         {
 
-            using (IExtensionInterop iop = new JarExtensionInterop(_workingStructure, unitofWork.Entry, _logger, unitofWork.WorkingFolder.Path))
+            using (IInternalExtensionInterop iop = new JarExtensionInterop(_workingStructure, unitofWork.Entry, _logger, unitofWork.WorkingFolder.Path))
             {
-                ((Action) (() => {
+            //    ((Action) (() => {
                     string language = "all";
                     string firstLanguage = iop.Sources.First().Language;
                     if (iop.Sources.All(s => s.Language == firstLanguage))
@@ -722,7 +722,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                         _logger.LogWarning("Source {SourceName} (ID: {SourceId}) not found in compiled interop for extension {Apk} version {Version}; removing.", leftover.Name, leftover.Id, unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
                         unitofWork.Entry.Extension.Sources.Remove(leftover);
                     }
-                })).InvokeInJavaContext();
+              //  })).InvokeInJavaContext();
             }
             await AcceptWorkUnitAsync(unitofWork, token);
            

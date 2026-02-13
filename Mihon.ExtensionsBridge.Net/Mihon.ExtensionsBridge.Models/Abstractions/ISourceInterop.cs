@@ -13,8 +13,8 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         string Name { get; }
         bool SupportsLatest { get; }
 
-        Task<List<Chapter>> GetChaptersAsync(Manga manga, CancellationToken token = default);
-        Task<Manga> GetDetailsAsync(Manga manga, CancellationToken token = default);
+        Task<List<ParsedChapter>> GetChaptersAsync(Manga manga, CancellationToken token = default);
+        Task<ParsedManga> GetDetailsAsync(Manga manga, CancellationToken token = default);
         Task<ContentTypeStream> GetPageImageAsync(Page page, CancellationToken token = default);
         Task<ContentTypeStream> DownloadUrlAsync(string url, CancellationToken token = default);
         Task<MangaList> GetLatestAsync(int page, CancellationToken token = default);

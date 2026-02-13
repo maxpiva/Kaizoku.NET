@@ -1,5 +1,6 @@
-using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Series;
@@ -16,7 +17,7 @@ namespace KaizokuBackend.Controllers
         private readonly SeriesCommandService _commandService;
         private readonly SeriesProviderService _providerService;
         private readonly SeriesArchiveService _archiveService;
-        private readonly ProviderQueryService _providerQueryService;
+        private readonly ThumbCacheService _thumb;
         private readonly JobManagementService _jobManagementService;
 
         public SeriesController(ILogger<SeriesController> logger,
@@ -24,7 +25,7 @@ namespace KaizokuBackend.Controllers
             SeriesCommandService commandService,
             SeriesProviderService providerService,
             SeriesArchiveService archiveService,
-            ProviderQueryService providerQueryService,
+            ThumbCacheService thumbCacheService,
             JobManagementService jobManagementService)
         {
             _logger = logger;
@@ -32,7 +33,7 @@ namespace KaizokuBackend.Controllers
             _commandService = commandService;
             _providerService = providerService;
             _archiveService = archiveService;
-            _providerQueryService = providerQueryService;
+            _thumb = thumbCacheService;
             _jobManagementService = jobManagementService;
         }
 
@@ -43,14 +44,16 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>Extended information about the series.</returns>
         [HttpGet]
-        [ProducesResponseType(typeof(SeriesExtendedInfo), 200)]
+        [ProducesResponseType(typeof(SeriesExtendedDto), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<SeriesExtendedInfo>> GetSeriesAsync([FromQuery] Guid id, CancellationToken token = default)
+        public async Task<ActionResult<SeriesExtendedDto>> GetSeriesAsync([FromQuery] Guid id, CancellationToken token = default)
         {
             try
             {
                 var result = await _queryService.GetSeriesAsync(id, token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result.Providers,"/api/image/", token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result, "/api/image/", token).ConfigureAwait(false);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -61,9 +64,9 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpGet("verify")]
-        [ProducesResponseType(typeof(SeriesIntegrityResult), 200)]
+        [ProducesResponseType(typeof(SeriesIntegrityResultDto), 200)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<SeriesIntegrityResult>> VerifyIntegrityAsync([FromQuery] Guid g, CancellationToken token = default)
+        public async Task<ActionResult<SeriesIntegrityResultDto>> VerifyIntegrityAsync([FromQuery] Guid g, CancellationToken token = default)
         {
             try
             {
@@ -117,13 +120,16 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>List of series in the library.</returns>
         [HttpGet("library")]
-        [ProducesResponseType(typeof(List<SeriesInfo>), 200)]
+        [ProducesResponseType(typeof(List<SeriesInfoDto>), 200)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<List<SeriesInfo>>> GetLibraryAsync(CancellationToken token = default)
+        public async Task<ActionResult<List<SeriesInfoDto>>> GetLibraryAsync(CancellationToken token = default)
         {
             try
             {
                 var result = await _queryService.GetLibraryAsync(token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result, "/api/image/", token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result.SelectMany(a=>a.Providers).Where(a=>a!=null), "/api/image/", token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result.Where(a=>a.LastChangeProvider!=null).Select(a=>a.LastChangeProvider), "/api/image/", token).ConfigureAwait(false);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -134,13 +140,14 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpGet("latest")]
-        [ProducesResponseType(typeof(List<SeriesInfo>), 200)]
+        [ProducesResponseType(typeof(List<LatestSeriesDto>), 200)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<List<LatestSeriesInfo>>> GetLatestAsync([FromQuery] int start, [FromQuery] int count, [FromQuery] string? sourceId = null, [FromQuery] string? keyword = null, CancellationToken token = default)
+        public async Task<ActionResult<List<LatestSeriesDto>>> GetLatestAsync([FromQuery] int start, [FromQuery] int count, [FromQuery] string? sourceId = null, [FromQuery] string? keyword = null, CancellationToken token = default)
         {
             try
             {
                 var result = await _queryService.GetLatestAsync(start, count, sourceId, keyword, token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(result, "/api/image/", token).ConfigureAwait(false);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -151,67 +158,15 @@ namespace KaizokuBackend.Controllers
         }
 
         /// <summary>
-        /// Gets the icon for a source extension.
-        /// </summary>
-        /// <param name="apk">The APK name of the extension.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>The icon as an image result.</returns>
-        [HttpGet("source/icon/{apk}")]
-        [ProducesResponseType(typeof(FileResult), 200)]
-        [ProducesResponseType(500)]
-        public async Task<IActionResult> GetSourceIconAsync([FromRoute] string apk, CancellationToken token = default)
-        {
-            try
-            {
-                return await _providerQueryService.GetExtensionIconAsync(apk, token).ConfigureAwait(false);
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("Error getting source icon.");
-                return StatusCode(500, $"Error getting source icon.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting source icon: {Message}", ex.Message);
-                return StatusCode(500, $"Error getting source icon.");
-            }
-        }
-        /// <summary>
-        /// Gets the thumbnail for a series.
-        /// </summary>
-        /// <param name="id">The ID of the series.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>The thumbnail as an image result.</returns>
-        [HttpGet("thumb/{id}")]
-        [ProducesResponseType(typeof(FileResult), 200)]
-        [ProducesResponseType(500)]
-        public async Task<IActionResult> GetSeriesThumbAsync([FromRoute] string id, CancellationToken token = default)
-        {
-            try
-            {
-                return await _queryService.GetSeriesThumbnailAsync(id, token).ConfigureAwait(false);
-            }
-            catch (TaskCanceledException)
-            {
-                return StatusCode(500, $"Error getting series thumbnail, canceled.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error getting series thumbnail");
-                return StatusCode(500, $"Error getting series thumbnail");
-            }
-        }
-
-        /// <summary>
         /// Gets a provider match by provider ID.
         /// </summary>
         /// <param name="providerId">The provider's unique identifier.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The provider match if found.</returns>
         [HttpGet("match/{providerId}")]
-        [ProducesResponseType(typeof(ProviderMatch), 200)]
+        [ProducesResponseType(typeof(ProviderMatchDto), 200)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<ProviderMatch?>> GetMatchAsync([FromRoute] Guid providerId, CancellationToken token = default)
+        public async Task<ActionResult<ProviderMatchDto?>> GetMatchAsync([FromRoute] Guid providerId, CancellationToken token = default)
         {
             try
             {
@@ -235,7 +190,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(bool), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<bool>> SetMatchAsync([FromBody] ProviderMatch pmatch, CancellationToken token = default)
+        public async Task<ActionResult<bool>> SetMatchAsync([FromBody] ProviderMatchDto pmatch, CancellationToken token = default)
         {
             try
             {
@@ -261,7 +216,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
-        public async Task<IActionResult> AddSeriesAsync([FromBody] AugmentedResponse series, CancellationToken token = default)
+        public async Task<IActionResult> AddSeriesAsync([FromBody] AugmentedResponseDto series, CancellationToken token = default)
         {
             try
             {
@@ -290,7 +245,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
-        public async Task<ActionResult<SeriesExtendedInfo>> UpdateSeriesAsync([FromBody] SeriesExtendedInfo series, CancellationToken token = default)
+        public async Task<ActionResult<SeriesExtendedDto>> UpdateSeriesAsync([FromBody] SeriesExtendedDto series, CancellationToken token = default)
         {
             try
             {
@@ -300,6 +255,7 @@ namespace KaizokuBackend.Controllers
                 }
 
                 series = await _commandService.UpdateSeriesAsync(series, token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(series, "/api/image/", token).ConfigureAwait(false);
                 return Ok(series);
             }
             catch (Exception ex)

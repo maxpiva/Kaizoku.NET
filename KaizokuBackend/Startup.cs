@@ -2,14 +2,18 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Hubs;
 using KaizokuBackend.Services;
 using KaizokuBackend.Services.Background;
+using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Utils;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
-using System.Net;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
-using Polly;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models.Configuration;
+using Serilog;
+using Serilog.Extensions.Logging;
+using sun.java2d;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace KaizokuBackend
@@ -36,6 +40,13 @@ namespace KaizokuBackend
 
         public void ConfigureServices(IServiceCollection services)
         {
+            Serilog.ILogger logger = Log.Logger;
+            services.AddSerilog(logger, false, null);
+            services.Replace(ServiceDescriptor.Singleton<ILoggerFactory>(sp =>
+            {
+                return new LibraryTaggingLoggerFactory(new SerilogLoggerFactory(Log.Logger, false));
+            }));
+
             Logger.LogInformation("Initializing Kaizoku .NET...");
 
             services.AddOpenApi();
@@ -72,20 +83,18 @@ namespace KaizokuBackend
             services.AddSignalR();
             services.AddHttpContextAccessor();
             services.AddMemoryCache();
+            services.Configure<Paths>(a =>
+            {
+                a.BridgeFolder = Configuration.GetValue<string>("BridgeFolder", "extensions");
+                a.TempFolder = Configuration.GetValue<string>("TempFolder", string.Empty);
+            });
+            services.Configure<CacheOptions>(options =>
+            {
+                options.CachePath = Configuration.GetValue<string>("ThumbCacheFolder", "thumbs");
+                options.AgeInDays = Configuration.GetValue<int>("CacheCheckInDays", 7);
+            });
 
-            var retryPolicy = Policy<HttpResponseMessage>
-                .Handle<Exception>()
-                .OrResult(msg => !msg.IsSuccessStatusCode)
-                .WaitAndRetryAsync(3,(attempt, result, _) =>
-                    {
-                        if (result?.Result?.StatusCode == HttpStatusCode.TooManyRequests)
-                        {
-                            return TimeSpan.FromSeconds(Math.Pow(2, attempt)); // Exponential backoff
-                        }
-                        return TimeSpan.Zero; 
-                    }, (_,_,_,_) => Task.CompletedTask);
-
-            services.AddHttpClient<SuwayomiClient>().AddPolicyHandler(retryPolicy);
+            services.AddExtensionsBridge();
 
             // Add consolidated services
             services.AddImportService();
@@ -93,18 +102,13 @@ namespace KaizokuBackend
             services.AddJobServices();
             services.AddProviderServices();
             services.AddSearchServices();
-            services.AddDownloadServices(); 
+            services.AddDownloadServices();
             services.AddHelperServices();
-
-            
+            services.AddBackgroundServices();
 
             // Register AppDbContext with SQLite provider, using the connection string from configuration (now points to runtime/kaizoku.db)
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(Configuration.GetConnectionString("DefaultConnection")));
-            // Register Suwayomi service as singleton to maintain the process lifetime
-            services.AddSingleton<SuwayomiHostedService>();
             services.AddHostedService<StartupHostedService>();
-            services.AddHostedService<JobScheduledHostedService>();
-            services.AddHostedService<JobQueueHostedService>();
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

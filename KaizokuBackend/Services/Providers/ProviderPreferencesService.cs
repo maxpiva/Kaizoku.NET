@@ -1,10 +1,14 @@
 using KaizokuBackend.Data;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Bridge;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Models;
+using Mihon.ExtensionsBridge.Models.Extensions;
 using System.Collections.Concurrent;
 using System.Text.Json;
-using ValueType = KaizokuBackend.Models.ValueType;
+using ValueType = KaizokuBackend.Models.Enums.ValueType;
 
 namespace KaizokuBackend.Services.Providers
 {
@@ -13,14 +17,14 @@ namespace KaizokuBackend.Services.Providers
     /// </summary>
     public class ProviderPreferencesService
     {
-        private readonly SuwayomiClient _suwayomiClient;
+        private readonly MihonBridgeService _mihon;
         private readonly ProviderCacheService _providerCache;
         private readonly AppDbContext _db;
         private readonly ILogger<ProviderPreferencesService> _logger;
 
-        public ProviderPreferencesService(SuwayomiClient suwayomiClient, ProviderCacheService providerCache, AppDbContext db, ILogger<ProviderPreferencesService> logger)
+        public ProviderPreferencesService(MihonBridgeService mihon, ProviderCacheService providerCache, AppDbContext db, ILogger<ProviderPreferencesService> logger)
         {
-            _suwayomiClient = suwayomiClient;
+            _mihon = mihon;
             _providerCache = providerCache;
             _db = db;
             _logger = logger;
@@ -29,59 +33,37 @@ namespace KaizokuBackend.Services.Providers
         /// <summary>
         /// Gets provider preferences by APK name
         /// </summary>
-        /// <param name="apkName">APK name of the extension</param>
+        /// <param name="pkgName">Package name of the extension</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>Provider preferences or null if not found</returns>
-        public async Task<ProviderPreferences?> GetProviderPreferencesAsync(string apkName, CancellationToken token = default)
+        public async Task<ProviderPreferencesDto?> GetProviderPreferencesAsync(string pkgName, CancellationToken token = default)
         {
             try
             {
                 var providers = await _providerCache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                var provider = providers.FirstOrDefault(a => a.ApkName == apkName);
-                if (provider == null)
-                    return null;
-
-                // Create storage preference
-                var storagePreference = CreateStoragePreference(provider);
-                var preferences = new List<SuwayomiPreference> { storagePreference };
-
-                // Get all unique preferences ordered by English first
-                var allPreferences = OrderByEnglishFirst(provider.Mappings.ToList())
-                    .SelectMany(a => a.Preferences)
-                    .DistinctBy(a => a.props.key)
-                    .ToList();
-
-                // Fetch current preferences from Suwayomi
-                var sourceDict = new ConcurrentDictionary<string, List<SuwayomiPreference>>();
-                var sourceNames = allPreferences.Select(a => a.Source).Distinct().ToList();
-                
-                await Parallel.ForEachAsync(sourceNames, 
-                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
-                    async (sourceName, _) =>
-                    {
-                        var source = provider.Mappings.First(a => a.Source?.Id == sourceName).Source;
-                        if (source != null)
-                        {
-                            var prefs = await _suwayomiClient.GetSourcePreferencesAsync(source.Id, token).ConfigureAwait(false);
-                            RemoveSuffixPreferences(provider.Lang, source.Id, prefs);
-                            sourceDict[source.Id] = prefs;
-                        }
-                    }).ConfigureAwait(false);
-
-                // Build updated preferences list
-                var updatedPreferences = new List<SuwayomiPreference>();
-                foreach (var preference in allPreferences)
+                List<ProviderStorageEntity> storages = await _db.Providers.Where(a => a.SourcePackageName == pkgName).ToListAsync(token).ConfigureAwait(false);
+                if (storages.Count == 0)
                 {
-                    var updatedPref = sourceDict[preference.Source].First(a => a.props.key == preference.props.key);
-                    updatedPreferences.Add(updatedPref);
+                    _logger.LogError("No provider storage found for package '{PkgName}'", pkgName);
+                    return null;
                 }
-
-                preferences.AddRange(updatedPreferences);
-                return ConvertToProviderPreferences(apkName, preferences);
+                RepositoryGroup? repoGroup = _mihon.FindExtension(storages[0].Name);
+                if (repoGroup == null)
+                {
+                    _logger.LogError("Repository group for package '{PkgName}' not found", pkgName);
+                    return null;
+                }
+                var extInterop = await _mihon.GetInteropAsync(repoGroup, token).ConfigureAwait(false);
+                var allPreferences = await extInterop.LoadPreferencesAsync(token).ConfigureAwait(false);
+                // Create storage preference
+                var storagePreference = CreateStoragePreference(storages[0]);
+                var preferences = new List<UniquePreference> { storagePreference };
+                preferences.AddRange(allPreferences);
+                return ConvertToProviderPreferences(pkgName, storages[0], preferences);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting provider preferences for {ApkName}", apkName);
+                _logger.LogError(ex, "Error getting provider preferences for {PkgName}", pkgName);
                 return null;
             }
         }
@@ -91,71 +73,82 @@ namespace KaizokuBackend.Services.Providers
         /// </summary>
         /// <param name="preferences">Provider preferences to set</param>
         /// <param name="token">Cancellation token</param>
-        public async Task SetProviderPreferencesAsync(ProviderPreferences preferences, CancellationToken token = default)
+        public async Task SetProviderPreferencesAsync(ProviderPreferencesDto preferences, CancellationToken token = default)
         {
             try
             {
                 var providers = await _providerCache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                var provider = providers.FirstOrDefault(a => a.ApkName == preferences.ApkName);
-                if (provider == null)
-                    return;
-
-                // Handle storage preference
-                var storagePreference = preferences.Preferences.FirstOrDefault(a => a.Key == "isStorage");
-                if (storagePreference != null)
+                List<ProviderStorageEntity> storages= await _db.Providers.Where(a=>a.SourcePackageName== preferences.PkgName).ToListAsync(token).ConfigureAwait(false);
+                if (storages.Count == 0)
                 {
-                    var storageValue = (string)ConvertJsonObject(storagePreference.CurrentValue!);
-                    bool newValue = storageValue == "permanent";
-                    if (provider.IsStorage != newValue)
+                    _logger.LogError("No provider storage found for package '{PkgName}'", preferences.PkgName);
+                    return;
+                }
+                RepositoryGroup? repoGroup = _mihon.FindExtension(storages[0].Name);
+                if (repoGroup==null)
+                {
+                    _logger.LogError("Repository group for package '{PkgName}' not found", preferences.PkgName);
+                    return;
+                }
+                var extInterop = await _mihon.GetInteropAsync(repoGroup, token).ConfigureAwait(false);
+                ProviderPreferenceDto isStorage = preferences.Preferences.First(a => a.Index == -1);
+                preferences.Preferences.Remove(isStorage);
+                var storageValue = (string)ConvertJsonObject(isStorage.CurrentValue!);
+                bool newValue = storageValue == "permanent";
+                if (newValue != storages[0].IsStorage) //At this isStorage or not is for all source belonging to an extension.
+                {
+                    storages.ForEach(a=> a.IsStorage = newValue);
+                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                    await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
+                }
+                var allPreferences = await extInterop.LoadPreferencesAsync(token).ConfigureAwait(false);
+                bool change = false;
+                foreach(ProviderPreferenceDto p in preferences.Preferences)
+                {
+                    UniquePreference? u = allPreferences.FirstOrDefault(a => a.Preference.Index == p.Index);
+                    if (u!=null)
                     {
-                        ProviderStorage? pp = await _db.Providers.FirstOrDefaultAsync(a => a.Id == provider.Id, token)
-                            .ConfigureAwait(false);
-                        if (pp != null)
+                        if (ShouldUpdatePreference(p, u))
                         {
-                            pp.IsStorage = newValue;
-                            await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                            u.Preference.CurrentValue = (string)p.CurrentValue!;
+                            change = true;
                         }
                     }
-                    preferences.Preferences.Remove(storagePreference);
                 }
-
-                // Handle source preferences
-                if (preferences.Preferences.Count > 0)
-                {
-                    await UpdateSourcePreferencesAsync(provider, preferences.Preferences, token).ConfigureAwait(false);
-                }
+                await extInterop.SavePreferencesAsync(allPreferences, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting provider preferences for {ApkName}", preferences.ApkName);
+                _logger.LogError(ex, "Error setting provider preferences for {PkgName}", preferences.PkgName);
                 throw;
             }
         }
 
         #region Private Helper Methods
 
-        private static SuwayomiPreference CreateStoragePreference(ProviderStorage provider)
+        private static UniquePreference CreateStoragePreference(ProviderStorageEntity provider)
         {
-            return new SuwayomiPreference
+            return new UniquePreference
             {
-                type = "ListPreference",
-                props = new SuwayomiProp
+                Languages = new List<KeyLanguage> { new KeyLanguage { Key = "isStorage", Language = "english" } },
+                Preference = new Preference
                 {
-                    key = "isStorage",
-                    title = "Provider Download Defaults",
-                    summary = "Permanent providers always download new chapters and replace any existing copies from temporary providers.\nTemporary providers only download a chapter if they are the first to have it available.",
-                    entries = new List<string> { "Permanent", "Temporary" },
-                    entryValues = new List<string> { "permanent", "temporary" },
-                    defaultValueType = "String",
-                    defaultValue = "permanent",
-                    currentValue = provider.IsStorage ? "permanent" : "temporary"
+                    Index = -1,
+                    Type = "ListPreference",
+                    Title = "Provider Download Defaults",
+                    Summary = "Permanent providers always download new chapters and replace any existing copies from temporary providers.\nTemporary providers only download a chapter if they are the first to have it available.",
+                    Entries = new List<string> { "Permanent", "Temporary" },
+                    EntryValues = new List<string> { "permanent", "temporary" },
+                    DefaultValueType = "String",
+                    DefaultValue = "permanent",
+                    CurrentValue = provider.IsStorage ? "permanent" : "temporary"
                 }
             };
         }
-
-        private static List<Mappings> OrderByEnglishFirst(List<Mappings> mappings)
+        /*
+        private static List<UniquePreference> OrderByEnglishFirst(List<UniquePreference> mappings)
         {
-            var result = new List<Mappings>();
+            var result = new List<UniquePreference>();
             var englishMapping = mappings.FirstOrDefault(a => a.Source != null && a.Source.Lang == "en");
             if (englishMapping != null)
             {
@@ -221,33 +214,33 @@ namespace KaizokuBackend.Services.Providers
                 await UpdatePreferencesInSuwayomiAsync(provider, toUpdate, token).ConfigureAwait(false);
             }
         }
-
-        private bool ShouldUpdatePreference(ProviderPreference preference, SuwayomiPreference currentPref)
+        */
+        private bool ShouldUpdatePreference(ProviderPreferenceDto preference, UniquePreference currentPref)
         {
             switch (preference.ValueType)
             {
                 case ValueType.String:
                     string newValue = (string)ConvertJsonObject(preference.CurrentValue!);
-                    string currentValue = (string)(ConvertJsonObject(currentPref.props.currentValue) ?? string.Empty);
+                    string currentValue = (string)(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? string.Empty);
                     if (newValue == "!empty-value!" && preference.Type == EntryType.ComboBox)
                         newValue = "";
                     return newValue != currentValue;
 
                 case ValueType.Boolean:
                     bool newBool = (bool)ConvertJsonObject(preference.CurrentValue!);
-                    bool currentBool = (bool)(ConvertJsonObject(currentPref.props.currentValue) ?? false);
+                    bool currentBool = (bool)(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? false);
                     return newBool != currentBool;
 
                 case ValueType.StringCollection:
                     string[] newArray = (string[])ConvertJsonObject(preference.CurrentValue!);
-                    string[] currentArray = (string[])(ConvertJsonObject(currentPref.props.currentValue) ?? Array.Empty<string>());
+                    string[] currentArray = (string[])(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? Array.Empty<string>());
                     return !newArray.SequenceEqual(currentArray);
 
                 default:
                     return false;
             }
         }
-
+        /*
         private async Task UpdatePreferencesInSuwayomiAsync(ProviderStorage provider, List<(string Key, object Value)> toUpdate, CancellationToken token)
         {
             var tasks = new List<Task>();
@@ -282,7 +275,7 @@ namespace KaizokuBackend.Services.Providers
 
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
-
+        */
         private object ConvertJsonObject(object obj)
         {
             if (obj is JsonElement str)
@@ -302,11 +295,11 @@ namespace KaizokuBackend.Services.Providers
             return obj;
         }
 
-        private ProviderPreference ConvertToProviderPreference(SuwayomiPreference p)
+        private ProviderPreferenceDto ConvertToProviderPreference(UniquePreference p)
         {
-            var preference = new ProviderPreference();
+            var preference = new ProviderPreferenceDto();
             
-            switch (p.type)
+            switch (p.Preference.Type)
             {
                 case "ListPreference":
                     preference.Type = EntryType.ComboBox;
@@ -331,14 +324,13 @@ namespace KaizokuBackend.Services.Providers
                     break;
             }
 
-            preference.Key = p.props.key;
-            preference.CurrentValue = ConvertJsonObject(p.props.currentValue);
-            preference.DefaultValue = ConvertJsonObject(p.props.defaultValue);
-            preference.Entries = p.props.entries;
-            preference.EntryValues = p.props.entryValues;
-            preference.Summary = p.props.summary;
-            preference.Source = p.Source;
-            preference.Title = p.props.title ?? p.props.dialogTitle;
+            preference.Index = p.Preference.Index;
+            preference.CurrentValue = ConvertJsonObject(p.Preference.CurrentValue);
+            preference.DefaultValue = ConvertJsonObject(p.Preference.DefaultValue);
+            preference.Entries = p.Preference.Entries;
+            preference.EntryValues = p.Preference.EntryValues;
+            preference.Summary = p.Preference.Summary;
+            preference.Title = p.Preference.Title ?? p.Preference.DialogTitle;
 
             // Handle empty values in combo boxes
             if (preference.Entries != null && preference.Entries.Count > 0)
@@ -361,12 +353,17 @@ namespace KaizokuBackend.Services.Providers
             return preference;
         }
 
-        private ProviderPreferences ConvertToProviderPreferences(string apkName, List<SuwayomiPreference> prefs)
+        private ProviderPreferencesDto ConvertToProviderPreferences(string pkgName, ProviderStorageEntity storage, List<UniquePreference> prefs)
         {
-            return new ProviderPreferences
+            return new ProviderPreferencesDto
             {
-                ApkName = apkName,
-                Preferences = prefs.Select(ConvertToProviderPreference).ToList()
+                PkgName = pkgName,
+                Preferences = prefs.Select(ConvertToProviderPreference).ToList(),
+                Provider = storage.Provider,
+                Language = storage.Language,
+                Scanlator = storage.Scanlator,
+                ThumbnailUrl = storage.ThumbnailUrl,
+                IsStorage = storage.IsStorage
             };
         }
 
