@@ -111,7 +111,7 @@ namespace KaizokuBackend.Services.Series
             IQueryable<LatestSerie> series = _db.LatestSeries;
             if (!string.IsNullOrEmpty(sourceid))
             {
-                series = series.Where(a => a.SuwayomiSourceId == sourceid);
+                series = series.Where(a => a.SourceId == sourceid);
             }
 
             if (!string.IsNullOrEmpty(keyword))
