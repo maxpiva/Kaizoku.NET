@@ -248,7 +248,6 @@ namespace KaizokuBackend.Services.Settings
                 NumberOfSimultaneousDownloads = settings.NumberOfSimultaneousDownloads,
                 NumberOfSimultaneousDownloadsPerProvider = settings.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = settings.NumberOfSimultaneousSearches,
-                NumberOfSimultaneousDownloadsPerProvider = settings.NumberOfSimultaneousDownloadsPerProvider,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = settings.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = settings.PerTitleUpdateSchedule,
@@ -268,7 +267,7 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyPort = settings.SocksProxyPort,
                 SocksProxyVersion = settings.SocksProxyVersion,
                 SocksProxyUsername = settings.SocksProxyUsername,
-                SocksProxyPassword = settings.SocksProxyPassword
+                SocksProxyPassword = settings.SocksProxyPassword,
                 NsfwVisibility = settings.NsfwVisibility
 
             };
@@ -285,7 +284,6 @@ namespace KaizokuBackend.Services.Settings
                 NumberOfSimultaneousDownloads = ed.NumberOfSimultaneousDownloads,
                 NumberOfSimultaneousDownloadsPerProvider = ed.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = ed.NumberOfSimultaneousSearches,
-                NumberOfSimultaneousDownloadsPerProvider = ed.NumberOfSimultaneousDownloadsPerProvider,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = ed.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = ed.PerTitleUpdateSchedule,
@@ -305,7 +303,7 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyPort = ed.SocksProxyPort,
                 SocksProxyVersion = ed.SocksProxyVersion,
                 SocksProxyUsername = ed.SocksProxyUsername,
-                SocksProxyPassword = ed.SocksProxyPassword
+                SocksProxyPassword = ed.SocksProxyPassword,
                 NsfwVisibility = ed.NsfwVisibility
 
             };
