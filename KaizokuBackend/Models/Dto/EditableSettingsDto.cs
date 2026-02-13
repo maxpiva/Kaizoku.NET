@@ -61,4 +61,14 @@ public class EditableSettingsDto
     public string SocksProxyUsername { get; set; } = "";
     [JsonPropertyName("socksProxyPassword")]
     public string SocksProxyPassword { get; set; } = "";
+    [JsonPropertyName("nsfwVisibility")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public NsfwVisibility NsfwVisibility { get; set; } = NsfwVisibility.HideByDefault;
+
+}
+public enum NsfwVisibility
+{
+    AlwaysHide = 0,
+    HideByDefault = 1,
+    Show = 2,
 }

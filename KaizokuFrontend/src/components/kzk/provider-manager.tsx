@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Download, Trash2, Search, Upload } from "lucide-react";
 import ReactCountryFlag from "react-country-flag";
 import { providerService } from "@/lib/api/services/providerService";
-import { type Provider } from "@/lib/api/types";
+import { type Provider, NsfwVisibility } from "@/lib/api/types";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { LazyImage } from "@/components/ui/lazy-image";
 import { ProviderSettingsButton } from "@/components/kzk/provider-settings-button";
@@ -191,6 +191,25 @@ export function ProviderManager({
   const [hasInstalledScrollbar, setHasInstalledScrollbar] = useState(false);
   const [hasAvailableScrollbar, setHasAvailableScrollbar] = useState(false);
   const [isUploadingApk, setIsUploadingApk] = useState(false);
+  const [hideNsfwProviders, setHideNsfwProviders] = useState(true);
+  const [filteredLanguages, setFilteredLanguages] = useState<string[] | null>(
+    null,
+  );
+  const { data: settings } = useSettings();
+  const nsfwVisibility =
+    settings?.nsfwVisibility ?? NsfwVisibility.HideByDefault;
+
+  // Sync local NSFW toggle with the setting
+  useEffect(() => {
+    if (nsfwVisibility === NsfwVisibility.AlwaysHide) {
+      setHideNsfwProviders(true);
+    } else if (nsfwVisibility === NsfwVisibility.Show) {
+      setHideNsfwProviders(false);
+    } else {
+      // HideByDefault – start checked
+      setHideNsfwProviders(true);
+    }
+  }, [nsfwVisibility]);
 
   useEffect(() => {
     const loadExtensions = async () => {
@@ -444,7 +463,35 @@ export function ProviderManager({
               </Button>
             </div>
           </div>
-          <div 
+        </div>
+        <div className="flex items-center gap-4">
+          {nsfwVisibility !== NsfwVisibility.AlwaysHide && (
+            <div className="flex items-center gap-1.5">
+              <Checkbox
+                id="hide-nsfw"
+                checked={hideNsfwProviders}
+                onCheckedChange={(checked) => {
+                  setHideNsfwProviders(!!checked);
+                }}
+              />
+              <Label
+                htmlFor="hide-nsfw"
+                className="text-muted-foreground cursor-pointer text-sm"
+              >
+                Hide NSFW
+              </Label>
+            </div>
+          )}
+          <div className="w-48">
+            <MultiSelectLanguages
+              options={availableLanguageOptions}
+              selectedValues={filteredLanguages ?? []}
+              onSelectionChange={setFilteredLanguages}
+            />
+          </div>
+        </div>
+        {availableExtensions.length > 0 && (
+          <div
             ref={availableContainerRef}
             className={`grid ${availableGridCols} gap-${isCompact ? '2' : '4'} ${availableMaxHeight ? `${availableMaxHeight} overflow-y-auto` : ''} ${hasAvailableScrollbar ? 'pr-2' : ''}`}>
             {availableExtensions.map((extension) => (

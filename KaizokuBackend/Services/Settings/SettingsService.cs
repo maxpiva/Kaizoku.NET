@@ -79,6 +79,10 @@ namespace KaizokuBackend.Services.Settings
                     case "datetime":
                         setting.Value = ((DateTime)(p.GetValue(editableSettings) ?? new DateTime(0,1,1,4,0,0))).ToString("o"); // ISO 8601 format
                         break;
+                    default:
+                        if (p.PropertyType.IsEnum)
+                            setting.Value = p.GetValue(editableSettings)?.ToString() ?? string.Empty;
+                        break;
                 }
                 serializedSettings.Add(setting);
             }
@@ -136,6 +140,10 @@ namespace KaizokuBackend.Services.Settings
                         break;
                     case "datetime":
                         p.SetValue(newEditableSettings, DateTime.TryParse(setting.Value, out DateTime dateTimeValue) ? dateTimeValue : DateTime.MinValue);
+                        break;
+                    default:
+                        if (p.PropertyType.IsEnum)
+                            p.SetValue(newEditableSettings, Enum.TryParse(p.PropertyType, setting.Value, out var enumValue) ? enumValue : p.GetValue(defaultValues));
                         break;
                 }
             }
@@ -238,6 +246,7 @@ namespace KaizokuBackend.Services.Settings
                 PreferredLanguages = settings.PreferredLanguages,
                 MihonRepositories = settings.MihonRepositories,
                 NumberOfSimultaneousDownloads = settings.NumberOfSimultaneousDownloads,
+                NumberOfSimultaneousDownloadsPerProvider = settings.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = settings.NumberOfSimultaneousSearches,
                 NumberOfSimultaneousDownloadsPerProvider = settings.NumberOfSimultaneousDownloadsPerProvider,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
@@ -260,8 +269,10 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = settings.SocksProxyVersion,
                 SocksProxyUsername = settings.SocksProxyUsername,
                 SocksProxyPassword = settings.SocksProxyPassword
+                NsfwVisibility = settings.NsfwVisibility
+
             };
-            
+
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
         }
         
@@ -272,6 +283,7 @@ namespace KaizokuBackend.Services.Settings
                 PreferredLanguages = ed.PreferredLanguages,
                 MihonRepositories = ed.MihonRepositories,
                 NumberOfSimultaneousDownloads = ed.NumberOfSimultaneousDownloads,
+                NumberOfSimultaneousDownloadsPerProvider = ed.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = ed.NumberOfSimultaneousSearches,
                 NumberOfSimultaneousDownloadsPerProvider = ed.NumberOfSimultaneousDownloadsPerProvider,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
@@ -294,6 +306,8 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = ed.SocksProxyVersion,
                 SocksProxyUsername = ed.SocksProxyUsername,
                 SocksProxyPassword = ed.SocksProxyPassword
+                NsfwVisibility = ed.NsfwVisibility
+
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;
             return set;

@@ -60,6 +60,7 @@ export interface Settings {
   flareSolverrSessionTtl: string; // TimeSpan as string
   flareSolverrAsResponseFallback: boolean;
   readonly storageFolder: string;
+  nsfwVisibility: NsfwVisibility;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -121,6 +122,12 @@ export enum SeriesStatus {
   CANCELLED = 5,
   ON_HIATUS = 6,
   DISABLED = 7,
+}
+
+export enum NsfwVisibility {
+  AlwaysHide = "AlwaysHide",
+  HideByDefault = "HideByDefault",
+  Show = "Show",
 }
 
 export enum InLibraryStatus {
