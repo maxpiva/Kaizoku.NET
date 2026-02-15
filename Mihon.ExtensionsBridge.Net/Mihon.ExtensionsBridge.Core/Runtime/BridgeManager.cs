@@ -94,8 +94,16 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         }
         public async Task SetPreferencesAsync(Mihon.ExtensionsBridge.Models.Preferences prefs, CancellationToken cancellationToken)
         {
-           // ((Action)(() => {
-                SettingsConfig.Settings config = ConfigKt.getSettings();
+            // ((Action)(() => {
+                SettingsConfig.Settings config = new SettingsConfig.Settings();
+                try
+                {
+                    config = ConfigKt.getSettings();
+                }
+                catch 
+                {
+                    // If we fail to load the config, we can assume it's the default config and continue with that. This can happen if the config file is missing or corrupted.
+                }
                 Dictionary<string, Dictionary<string, string>> overrides = MapMapToDictionary(config.getInterceptorOverrides());
                 bool update = false;
                 if (!IsDictionaryEqual(prefs.Interceptors, overrides))

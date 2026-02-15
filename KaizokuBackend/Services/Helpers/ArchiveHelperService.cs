@@ -44,7 +44,7 @@ namespace KaizokuBackend.Services.Helpers
             SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(series.ThumbnailUrl) || series.ThumbnailUrl.Contains("unknown"))
                 return;
-            string? key = await _thumbs.AddUrlAsync(series.ThumbnailUrl, token).ConfigureAwait(false);
+            string? key = await _thumbs.AddUrlAsync(series.ThumbnailUrl, null, token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(key)) 
                 return;
             var cache = await _thumbs.GetEtagAsync(key, token).ConfigureAwait(false);
@@ -182,6 +182,7 @@ namespace KaizokuBackend.Services.Helpers
         /// </summary>
         public async Task UpdateAllTitlesAndAddComicInfoAsync(ProgressReporter reporter, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
         {
+            _logger.LogInformation("Starting bulk update of all series titles and ComicInfo.xml...");
             reporter.Report(ProgressStatus.Started,0, "Updating all Series...");
             var allSeries = await _db.Series.Include(s => s.Sources).AsNoTracking().ToListAsync(token);
             float step = 100 / (float)allSeries.Count;
@@ -192,6 +193,7 @@ namespace KaizokuBackend.Services.Helpers
                 await UpdateTitleAndAddComicInfoAsync(series, onlyDownloadByKaizoku, token);
                 acum += step;
             }
+            _logger.LogInformation("Completed bulk update of all series titles and ComicInfo.xml.");
             reporter.Report(ProgressStatus.Completed, (decimal)acum, $"Update Complete.");
         }
 

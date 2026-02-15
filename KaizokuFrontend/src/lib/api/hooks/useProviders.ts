@@ -97,7 +97,7 @@ export const useSetProviderPreferences = () => {
     onSuccess: (_, preferences) => {
       // Invalidate the specific provider preferences
       queryClient.invalidateQueries({ 
-        queryKey: ['provider-preferences', preferences.apkName] 
+        queryKey: ['provider-preferences', preferences.pkgName] 
       });
     },
   });

@@ -272,7 +272,7 @@ export default function CloudLatestPage() {
   // Sorted sources for the select
   const sortedSources = useMemo(() => {
     if (!sources) return [];
-    return [...sources].sort((a, b) => a.sourceName.localeCompare(b.sourceName));
+    return [...sources].sort((a, b) => a.provider.localeCompare(b.provider));
   }, [sources]);
 
   return (
@@ -294,7 +294,7 @@ export default function CloudLatestPage() {
                   </div>
                 </SelectItem>
                 {sortedSources.map((source) => (
-                  <SelectItem key={source.sourceId} value={source.sourceId}>
+                  <SelectItem key={source.mihonProviderId} value={source.mihonProviderId}>
                     <div className="flex items-center gap-2">
                       {source.language === "all" ? (
                         <Globe size={16} />
@@ -309,7 +309,7 @@ export default function CloudLatestPage() {
                           title={`${source.language.toUpperCase()}`}
                         />
                       )}
-                      <span>{source.sourceName}</span>
+                      <span>{source.provider}</span>
                     </div>
                   </SelectItem>
                 ))}

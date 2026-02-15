@@ -194,7 +194,7 @@ namespace KaizokuBackend.Utils
                         updated = true;
                     }
                 }
-                updated |= ReplacePath(destinationJson!, "BridgeFolder", new string[] { "extensions" });
+                updated |= ReplacePath(destinationJson!, "BridgeFolder", new string[] { "mihon" });
                 updated |= ReplacePath(destinationJson!, "ThumbCacheFolder", new string[] { "thumbs" });
                 updated |= ReplacePath(destinationJson!, "TempFolder", new string[] { "" });
 

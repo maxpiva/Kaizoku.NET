@@ -101,7 +101,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// Duplicate detection is based on the repository <see cref="TachiyomiRepository.Url"/> (case-insensitive).
         /// The method is thread-safe and uses a lock to protect the in-memory collection.
         /// </remarks>
-        public async Task<bool> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
+        public async Task<TachiyomiRepository> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
         {
             if (!_initialized)
                 throw new InvalidOperationException("RepositoryManager is not initialized. Call InitializeAsync() before using this method.");
@@ -112,10 +112,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
             await _onlineReposLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (OnlineRepositories.Any(r => r.Url.Equals(repository.Url, StringComparison.OrdinalIgnoreCase)))
+                TachiyomiRepository? existingRepo = OnlineRepositories.FirstOrDefault(r => r.Url.Equals(repository.Url, StringComparison.OrdinalIgnoreCase));
+                if (existingRepo!=null)
                 {
                     _logger.LogInformation("Repository with URL {Url} already exists in online repositories.", repository.Url);
-                    return false;
+                    return existingRepo;
                 }
             }
             finally
@@ -135,10 +136,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 await _onlineReposLock.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
-                    if (OnlineRepositories.Any(r => r.Url.Equals(repository.Url, StringComparison.OrdinalIgnoreCase)))
+                    TachiyomiRepository? existingRepo = OnlineRepositories.FirstOrDefault(r => r.Url.Equals(repository.Url, StringComparison.OrdinalIgnoreCase));
+                    if (existingRepo != null)
                     {
                         _logger.LogInformation("Repository with URL {Url} already exists in online repositories.", repository.Url);
-                        return false;
+                        return existingRepo;
                     }
                     OnlineRepositories.Add(repository);
                 }
@@ -148,7 +150,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 }
 
                 _logger.LogInformation("Successfully added repository with URL {Url}.", repository.Url);
-                return true;
+                return repository;
             }
             catch (OperationCanceledException)
             {

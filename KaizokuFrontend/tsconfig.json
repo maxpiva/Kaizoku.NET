@@ -21,7 +21,7 @@
     "noEmit": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "plugins": [
       {
         "name": "next"
@@ -45,7 +45,9 @@
     "**/*.js",
     ".next/types/**/*.ts",
     "../KaizokuBackend/wwwroot/types/**/*.ts",
-    "out/types/**/*.ts"
+    "out/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "out/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

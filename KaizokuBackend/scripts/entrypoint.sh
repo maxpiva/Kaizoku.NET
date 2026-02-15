@@ -1,32 +1,5 @@
 #!/bin/sh
 set -e
-if command -v Xvfb >/dev/null; then
-  command="xvfb-run --auto-servernum java"
-  if [ -d /opt/kcef/jcef ]; then
-    # if we have KCEF downloaded in the container, attempt to link it into the data directory where Suwayomi expects it
-    if [ ! -d /config/Suwayomi/bin ]; then
-      mkdir -p /config/Suwayomi/bin
-    fi
-    if [ ! -d /config/Suwayomi/bin/kcef ] && [ ! -L /config/Suwayomi/bin/kcef ]; then
-      ln -s /opt/kcef/jcef /config/Suwayomi/bin/kcef
-    fi
-  fi
-  if [ -d /config/Suwayomi/bin/kcef ] || [ -L /config/Suwayomi/bin/kcef ]; then
-    # make sure all files are always executable. KCEF (and our downloader) ensure this on creation, but if the flag is lost
-    # at some point, CEF will die
-    chmod -R a+x /config/Suwayomi/bin/kcef 2>/dev/null || true
-  fi
-  export LD_PRELOAD=/config/Suwayomi/bin/kcef/libcef.so
-else
-  command="java"
-  echo "Suwayomi built without KCEF support, not starting Xvfb"
-fi
-if [ -f /opt/catch_abort.so ]; then
-  export LD_PRELOAD="/opt/catch_abort.so $LD_PRELOAD"
-fi
-if [ -f /opt/catch_abort.so ]; then
-  export LD_PRELOAD="/opt/catch_abort.so $LD_PRELOAD"
-fi
 
 PUID=${PUID:-99}
 PGID=${PGID:-100}
@@ -55,10 +28,9 @@ else
 fi
 
 # Fix permissions
-echo "Setting permissions on /app/KaizokuBackend and /config"
-chmod +x /app/KaizokuBackend
+echo "Setting permissions on /config"
 chown -R "$user_name:$group_name" /config
 chmod -R 777 /config
 
 # Run the app as the correct user
-exec gosu "$user_name" /app/KaizokuBackend "$command"
+exec gosu "$user_name" xvfb-run --auto-servernum dotnet /app/KaizokuBackend.dll

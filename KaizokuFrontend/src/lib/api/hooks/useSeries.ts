@@ -3,17 +3,6 @@ import { seriesService } from '@/lib/api/services/seriesService';
 import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type SearchSource, type SeriesIntegrityResult } from '@/lib/api/types';
 
 /**
- * Hook to get available sources
- */
-export const useSources = () => {
-  return useQuery({
-    queryKey: ['series', 'sources'],
-    queryFn: () => seriesService.getSources(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
-};
-
-/**
  * Hook to get available search sources (for search and filtering)
  */
 export const useSearchSources = () => {
@@ -63,29 +52,6 @@ export const useSeriesById = (id: string, enabled = true) => {
   });
 };
 
-/**
- * Hook to get source icon
- */
-export const useSourceIcon = (apk: string, enabled = true) => {
-  return useQuery({
-    queryKey: ['series', 'source', 'icon', apk],
-    queryFn: () => seriesService.getSourceIcon(apk),
-    enabled: enabled && !!apk,
-    staleTime: 30 * 60 * 1000, // 30 minutes - icons don't change often
-  });
-};
-
-/**
- * Hook to get series thumbnail
- */
-export const useSeriesThumb = (id: number, enabled = true) => {
-  return useQuery({
-    queryKey: ['series', 'thumb', id],
-    queryFn: () => seriesService.getSeriesThumb(id),
-    enabled: enabled && !!id,
-    staleTime: 10 * 60 * 1000, // 10 minutes
-  });
-};
 
 /**
  * Hook to get provider match information by provider ID
@@ -175,8 +141,6 @@ export const useDeleteSeries = () => {
       queryClient.removeQueries({ queryKey: ['series', 'detail', variables.id] });
       // Invalidate library query to refetch
       void queryClient.invalidateQueries({ queryKey: ['series', 'library'] });
-      // Invalidate sources query as the series removal might affect available sources
-      void queryClient.invalidateQueries({ queryKey: ['series', 'sources'] });
     },
   });
 };

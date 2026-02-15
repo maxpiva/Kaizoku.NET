@@ -6,7 +6,7 @@ namespace KaizokuBackend.Models;
 public class ImportProviderSnapshot : ProviderSummaryBase
 {
     [JsonPropertyName("title")]
-    public override string Title { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
 
     [JsonPropertyName("thumbnailUrl")]
     public override string? ThumbnailUrl { get; set; } = string.Empty;

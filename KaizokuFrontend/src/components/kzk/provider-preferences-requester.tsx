@@ -16,14 +16,14 @@ import { EntryType } from "@/lib/api/types";
 interface ProviderPreferencesRequesterProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  apkName: string;
+    pkgName: string;
   providerName?: string;
 }
 
 export function ProviderPreferencesRequester({
   open,
   onOpenChange,
-  apkName,
+    pkgName,
   providerName
 }: ProviderPreferencesRequesterProps) {  const [preferences, setPreferences] = useState<ProviderPreferences | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,7 @@ export function ProviderPreferencesRequester({
     setError(null);
     
     try {
-      const data = await providerService.getProviderPreferences(apkName);
+        const data = await providerService.getProviderPreferences(pkgName);
       setPreferences(data);
       
       // Store the loaded values to prevent overwrites
@@ -56,8 +56,8 @@ export function ProviderPreferencesRequester({
     } finally {
       setLoading(false);
     }
-  }, [apkName]);  useEffect(() => {
-    if (open && apkName) {
+  }, [pkgName]);  useEffect(() => {
+    if (open && pkgName) {
       void loadPreferences();
     } else if (!open) {
       // Reset initialization state when dialog closes
@@ -66,7 +66,7 @@ export function ProviderPreferencesRequester({
       setError(null);
       setLoadedValues({});
     }
-  }, [open, apkName, loadPreferences]);
+  }, [open, pkgName, loadPreferences]);
   // Save preferences
   const handleSave = async () => {
     if (!preferences) return;

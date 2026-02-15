@@ -16,7 +16,6 @@ public static class ProviderSummaryExtensions
             Scanlator = provider.Scanlator,
             Language = provider.Language,
             IsStorage = provider.IsStorage,
-            Title = provider.Title,
             ThumbnailUrl = provider.ThumbnailUrl,
             Status = provider.Status,
             Url = provider.Url

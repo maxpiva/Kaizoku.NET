@@ -32,7 +32,7 @@ public static class SeriesExtensions
         l.Status = (SeriesStatus)(int)fs.Status;
         l.Title = fs.Title;
         if (!string.IsNullOrWhiteSpace(fs.ThumbnailUrl))
-            l.ThumbnailUrl = await cache.AddUrlAsync(fs.ThumbnailUrl);
+            l.ThumbnailUrl = await cache.AddUrlAsync(fs.ThumbnailUrl, l.MihonProviderId);
         l.Author = fs.Author;
         l.Description = fs.Description;
         l.Genre = fs.GetGenres();
@@ -653,8 +653,8 @@ public static class SeriesExtensions
     }
 
 
-    public static SeriesProviderEntity CreateOrUpdate(this ProviderSeriesDetails fs,
-        SeriesProviderEntity? provider = null)
+    public static async Task<SeriesProviderEntity> CreateOrUpdateAsync(this ProviderSeriesDetails fs, ThumbCacheService cache,
+        SeriesProviderEntity? provider = null, CancellationToken token = default)
     {
         if (provider == null)
         {
@@ -675,7 +675,17 @@ public static class SeriesExtensions
         provider.MihonProviderId = fs.MihonProviderId;
         provider.BridgeItemInfo = fs.BridgeItemInfo;
         provider.Url = fs.Url;
-        provider.ThumbnailUrl = fs.ThumbnailUrl;
+        if (!string.IsNullOrWhiteSpace(fs.ThumbnailUrl))
+        {
+            if (fs.ThumbnailUrl.StartsWith("/api/image/"))
+            {
+                string key = fs.ThumbnailUrl.Substring(11);
+                var n = await cache.GetEtagAsync(key, token).ConfigureAwait(false);
+                provider.ThumbnailUrl = n.Url;
+            }
+            else
+                provider.ThumbnailUrl = await cache.AddUrlAsync(fs.ThumbnailUrl, fs.MihonProviderId, token).ConfigureAwait(false);
+        }
         provider.Artist = fs.Artist;
         provider.Author = fs.Author;
         provider.Description = fs.Description;

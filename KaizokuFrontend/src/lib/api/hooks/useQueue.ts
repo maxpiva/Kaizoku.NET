@@ -72,11 +72,10 @@ export function useDownloadProgress() {
                 return rest;
               }
               
-              // For new downloads or updates, cast the parameter to DownloadCardInfo
+              // For new downloads or updates, use the download payload
               let cardInfo = current?.cardInfo;
-              if (progress.parameter && !cardInfo) {
-                // Cast the parameter object to DownloadCardInfo on first message
-                cardInfo = progress.parameter as DownloadCardInfo;
+              if (progress.download && !cardInfo) {
+                cardInfo = progress.download;
               }
               
               // If we don't have card info yet, skip this update

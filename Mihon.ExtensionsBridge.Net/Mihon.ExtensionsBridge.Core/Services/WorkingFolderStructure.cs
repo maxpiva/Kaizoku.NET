@@ -78,7 +78,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             {
                 Directory.CreateDirectory(ExtensionsFolder);
             }
-
+            /*
             if (!Directory.Exists(IKVMFolder))
             {
                 Directory.CreateDirectory(IKVMFolder);
@@ -93,6 +93,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             {
                 Directory.CreateDirectory(IKVMJREFolder);
             }
+            */
             if (!Directory.Exists(AndroidFolder))
             {
                 Directory.CreateDirectory(AndroidFolder);

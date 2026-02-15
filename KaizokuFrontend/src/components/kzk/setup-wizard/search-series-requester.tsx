@@ -28,6 +28,9 @@ import { type LinkedSeries, type ImportInfo, type SearchSource } from "@/lib/api
 import Image from "next/image";
 import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
+
+const getSeriesId = (series: LinkedSeries): string => series.mihonId ?? series.providerId;
 
 interface SearchSeriesRequesterProps {
   open: boolean;
@@ -50,8 +53,8 @@ const SeriesCard = React.memo(({
   isDesktop: boolean;
 }) => {
   const handleClick = React.useCallback(() => {
-    onToggle(series.id);
-  }, [series.id, onToggle]);
+    onToggle(getSeriesId(series));
+  }, [series, onToggle]);
 
   return (
     <div
@@ -62,7 +65,7 @@ const SeriesCard = React.memo(({
     >
       <div className="aspect-[3/4] relative">
         <Image 
-          src={series.thumbnailUrl ?? '/placeholder.jpg'}
+          src={formatThumbnailUrl(series.thumbnailUrl) ?? '/placeholder.jpg'}
           alt={series.title || 'Series thumbnail'}
           fill
           sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"
@@ -104,7 +107,7 @@ const SeriesCard = React.memo(({
 }, (prevProps, nextProps) => {
   // Only re-render if these specific props change
   return (
-    prevProps.series.id === nextProps.series.id &&
+    getSeriesId(prevProps.series) === getSeriesId(nextProps.series) &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isDesktop === nextProps.isDesktop &&
     prevProps.series.thumbnailUrl === nextProps.series.thumbnailUrl &&
@@ -211,7 +214,7 @@ export function SearchSeriesRequester({
   useEffect(() => {
     if (availableSources.length > 0 && selectedSources.length === 0) {
       // Select all sources by default
-      setSelectedSources(availableSources.map(source => source.sourceId));
+      setSelectedSources(availableSources.map(source => source.mihonProviderId));
     }
   }, [availableSources, selectedSources.length]);
 
@@ -288,10 +291,11 @@ export function SearchSeriesRequester({
     return (
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-3">
         {searchResults.map((series) => {
-          const isSelected = selectedSeriesSet.has(series.id);
+          const seriesId = series.mihonId ?? series.providerId;
+          const isSelected = selectedSeriesSet.has(seriesId);
           return (
             <SeriesCard
-              key={series.id}
+              key={seriesId}
               series={series}
               isSelected={isSelected}
               onToggle={handleSeriesToggle}
@@ -321,7 +325,7 @@ export function SearchSeriesRequester({
     try {
       // Get the full LinkedSeries objects for the selected IDs
       const selectedLinkedSeries = searchResults.filter((series: LinkedSeries) => 
-        selectedSeries.includes(series.id)
+        selectedSeries.includes(getSeriesId(series))
       );
       // Call the augment endpoint
       const updatedImportInfo = await setupWizardService.augmentSeries(importPath, selectedLinkedSeries);

@@ -23,7 +23,7 @@ public class UpdateExtensions : ICommand
         try
         {
             // Get all cached providers and check for updates
-            await _cache.RefreshAllOnlineReposeAsync(token).ConfigureAwait(false);
+            await _cache.UpdateAllExtensionsAsync(token).ConfigureAwait(false);
             return JobResult.Success;
         }
         catch (Exception)

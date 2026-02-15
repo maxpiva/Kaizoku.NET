@@ -1,44 +1,16 @@
-export interface Source {
-  id: string;
-  name: string;
-  displayName: string;
-  lang: string;
-  iconUrl: string;
-  supportsLatest: boolean;
-}
-
-export interface Series {
-  id: number;
-  sourceId: string;
-  url: string;
-  title: string;
-  thumbnailUrl?: string;
-  description?: string;
-  genre?: string[];
-  status?: string;
-  author?: string;
-  artist?: string;
-  inLibrary?: boolean;
-  freshData?: boolean;
-  realUrl?: string;
-}
-
 export interface Chapter {
-  id: number;
-  url: string;
-  name: string;
-  uploadDate: number;
-  chapterNumber: number;
-  scanlator?: string;
-  mangaId: number;
-  read: boolean;
-  bookmarked: boolean;
-  lastPageRead: number;
-  lastReadAt: number;
-  index: number;
-  fetchedAt: number;
-  realUrl?: string;
+  name?: string;
+  number?: number;
+  providerUploadDate?: string; // ISO 8601 format
+  url?: string;
+  providerIndex: number;
+  downloadDate?: string; // ISO 8601 format
+  shouldDownload: boolean;
+  isDeleted: boolean;
   pageCount?: number;
+  filename?: string;
+  chapterNumber?: number;
+  index: number;
 }
 
 export interface Settings {
@@ -59,7 +31,13 @@ export interface Settings {
   flareSolverrTimeout: string; // TimeSpan as string
   flareSolverrSessionTtl: string; // TimeSpan as string
   flareSolverrAsResponseFallback: boolean;
-  readonly storageFolder: string;
+  storageFolder: string;
+  socksProxyEnabled: boolean;
+  socksProxyVersion: number;
+  socksProxyHost: string;
+  socksProxyPort: number;
+  socksProxyUsername: string;
+  socksProxyPassword: string;
   nsfwVisibility: NsfwVisibility;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
@@ -67,7 +45,9 @@ export interface Settings {
 }
 
 export interface LinkedSeries {
-  id: string;
+  mihonId?: string;
+  mihonProviderId?: string;
+  bridgeItemInfo?: string;
   providerId: string;
   provider: string;
   lang: string;
@@ -76,11 +56,14 @@ export interface LinkedSeries {
   linkedIds: string[];
   useCover: boolean;
   isStorage: boolean;
+  isLocal: boolean;
 }
 
 export interface FullSeries {
-  id: string;
-  providerId: string;
+  mihonId?: string;
+  mihonProviderId?: string;
+  bridgeItemInfo?: string;
+  providerId?: string;
   provider: string;
   scanlator: string;
   lang: string;
@@ -94,9 +77,9 @@ export interface FullSeries {
   chapterCount: number;
   fromChapter?: number; // Maps to ContinueAfterChapter from backend
   url?: string;
-  meta: Record<string, string>;
   useCover: boolean;
   isStorage: boolean;
+  isLocal: boolean;
   isUnknown: boolean;
   useTitle: boolean;
   existingProvider: boolean;
@@ -104,13 +87,9 @@ export interface FullSeries {
   isUnselectable?: boolean; // For marking existing series that cannot be selected
   lastUpdatedUTC: string; // ISO 8601 format
   suggestedFilename: string;
-  chapters: (number | null)[];
+  chapters: Chapter[];
   status: SeriesStatus;
   chapterList: string;
-  // Legacy properties for compatibility
-  storageFolderPath?: string;
-  categories?: string[];
-  useCategoriesForPath?: boolean;
 }
 
 export enum SeriesStatus {
@@ -144,6 +123,8 @@ export interface AugmentedResponse {
   categories: string[];
   series: FullSeries[];
   preferredLanguages: string[];
+  disableJobs?: boolean;
+  startChapter?: number;
 }
 export interface ExistingSource {
   provider: string;
@@ -158,32 +139,40 @@ export interface AddSeriesRequest {
 }
 
 export interface SearchSource {
-  sourceId: string;
-  sourceName: string;
+  mihonProviderId: string;
+  provider: string;
+  scanlator: string;
   language: string;
-}
-
-// Setup Wizard related types
-export interface Import {
-  path: string;
-  titles: string[];
-  status: ImportStatus;
-  info: KaizokuInfo;
-  importInfo: ImportInfo;
+  isStorage: boolean;
+  thumbnailUrl?: string;
+  status?: SeriesStatus;
+  url?: string;
 }
 
 export interface ImportInfo {
   path: string;
   title: string;
   status: ImportStatus;
-  continueAfterChapter?: number; // Changed to optional to match backend decimal?
-  action: Action; // Added new Action property
-  series: SmallSeries[];
+  continueAfterChapter?: number; // decimal in backend
+  action: Action;
+  series?: SmallSeries[];
+  artist: string;
+  author: string;
+  description: string;
+  genre: string[];
+  type: string;
+  chapterCount: number;
+  lastUpdatedUtc?: string; // ISO 8601 format
+  providers: ImportProviderSnapshot[];
+  seriesStatus: SeriesStatus;
+  isDisabled: boolean;
+  kaizokuVersion: number;
 }
 
 export interface SmallSeries {
-  id: string;
-  providerId: string;
+  mihonId?: string;
+  mihonProviderId?: string;
+  bridgeItemInfo?: string;
   provider: string;
   scanlator: string;
   lang: string;
@@ -191,12 +180,13 @@ export interface SmallSeries {
   title: string;
   chapterCount: number;
   url?: string;
+  chapterList: string;
+  useCover: boolean;
+  isStorage: boolean;
+  isLocal: boolean;
+  useTitle: boolean;
   lastChapter?: number;
   preferred: boolean;
-  chapterList: string;
-  useCover: boolean; // Added new property
-  isStorage: boolean; // Added new property
-  useTitle: boolean; // Added new property
 }
 
 export enum Action {
@@ -211,31 +201,14 @@ export enum ImportStatus {
   Completed = 3,
 }
 
-export interface KaizokuInfo {
-  path: string;
-  title: string;
-  artist?: string;
-  author?: string;
-  description?: string;
-  genre?: string[];
-  thumbnailUrl?: string;
-  providers?: ProviderInfo[];
-  // Add other properties as needed based on backend model
-}
-
-export interface ProviderInfo {
-  provider: string;
-  language: string;
-}
-
 export interface ProgressState {
   id: string;
   jobType: JobType;
+  download?: DownloadCardInfo;
   progressStatus: ProgressStatus;
   percentage: number;
   message: string;
   errorMessage?: string;
-  parameter?: any; // Generic parameter object
 }
 
 export enum JobType {
@@ -246,8 +219,9 @@ export enum JobType {
   GetChapters = 4,
   GetLatest = 5,
   Download = 6,
-  UpdateExtensions =7,
-  UpdateAllSeries = 8
+  UpdateExtensions = 7,
+  UpdateAllSeries = 8,
+  DailyUpdate = 9,
 }
 
 export enum ProgressStatus {
@@ -263,19 +237,6 @@ export interface SetupOperationResponse {
   message: string;
 }
 
-export interface ImportResponse {
-  success: boolean;
-  message: string;
-  results: Array<{
-    path: string;
-    status: string;
-    reason?: string;
-    error?: string;
-    providersCount?: number;
-    providers?: string[];
-  }>;
-}
-
 // Import Totals for Schedule Updates step
 export interface ImportTotals {
   totalSeries: number;
@@ -283,38 +244,69 @@ export interface ImportTotals {
   totalDownloads: number;
 }
 
-// Provider related types (replacing Extension types)
+// Provider related types
 export interface Provider {
-  repo: string;
+  package: string;
   name: string;
-  pkgName: string;
-  versionName: string;
-  versionCode: number;
+  thumbnailUrl: string;
+  isStorage: boolean;
+  isEnabled: boolean;
+  isBroken: boolean;
+  isDead: boolean;
+  isInstaled: boolean;
+  activeEntry: number;
+  autoUpdate: boolean;
+  onlineRepositories: ExtensionRepository[];
+}
+
+export interface ExtensionRepository {
+  name: string;
+  id: string;
+  entries: ExtensionEntry[];
+}
+
+export interface ExtensionEntry {
+  id: string;
+  onlineRepositoryName: string;
+  onlineRepositoryId: string;
+  isLocal: boolean;
+  name: string;
+  downloadUTC: string; // ISO 8601 format
+  package: string;
+  version: string;
+  nsfw: boolean;
+  sources: ExtensionSource[];
+}
+
+export interface ExtensionSource {
+  name: string;
   lang: string;
-  apkName: string;
-  isNsfw: boolean;
-  installed: boolean;
-  hasUpdate: boolean;
-  iconUrl: string;
-  obsolete: boolean;
 }
 
 export interface ProviderPreferences {
-  apkName: string;
+  pkgName: string;
   preferences: ProviderPreference[];
+  provider?: string;
+  scanlator?: string;
+  language?: string;
+  isStorage?: boolean;
+  title?: string;
+  thumbnailUrl?: string;
+  status?: SeriesStatus;
+  url?: string;
 }
 
 export interface ProviderPreference {
   type: EntryType;
-  key: string;
+  index: number;
   title: string;
-  summary: string;
+  summary?: string;
   valueType: ValueType;
-  defaultValue: unknown;
-  entries: string[];
-  entryValues: string[];
-  currentValue: unknown;
-  source: string;
+  defaultValue?: unknown;
+  entries?: string[];
+  entryValues?: string[];
+  currentValue?: unknown;
+  languages: string[];
 }
 
 export enum EntryType {
@@ -343,11 +335,12 @@ export interface BaseSeriesInfo {
   type?: string;
   chapterCount: number;
   lastChapter?: number;
-  lastChangeUTC: string;
+  lastChangeUTC?: string | null;
   lastChangeProvider: SmallProviderInfo;
   isActive: boolean;
   hasUnknown: boolean;
   pausedDownloads: boolean;
+  startFromChapter?: number;
 }
 
 export interface SeriesInfo extends BaseSeriesInfo {
@@ -375,10 +368,10 @@ export interface ProviderExtendedInfo {
   chapterCount: number;
   fromChapter?: number;
   url?: string;
-  meta: Record<string, string>;
   useCover: boolean;
   isStorage: boolean;
   isUnknown: boolean;
+  isLocal: boolean;
   useTitle: boolean;
   isDisabled: boolean;
   isUninstalled: boolean;
@@ -429,8 +422,11 @@ export interface SmallProviderInfo {
   provider: string;
   scanlator: string;
   language: string;
-  url?:string;
   isStorage: boolean;
+  title?: string;
+  thumbnailUrl?: string;
+  status?: SeriesStatus;
+  url?: string;
 }
 
 export interface MatchInfo {
@@ -438,6 +434,43 @@ export interface MatchInfo {
   provider: string;
   scanlator: string;
   language: string;
+  isStorage?: boolean;
+  title?: string;
+  thumbnailUrl?: string;
+  status?: SeriesStatus;
+  url?: string;
+}
+
+export interface ImportProviderSnapshot {
+  provider: string;
+  scanlator: string;
+  language: string;
+  isStorage: boolean;
+  title?: string;
+  thumbnailUrl?: string;
+  status?: SeriesStatus;
+  url?: string;
+  chapterCount: number;
+  chapterList: StartStop[];
+  isDisabled: boolean;
+  archives: ProviderArchiveSnapshot[];
+}
+
+export interface StartStop {
+  start: number;
+  end: number;
+}
+
+export interface ProviderArchiveSnapshot {
+  path: string;
+  updatedUtc?: string;
+  chapterMetrics: ImportChapterMetrics;
+}
+
+export interface ImportChapterMetrics {
+  totalChapters: number;
+  totalPages: number;
+  totalMissingPages: number;
 }
 
 export interface ProviderMatchChapter {
@@ -460,14 +493,15 @@ export interface DownloadCardInfo {
   language: string;
   scanlator?: string;
   title: string;
+  url?: string;
   chapterNumber?: number;
   chapterName: string;
   thumbnailUrl?: string;
 }
 
 export interface LatestSeriesInfo {
-  id: string;
-  suwayomiSourceId: string;
+  mihonId: string;
+  mihonProviderId?: string;
   provider: string;
   language: string;
   url?: string;

@@ -90,7 +90,7 @@ namespace KaizokuBackend.Services.Series
                         .ToListAsync(token).ConfigureAwait(false);
                 }
 
-                existingProviders = ProcessSeriesProviders(ProviderSeriesDetails, existingProviders);
+                existingProviders = await ProcessSeriesProvidersAsync(ProviderSeriesDetails, existingProviders, token).ConfigureAwait(false);
 
                 dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, existingProviders,
                     ProviderSeriesDetails.StorageFolderPath, ProviderSeriesDetails.DisableJobs, ProviderSeriesDetails.StartChapter, token).ConfigureAwait(false);
@@ -246,10 +246,11 @@ namespace KaizokuBackend.Services.Series
                     _logger.LogError(e, "Unable to get Latest Series from {mihonProviderId}", mihonProviderId);
                     return JobResult.Failed;
                 }
+                string provider = src.Name + " (" + src.Language + ")";
+                _logger.LogInformation("Updating Latest Series from Provider {provider}...", provider);
                 do
                 {
                     MangaList? res;
-                    string provider = src.Name + " (" + src.Language + ")";
                     res = await _mihon.MihonErrorWrapperAsync(
                         () => src.GetLatestAsync(page, token),
                         "Unable to get Latest Series from {provider}", provider).ConfigureAwait(false);
@@ -366,6 +367,7 @@ namespace KaizokuBackend.Services.Series
                         }
                     }
                 }
+                _logger.LogInformation("Latest Series update from Provider {provider} complete.", provider);
 
                 return JobResult.Success;
             }
@@ -380,7 +382,7 @@ namespace KaizokuBackend.Services.Series
         /// <summary>
         /// Downloads/updates a specific series provider (moved from SeriesUpdateService)
         /// </summary>
-        public async Task<JobResult> DownloadSeriesAsync(Guid seriesProvider, CancellationToken token = default)
+        public async Task<JobResult> GetChaptersAsync(Guid seriesProvider, CancellationToken token = default)
         {
             SeriesProviderEntity? serie = await _db.SeriesProviders.Where(s => s.Id == seriesProvider).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
             if (serie == null)
@@ -411,7 +413,9 @@ namespace KaizokuBackend.Services.Series
                 _logger.LogError(e, "Unable to get Chapter from {mihonProviderId}", serie.MihonProviderId);
                 return JobResult.Failed;
             }
+            
             string provider = src.Name + " (" + src.Language + ")";
+            _logger.LogInformation("Getting chapters from Series {series} Provider {provider}", serie.Title, provider);
             chapterData = await _mihon.MihonErrorWrapperAsync(
                      () => src.GetChaptersAsync(serie.ToManga()!, token),
                      "Unable to get Chapters from {series} from {provider}", serie.Title, provider).ConfigureAwait(false);
@@ -461,7 +465,7 @@ namespace KaizokuBackend.Services.Series
             return null;
         }
 
-        private List<SeriesProviderEntity> ProcessSeriesProviders(AugmentedResponseDto ProviderSeriesDetails, List<SeriesProviderEntity> existingProviders)
+        private async Task<List<SeriesProviderEntity>> ProcessSeriesProvidersAsync(AugmentedResponseDto ProviderSeriesDetails, List<SeriesProviderEntity> existingProviders, CancellationToken token = default)
         {
             List<ImportProviderSnapshot> pInfos = ProviderSeriesDetails.LocalInfo?.Providers ?? [];
 
@@ -481,11 +485,11 @@ namespace KaizokuBackend.Services.Series
                     _logger.LogInformation("Found existing Provider for '{Title}': {Lang}/{provider}.",
                         fs.Title, fs.Lang, provider);
                     
-                    InternalCreateOrUpdateProviderFromProviderSeriesDetails(fs, existingProvider);
+                    await InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(fs, existingProvider, token).ConfigureAwait(false);
                 }
                 else
                 {
-                    existingProvider = InternalCreateOrUpdateProviderFromProviderSeriesDetails(fs);
+                    existingProvider = await InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(fs,null, token).ConfigureAwait(false);
                     _db.SeriesProviders.Add(existingProvider);
                     existingProviders.Add(existingProvider);
                 }
@@ -558,9 +562,9 @@ namespace KaizokuBackend.Services.Series
             _db.Touch(provider, e => e.Chapters);
         }
 
-        private SeriesProviderEntity InternalCreateOrUpdateProviderFromProviderSeriesDetails(ProviderSeriesDetails fs, SeriesProviderEntity? provider = null)
+        private async Task<SeriesProviderEntity> InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(ProviderSeriesDetails fs, SeriesProviderEntity? provider = null, CancellationToken token = default)
         {
-            provider = fs.CreateOrUpdate(provider);
+            provider = await fs.CreateOrUpdateAsync(_cache, provider, token).ConfigureAwait(false);
             _db.Touch(provider, e => e.Chapters);
             return provider;
         }

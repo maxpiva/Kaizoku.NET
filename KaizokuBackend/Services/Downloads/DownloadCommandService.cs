@@ -64,6 +64,7 @@ namespace KaizokuBackend.Services.Downloads
         /// <returns>Job result indicating success or failure</returns>
         public async Task<JobResult> DownloadChapterAsync(ChapterDownload ch, JobInfo job, CancellationToken token = default)
         {
+            _logger.LogInformation("Starting download for chapter {ChapterNumber} of series {SeriesTitle} from provider {ProviderName}...", ch.Chapter.ChapterNumber, ch.Title, ch.ProviderName);
             ProgressReporter reporter = _reportingService.CreateReporter(job);
             DownloadSummary downloadSummary;
 
@@ -302,6 +303,7 @@ namespace KaizokuBackend.Services.Downloads
 
                 message = $"Downloading ({providerName}) {ch.Title} {chapterName} completed.";
                 reporter.Report(ProgressStatus.Completed, 100, message, downloadSummary);
+                _logger.LogInformation("Download Complete for chapter {ChapterNumber} of series {SeriesTitle} from provider {ProviderName}...", ch.Chapter.ChapterNumber, ch.Title, ch.ProviderName);
                 return JobResult.Success;
             }
             catch (Exception e)

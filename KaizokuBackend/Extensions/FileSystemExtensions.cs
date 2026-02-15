@@ -55,9 +55,11 @@ namespace KaizokuBackend.Extensions
         /// <param name="token">Cancellation token</param>
         public static async Task SaveImportSeriesSnapshotToDirectoryAsync(this ImportSeriesSnapshot info, string seriesFolder, ILogger? logger = null, CancellationToken token = default)
         {
-            var kaizokuJsonPath = Path.Combine(seriesFolder, "kaizoku.json");
             try
             {
+                if (!Directory.Exists(seriesFolder))
+                    Directory.CreateDirectory(seriesFolder);
+                var kaizokuJsonPath = Path.Combine(seriesFolder, "kaizoku.json");
                 var jsonContent = JsonSerializer.Serialize(info, JsonOptions);
                 await File.WriteAllTextAsync(kaizokuJsonPath, jsonContent, token).ConfigureAwait(false);
             }

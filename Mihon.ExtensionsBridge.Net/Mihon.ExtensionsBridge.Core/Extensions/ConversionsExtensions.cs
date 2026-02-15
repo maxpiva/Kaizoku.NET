@@ -170,12 +170,22 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             long uploaded = ReadField<long>(chapter, "date_upload", 0);
             // chapter_number is a float in Tachiyomi
             float chNum = ReadField<float>(chapter, "chapter_number", 0f);
+            DateTimeOffset upload;
+            try
+            {
+                upload = DateTimeOffset.FromUnixTimeMilliseconds(uploaded);
+            }
+            catch
+            {
+                upload = DateTimeOffset.UtcNow;
+                //Ignore, bad parse will just use current time
+            }
             return new T
             {
                 Name = name,
                 Url = url,
                 Scanlator = scanlator,
-                DateUpload = DateTimeOffset.FromUnixTimeMilliseconds(uploaded),
+                DateUpload = upload,
                 ChapterNumber = chNum,
             };
         }

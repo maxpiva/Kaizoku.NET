@@ -177,10 +177,23 @@ namespace Mihon.ExtensionsBridge.Core.Services
             return group;
         }
 
+        private RepositoryGroup? ResolveLocal(RepositoryGroup? group)
+        {
+            if (group == null)
+                return null;
+            foreach(var g in LocalExtensions)
+            {
+                if (g.Name == group.Name)
+                    return g;
+            }
+            throw new InvalidOperationException("Group not found in local repository groups.");
+        }
+
         public async Task<RepositoryGroup> SetActiveExtensionVersionAsync(RepositoryGroup group, CancellationToken token = default)
         {
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
+            group = ResolveLocal(group);
             if (group.ActiveEntry < 0 || group.ActiveEntry >= group.Entries.Count)
                 throw new InvalidOperationException("Active entry index is out of bounds for repository group.");
             RepositoryEntry current = group.Entries[group.ActiveEntry];
@@ -243,6 +256,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         {
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
+            entry = ResolveLocal(entry);
             if (entry.ActiveEntry < 0 || entry.ActiveEntry >= entry.Entries.Count)
                 throw new InvalidOperationException("Active entry index is out of bounds for repository group.");
             RepositoryEntry initialEntry = entry.Entries[entry.ActiveEntry];
@@ -308,7 +322,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         {
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
-
+            group = ResolveLocal(group);
             if (group == null) throw new ArgumentNullException(nameof(group));
 
             bool removed;
@@ -634,6 +648,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         }
         private async Task<RepositoryGroup> UpdateEntriesAsync(RepositoryGroup? group, RepositoryEntry entry, CancellationToken token = default)
         {
+            group = ResolveLocal(group);
             await _localExtensionsLock.WaitAsync(token).ConfigureAwait(false);
             try
             {

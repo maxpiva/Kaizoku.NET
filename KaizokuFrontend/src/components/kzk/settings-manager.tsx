@@ -304,7 +304,7 @@ function ContentPreferencesSection({
         {availableLanguagesToAdd.length > 0 && (
           <div className="space-y-2">
             <Label className="text-sm font-medium">
-              Available languages (Derived from your installed sources):
+              Available languages (Derived from your sources):
             </Label>
             <div className="flex max-h-40 flex-wrap gap-1 overflow-y-auto">
               {availableLanguagesToAdd.map((language) => {
@@ -872,12 +872,135 @@ function FlareSolverrSection({
   );
 }
 
+// Socks Settings Section
+function SocksSettingsSection({
+  localSettings,
+  setLocalSettings,
+}: {
+  localSettings: Settings;
+  setLocalSettings: (updater: (prev: Settings) => Settings) => void;
+}) {
+  const isEnabled = localSettings.socksProxyEnabled;
+
+  return (
+    <CardContent className="space-y-4">
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="socks-proxy-enabled"
+          checked={localSettings.socksProxyEnabled}
+          onCheckedChange={(checked) =>
+            setLocalSettings((prev) => ({
+              ...prev,
+              socksProxyEnabled: checked,
+            }))
+          }
+        />
+        <Label htmlFor="socks-proxy-enabled">Enable SOCKS Proxy</Label>
+      </div>
+
+      <div className="border-muted space-y-4 border-l-2 pl-6">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <Label htmlFor="socks-proxy-version">SOCKS Version</Label>
+            <Input
+              id="socks-proxy-version"
+              type="number"
+              min="4"
+              max="5"
+              value={localSettings.socksProxyVersion ?? 5}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  socksProxyVersion: Math.min(
+                    5,
+                    Math.max(4, parseInt(e.target.value) || 5),
+                  ),
+                }))
+              }
+              disabled={!isEnabled}
+            />
+          </div>
+          <div>
+            <Label htmlFor="socks-proxy-host">Host</Label>
+            <Input
+              id="socks-proxy-host"
+              value={localSettings.socksProxyHost || ""}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  socksProxyHost: e.target.value,
+                }))
+              }
+              placeholder="127.0.0.1"
+              disabled={!isEnabled}
+            />
+          </div>
+          <div>
+            <Label htmlFor="socks-proxy-port">Port</Label>
+            <Input
+              id="socks-proxy-port"
+              type="number"
+              min="1"
+              max="65535"
+              value={localSettings.socksProxyPort ?? 0}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  socksProxyPort: Math.min(
+                    65535,
+                    Math.max(1, parseInt(e.target.value) || 0),
+                  ),
+                }))
+              }
+              disabled={!isEnabled}
+            />
+          </div>
+          <div>
+            <Label htmlFor="socks-proxy-username">Username</Label>
+            <Input
+              id="socks-proxy-username"
+              value={localSettings.socksProxyUsername || ""}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  socksProxyUsername: e.target.value,
+                }))
+              }
+              placeholder="Optional"
+              disabled={!isEnabled}
+            />
+          </div>
+          <div>
+            <Label htmlFor="socks-proxy-password">Password</Label>
+            <Input
+              id="socks-proxy-password"
+              type="password"
+              value={localSettings.socksProxyPassword || ""}
+              onChange={(e) =>
+                setLocalSettings((prev) => ({
+                  ...prev,
+                  socksProxyPassword: e.target.value,
+                }))
+              }
+              placeholder="Optional"
+              disabled={!isEnabled}
+            />
+          </div>
+        </div>
+        <p className="text-muted-foreground text-sm">
+          Configure a SOCKS4/5 proxy for provider requests.
+        </p>
+      </div>
+    </CardContent>
+  );
+}
+
 // Available settings sections
 const AVAILABLE_SECTIONS: SettingsSection[] = [
   {
     id: "content-preferences",
     title: "Content Preferences",
-    description: "Configure your preferred languages and content filters.",
+    description: "Configure your languages and content filters.",
     component: ContentPreferencesSection,
   },
   {
@@ -909,6 +1032,12 @@ const AVAILABLE_SECTIONS: SettingsSection[] = [
     title: "FlareSolverr Settings",
     description: "Configure FlareSolverr for bypassing Cloudflare protection.",
     component: FlareSolverrSection,
+  },
+  {
+    id: "socks-settings",
+    title: "Socks Settings",
+    description: "Configure SOCKS proxy settings for sources requests.",
+    component: SocksSettingsSection,
   },
 ];
 

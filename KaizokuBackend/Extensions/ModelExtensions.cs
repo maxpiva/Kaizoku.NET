@@ -206,7 +206,7 @@ namespace KaizokuBackend.Extensions
             return new ExtensionDto
             {
                 Package = ext.Package,
-                Name = ext.Name,
+                Name = ext.ParsedName(),
                 IsStorage = true,
                 IsEnabled = false,
                 IsBroken = false,
@@ -290,7 +290,7 @@ namespace KaizokuBackend.Extensions
                         Lang = provider.Language,
                         Title = provider.Title,
                         Url = provider.Url,
-                        ThumbnailUrl = provider.ThumbnailUrl ?? "/images/unknown",
+                        ThumbnailUrl = provider.ThumbnailUrl,
                         Artist = provider.Artist ?? "",
                         Author = provider.Author ?? "",
                         Description = provider.Description ?? "",

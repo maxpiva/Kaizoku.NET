@@ -3,8 +3,11 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models.Abstractions;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Services.Bridge;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using System.Collections.Concurrent;
 using System.Net;
@@ -32,13 +35,14 @@ namespace KaizokuBackend.Services.Helpers
         private readonly Dictionary<string, EtagCacheEntity> _etagCache = new Dictionary<string,EtagCacheEntity>();
         private readonly SemaphoreSlim _urlLock = new SemaphoreSlim(1);
         private readonly SemaphoreSlim _eTagLock = new SemaphoreSlim(1);
-
+        private readonly MihonBridgeService _mihonBridgeService;
 
         public ThumbCacheService(IOptions<CacheOptions> options,
             ILogger<ThumbCacheService> logger,
             AppDbContext db,
             IHttpClientFactory factory,
-            IWorkingFolderStructure workingFolderStructure
+            IWorkingFolderStructure workingFolderStructure,
+            MihonBridgeService mihonBridgeService
             )
         {
             _db = db;
@@ -47,6 +51,7 @@ namespace KaizokuBackend.Services.Helpers
             _factory = factory;
             _options = options.Value;
             _workingFolderStructure = workingFolderStructure;
+            _mihonBridgeService = mihonBridgeService;
         }
         public TimeSpan GetCacheDuration()
         {
@@ -79,12 +84,14 @@ namespace KaizokuBackend.Services.Helpers
             await _urlLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
+                if (string.IsNullOrEmpty(url))
+                    return string.Empty;
                 if (!_urlCache.ContainsKey(url))
                 {
                     EtagCacheEntity? c = await _db.ETagCache.AsNoTracking().FirstOrDefaultAsync(e => e.Url == url, token).ConfigureAwait(false);
                     if (c == null)
                     {
-                        c = await AddInternalUrlAsync(url, token).ConfigureAwait(false);
+                        c = await AddInternalUrlAsync(url, null, token).ConfigureAwait(false);
                     }
                     _urlCache[url] = c!.Key;
                 }
@@ -120,19 +127,25 @@ namespace KaizokuBackend.Services.Helpers
                         all.Remove(t);
                     }
                 }
-                Dictionary<string, IThumb> allUrl = all.ToDictionary(a => a.ThumbnailUrl, a => a, StringComparer.OrdinalIgnoreCase);
+                Dictionary<string, List<IThumb>> allUrl = all.GroupBy(a => a.ThumbnailUrl, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
                 etags = await _db.ETagCache.AsNoTracking().Where(e => allUrl.Keys.Contains(e.Url)).ToListAsync(token).ConfigureAwait(false);                
                 foreach(EtagCacheEntity m in etags)
                 {
-                    IThumb t = allUrl[m.Url];
-                    _urlCache[t.ThumbnailUrl] = m!.Key;
-                    t.ThumbnailUrl = prefix + m!.Key;
-                    all.Remove(t);
+                    List<IThumb> allT = allUrl[m.Url];
+                    foreach (IThumb t in allT)
+                    {
+                        _urlCache[t.ThumbnailUrl] = m!.Key;
+                        t.ThumbnailUrl = prefix + m!.Key;
+                        all.Remove(t);
+                    }
                 }
 
                 foreach (IThumb t in all)
                 {
-                    EtagCacheEntity? ee = await AddInternalUrlAsync(t.ThumbnailUrl, token).ConfigureAwait(false);
+                    EtagCacheEntity? ee = await AddInternalUrlAsync(t.ThumbnailUrl, null, token).ConfigureAwait(false);
+                    if (ee == null)
+                        continue;
                     _urlCache[t.ThumbnailUrl] = ee!.Key;
                     t.ThumbnailUrl = prefix + ee!.Key;
                     etags.Add(ee!);
@@ -206,15 +219,15 @@ namespace KaizokuBackend.Services.Helpers
                 return null;
             }
             string url = "ext://" + path;
-            return await AddUrlAsync(url, token).ConfigureAwait(false);
+            return await AddUrlAsync(url, null, token).ConfigureAwait(false);
         }
-        public async Task<string?> AddUrlAsync(string url, CancellationToken token = default)
+        public async Task<string?> AddUrlAsync(string url, string? mihonProviderId, CancellationToken token = default)
         {
-            EtagCacheEntity? cac = await AddInternalUrlAsync(url, token).ConfigureAwait(false);
+            EtagCacheEntity? cac = await AddInternalUrlAsync(url, mihonProviderId, token).ConfigureAwait(false);
             return cac?.Url;
         }
      
-        private async Task<EtagCacheEntity?> AddInternalUrlAsync(string url, CancellationToken token = default)
+        private async Task<EtagCacheEntity?> AddInternalUrlAsync(string url, string? mihonProviderId, CancellationToken token = default)
         {
             try
             {
@@ -223,6 +236,8 @@ namespace KaizokuBackend.Services.Helpers
                     _logger.LogWarning("Url is null or empty.");
                     return null;
                 }
+                if (url.StartsWith("/api/image/"))
+                    return null;
                 string key = Guid.NewGuid().ToString("N");
                 var existingEntry = await _db.ETagCache.FirstOrDefaultAsync(e => e.Url == url, token).ConfigureAwait(false);
                 if (existingEntry != null)
@@ -233,6 +248,7 @@ namespace KaizokuBackend.Services.Helpers
                 {
                     Key = key,
                     Url = url,
+                    MihonProviderId = mihonProviderId,
                     NextUpdateUTC = DateTime.UtcNow
                 };
                 if (key.StartsWith("ext://"))
@@ -261,10 +277,10 @@ namespace KaizokuBackend.Services.Helpers
         }
         public async Task<Stream?> GetStreamAsync(Models.Database.EtagCacheEntity cache, CancellationToken token = default)
         {
-            if (cache.Key.StartsWith("ext://"))
+            if (cache.Url.StartsWith("ext://"))
             {
-                string originalFilename = cache.Key.Substring(6);
-                string finalPath = Path.GetFullPath(Path.Combine(_workingFolderStructure.WorkingFolder, originalFilename));
+                string originalFilename = cache.Url.Substring(6);
+                string finalPath = Path.GetFullPath(Path.Combine(_workingFolderStructure.ExtensionsFolder, originalFilename));
                 if (File.Exists(finalPath))
                     return File.OpenRead(finalPath);
                 return null;
@@ -345,10 +361,44 @@ namespace KaizokuBackend.Services.Helpers
                 }
                 if (response.StatusCode != HttpStatusCode.OK)
                 {
-                    _logger.LogWarning("Unexpected status code {StatusCode} while refreshing cache for {Key}", response.StatusCode, cache.Key);
-                    return;
+                    //try source
+                    if (cache.MihonProviderId != null)
+                    {
+
+                        ISourceInterop interop = await _mihonBridgeService.SourceFromProviderIdAsync(cache.MihonProviderId).ConfigureAwait(false);
+                        if (interop != null)
+                        {
+                            ContentTypeStream? image;
+                            int retries = 2; //try twice with the interop in case of referer or missing headers.
+                            do
+                            {
+                                string message = "Error downloading the image for {Key}";
+                                if (retries == 2)
+                                    message = "Error downloading the image for {Key}. Retrying...";
+                                image = await _mihonBridgeService.MihonErrorWrapperAsync(
+                                    () => interop.DownloadUrlAsync(cache.Url, token),
+                                    message, cache.Key).ConfigureAwait(false);
+                                if (image != null)
+                                    break;
+                            } while (retries-- > 0);
+                            if (image == null)
+                                return; //Warning already logged in the wrapper
+                            await image.CopyToAsync(memoryStream, token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Error downloading the image for {Key}. Http error: {StatusCode}", cache.Key, response.StatusCode);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Error downloading the image for {Key}. Http error: {StatusCode}", cache.Key, response.StatusCode);
+                        return;
+                    }
                 }
-                await response.Content.CopyToAsync(memoryStream, token).ConfigureAwait(false);
+                else
+                    await response.Content.CopyToAsync(memoryStream, token).ConfigureAwait(false);
                 string? med = response.Content.Headers.ContentType?.MediaType;
                 if (!string.IsNullOrEmpty(med))
                     mediaType = med;
@@ -438,7 +488,15 @@ namespace KaizokuBackend.Services.Helpers
             Stream? s = await GetStreamAsync(cacheEntry!, token).ConfigureAwait(false);
             if (s==null)
                 return (HttpStatusCode.NotFound, null, null, null);
-            return (HttpStatusCode.OK, cacheEntry!.Etag, cacheEntry!.ContentType, s);
+            string contentType = cacheEntry!.ContentType;
+            if (string.IsNullOrEmpty(contentType))
+            {
+                (string? detectedContentType, string? detectedExtension) = s.GetImageMimeTypeAndExtension();
+                s.Position = 0;
+                contentType = detectedContentType ?? "";
+            }
+
+            return (HttpStatusCode.OK, cacheEntry!.Etag, contentType, s);
         }
     }
 }

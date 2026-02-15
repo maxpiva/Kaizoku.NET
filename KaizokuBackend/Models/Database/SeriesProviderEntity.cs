@@ -16,6 +16,7 @@ public class SeriesProviderEntity : ProviderSummaryBase, IBridgeItemInfo, IThumb
     [Key]
     public Guid Id { get; set; }
     public Guid SeriesId { get; set; }
+    public string Title { get; set; } = string.Empty;
     public string? MihonProviderId { get; set; }
     public string? MihonId { get; set; }
     public string? BridgeItemInfo { get; set; }

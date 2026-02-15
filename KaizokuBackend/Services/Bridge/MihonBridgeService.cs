@@ -172,7 +172,7 @@ namespace KaizokuBackend.Services.Bridge
             return _bridgeManager.LocalExtensionManager.SetActiveExtensionVersionAsync(group, token);
         }
 
-        public Task<bool> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
+        public Task<TachiyomiRepository> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
         {
             return _bridgeManager.OnlineRepositoryManager.AddOnlineRepositoryAsync(repository, token);
         }

@@ -24,7 +24,7 @@ public class ProviderExtendedDto : ProviderSummaryBase, IThumb
     [JsonPropertyName("thumbnailUrl")]
     public override string? ThumbnailUrl { get; set; } = null;
     [JsonPropertyName("title")]
-    public override string Title { get; set; } = "";
+    public string Title { get; set; } = "";
     [JsonPropertyName("artist")]
     public string Artist { get; set; } = string.Empty;
     [JsonPropertyName("author")]

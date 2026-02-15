@@ -44,7 +44,7 @@ export function useSetupWizardImportSeries() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: (imports: ImportInfo[]) => setupWizardService.importSeries(imports),
+    mutationFn: () => setupWizardService.importSeries(),
     onSuccess: () => {
       // Invalidate imports query after successful import
       void queryClient.invalidateQueries({ queryKey: ['setup-wizard', 'imports'] });

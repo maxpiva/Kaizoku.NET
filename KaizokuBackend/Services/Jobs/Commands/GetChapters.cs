@@ -23,7 +23,7 @@ public class GetChapters : ICommand
         if (job.Parameters == null)
             return JobResult.Failed;
         Guid serviceProvider = JsonSerializer.Deserialize<Guid>(job.Parameters);
-        return await _seriesCommand.DownloadSeriesAsync(serviceProvider, token).ConfigureAwait(false);
+        return await _seriesCommand.GetChaptersAsync(serviceProvider, token).ConfigureAwait(false);
     }
 }
 

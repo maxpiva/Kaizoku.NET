@@ -39,7 +39,7 @@ public class ImportCommandService
     private readonly MihonBridgeService _mihon;
     private readonly SettingsService _settings;
     private readonly SeriesScanner _scanner;
-
+    private readonly ThumbCacheService _thumb;
     public ImportCommandService(
         ILogger<ImportCommandService> logger,
         SearchQueryService searchQuery,
@@ -53,6 +53,7 @@ public class ImportCommandService
         SeriesProviderService seriesProvider,
         ProviderCacheService providerCache,
         ProviderManagerService provicerManagerService,
+        ThumbCacheService thumb,
         SeriesScanner scanner)
     {
         _logger = logger;
@@ -68,10 +69,12 @@ public class ImportCommandService
         _seriesProvider = seriesProvider;
         _mihon = mihon;
         _scanner = scanner;
+        _thumb = thumb;
     }
 
     public async Task<JobResult> ScanAsync(string directoryPath, JobInfo jobInfo, CancellationToken token = default)
     {
+        _logger.LogInformation("Starting directory scan job for path: {directoryPath}", directoryPath);
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)) 
             || (await _jobManagementService.IsJobTypeRunningAsync(JobType.InstallAdditionalExtensions, token).ConfigureAwait(false)))
@@ -93,6 +96,7 @@ public class ImportCommandService
         HashSet<string> folders = seriesDict.Select(a => a.Path).ToHashSet();
         await SaveImportsAsync(folders, seriesDict, token).ConfigureAwait(false);
         progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
+        _logger.LogInformation("Directory scan job completed successfully for path: {directoryPath}", directoryPath);
         return JobResult.Success;
     }
 
@@ -205,6 +209,7 @@ public class ImportCommandService
     {
         try
         {
+            _logger.LogInformation("Starting extension installation job...");
             ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
             if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)))
             {
@@ -228,6 +233,7 @@ public class ImportCommandService
                 }
             }
             progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+            _logger.LogInformation("Extension installation job completed successfully.");
             return JobResult.Success;
         }
         catch (Exception e)
@@ -275,6 +281,7 @@ public class ImportCommandService
 
     public async Task<JobResult> SearchSeriesAsync(JobInfo jobInfo, CancellationToken token = default)
     {
+        _logger.LogInformation("Starting series search job...");
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         progress.Report(ProgressStatus.Started, 0, "Starting series search...");
         try
@@ -381,7 +388,7 @@ public class ImportCommandService
                                                         }
                                                         if (workToDo.Count > 0)
                                                         {
-                                                            SeriesProviderEntity prov = f.CreateOrUpdate();
+                                                            SeriesProviderEntity prov = await f.CreateOrUpdateAsync(_thumb,null, token).ConfigureAwait(false);
                                                             prov.SeriesId = s.Id;
                                                             _db.SeriesProviders.Add(prov);
                                                             s.Sources.Add(prov);
@@ -468,7 +475,7 @@ public class ImportCommandService
                 
                             foreach (LinkedSeriesDto l in list)
                             {
-                                List<string> lss = sourceTitles[l.ProviderId];
+                                List<string> lss = sourceTitles[l.MihonProviderId];
                                 foreach (string n in lss)
                                 {
                                     if (l.Title.AreStringSimilar(n))
@@ -560,6 +567,7 @@ public class ImportCommandService
                 }
             }
             progress.Report(ProgressStatus.Completed, 100, $"Search completed for {imports.Count} series");
+            _logger.LogInformation("Series search job completed successfully for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)
@@ -573,6 +581,7 @@ public class ImportCommandService
     public async Task<JobResult> ImportSeriesAsync(JobInfo jobInfo, bool disableJob, CancellationToken token = default)
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
+        _logger.LogInformation("Starting series import job...");
         progress.Report(ProgressStatus.Started, 0, "Starting series import...");
         List<KaizokuBackend.Models.Database.ImportEntity> imports = await _db.Imports
             .Where(a => a.Status != ImportStatus.DoNotChange)
@@ -612,6 +621,7 @@ public class ImportCommandService
             settings.WizardSetupStepCompleted = 0;
             await _settings.SaveSettingsAsync(settings, false, token).ConfigureAwait(false);
             progress.Report(ProgressStatus.Completed, 100, $"Import completed for {imports.Count} series");
+            _logger.LogInformation("Import completed for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)

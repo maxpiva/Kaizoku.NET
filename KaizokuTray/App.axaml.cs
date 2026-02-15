@@ -126,8 +126,7 @@ public partial class App : Application
             // Build and start the ASP.NET Core host (this can run on background thread)
             _host = KaizokuBackend.Program.CreateHostBuilder(Array.Empty<string>()).Build();
             // Start the ASP.NET Core host (this can run on background thread)
-            await _host.StartAsync(_shutdownCancellationTokenSource.Token);
-            
+            _ = Task.Run(async()=>await _host.StartAsync(_shutdownCancellationTokenSource.Token).ConfigureAwait(false));   
             // Setup the tray icon on the UI thread
             Avalonia.Threading.Dispatcher.UIThread.Invoke(() =>
             {

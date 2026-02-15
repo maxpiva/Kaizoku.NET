@@ -180,7 +180,7 @@ namespace KaizokuBackend.Services.Import
                     var d = new NewDetectedChapter
                     {
                         Provider = string.Empty,
-                        ThumbnailUrl = "/images/unknown",
+                        ThumbnailUrl = "",
                         Scanlator = string.Empty,
                         Title = parsedInfo?.Series ?? "Unknown",
                         Language = "en",

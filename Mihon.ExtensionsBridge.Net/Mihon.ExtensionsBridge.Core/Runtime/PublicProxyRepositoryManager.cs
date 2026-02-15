@@ -13,7 +13,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             _internalRepositoryManager = internalRepositoryManager;
         }
 
-        public Task<bool> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
+        public Task<TachiyomiRepository> AddOnlineRepositoryAsync(TachiyomiRepository repository, CancellationToken token = default)
         {
             TachiyomiRepository addRepo = repository.Clone();
             return _internalRepositoryManager.AddOnlineRepositoryAsync(addRepo, token);

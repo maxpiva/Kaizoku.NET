@@ -35,10 +35,7 @@ namespace KaizokuBackend.Services.Jobs
                     return JobResult.Failed;
                 }
 
-                _logger.LogInformation("Executing {JobType} on {groupKey}", jobInfo.JobType, jobInfo.GroupKey ?? jobInfo.Key);
-                JobResult result = await command.ExecuteAsync(jobInfo, token).ConfigureAwait(false);
-                _logger.LogInformation("Job {JobType} on {groupKey} {Result}", jobInfo.JobType, jobInfo.GroupKey ?? jobInfo.Key, result);
-                return result;
+                return await command.ExecuteAsync(jobInfo, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

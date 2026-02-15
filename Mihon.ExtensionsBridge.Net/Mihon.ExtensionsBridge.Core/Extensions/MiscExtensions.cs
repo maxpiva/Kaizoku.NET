@@ -80,7 +80,7 @@ public static class MiscExtensions
     }
     public static string GetIconUrl(this TachiyomiExtension ext, TachiyomiRepository repository)
     {
-        string iconName = Path.ChangeExtension(ext.Apk, "png");
+        string iconName = ext.Package+"."+"png";
         return $"{RepoFromUrl(repository.Url)}/icon/{iconName}";
     }
 

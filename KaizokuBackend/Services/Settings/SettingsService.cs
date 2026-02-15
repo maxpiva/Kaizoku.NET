@@ -196,6 +196,34 @@ namespace KaizokuBackend.Services.Settings
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
+                var onlineRepos = bridgeManager.ListOnlineRepositories();
+                List<string> repos = set.MihonRepositories.ToList();
+                foreach (var t in onlineRepos)
+                {
+                    foreach (string s in repos.ToList())
+                    {
+                        if (s.Equals(t.Url, StringComparison.OrdinalIgnoreCase))
+                        {
+                            repos.Remove(s);
+                            break;
+                        }
+                    }
+                }
+                if (repos.Count>0)
+                {
+                    foreach(string n in repos)
+                    {
+                        TachiyomiRepository repo = new TachiyomiRepository(n);
+                        repo = await bridgeManager.AddOnlineRepositoryAsync(repo).ConfigureAwait(false);
+                        if (!n.Equals(repo.Url, StringComparison.OrdinalIgnoreCase))
+                        {
+                            List<string> existing = set.MihonRepositories.ToList();
+                            existing.Remove(n);
+                            existing.Add(repo.Url);
+                            set.MihonRepositories = existing.ToArray();
+                        }
+                    }
+                }
                 await bridgeManager.SetPreferencesAsync(new Preferences
                 {
                     FlareSolverr = new FlareSolverrPreferences
@@ -233,7 +261,8 @@ namespace KaizokuBackend.Services.Settings
                     dbsetting.Value = setting.Value;
                     needSave = true;
                 }
-            }            if (needSave)
+            }            
+            if (needSave)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             _settings = GetFromEditableSettings(set);
         }

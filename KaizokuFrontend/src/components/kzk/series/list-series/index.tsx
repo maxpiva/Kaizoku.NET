@@ -15,6 +15,7 @@ import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { Database, ExternalLink } from "lucide-react";
 import { getStatusDisplay } from "@/lib/utils/series-status";
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 // Color array for the last change ring (31 colors from green to blue)
 const LAST_CHANGE_COLORS = [
   "00FF00", "22FF00", "44FF00", "66FF00", "88FF00", "AAFF00", "CCFF00", "FFFF00",
@@ -37,7 +38,6 @@ function getLastChangeRingColor(lastChangeUTC?: string): string | null {
   const colorIndex = Math.min(diffDays, 30);
   return LAST_CHANGE_COLORS[colorIndex] || null;
 }
-
 export interface ListSeriesProps {
   filterFn?: (series: SeriesInfo) => boolean;
   sortFn?: (a: SeriesInfo, b: SeriesInfo) => number;
@@ -166,7 +166,7 @@ export function ListSeries({ filterFn, sortFn, cardWidth = "w-40", cardWidthOpti
               }}
             ><Image
                 priority
-                src={series.thumbnailUrl ?? '/placeholder.jpg'}
+                src={formatThumbnailUrl(series.thumbnailUrl) ?? '/placeholder.jpg'}
                 alt={series.title}
                 fill
                 className="rounded-md object-cover"

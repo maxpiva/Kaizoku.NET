@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import { Download, Plus, Power, Search, Trash2, Pause, Play, ExternalLink, ShieldCheck, AlertTriangle, CheckCircle, Clock, Calendar } from "lucide-react";
 import Image from 'next/image';
-import { getApiConfig } from '@/lib/api/config';
 import { SeriesStatus, QueueStatus, ArchiveResult, type ProviderExtendedInfo, type DownloadInfo, type ProviderMatch, type ExistingSource, type SeriesExtendedInfo, type SeriesIntegrityResult, type ArchiveIntegrityResult } from "@/lib/api/types";
 import { useSeriesContext } from "@/contexts/series-context";
 import ReactCountryFlag from "react-country-flag";
@@ -31,6 +30,7 @@ import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping"
 import { getStatusDisplay } from "@/lib/utils/series-status";
 import { ProviderMatchDialog } from "@/components/dialogs/provider-match-dialog";
 import { AddSeries } from "@/components/kzk/series/add-series";
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 
 
 // Provider Card Component
@@ -229,7 +229,7 @@ const ProviderCard = ({ provider,
             {/* Provider Thumbnail */}
             <div className="flex-shrink-0">
               <img
-                src={provider.thumbnailUrl || "/kaizoku.net.png"}
+                src={formatThumbnailUrl(provider.thumbnailUrl)}
                 alt={provider.title} style={{ aspectRatio: '4/6' }}
 
                 className="h-68 object-cover rounded border"
@@ -420,20 +420,7 @@ const ProviderCard = ({ provider,
 };
 
 // Helper function to format thumbnail URL
-const formatThumbnailUrl = (thumbnailUrl?: string): string => {
-  if (!thumbnailUrl) {
-    return '/kaizoku.net.png';
-  }
-  
-  // If it already starts with http, return as is
-  if (thumbnailUrl.startsWith('http')) {
-    return thumbnailUrl;
-  }
-  
-  // Otherwise, prefix with base URL and API path
-  const config = getApiConfig();
-  return `${config.baseUrl}/api/${thumbnailUrl}`;
-};
+
 
 // Helper function to get status icon
 const getStatusIcon = (status: QueueStatus, isScheduledForFuture?: boolean) => {
@@ -523,7 +510,7 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
       <CardHeader className="pb-2 p-2">
         <div className="flex items-start gap-3">
           <Image
-            src={download.thumbnailUrl ? formatThumbnailUrl(download.thumbnailUrl) : '/kaizoku.net.png'}
+            src={formatThumbnailUrl(download.thumbnailUrl)}
             alt={download.title || 'Download'}
             width={60}
             height={80}
@@ -1799,7 +1786,7 @@ function SeriesPageContent() {
             <div className="flex gap-4">
               {/* Poster */}
               <div className="flex-shrink-0">
-                <img src={displayThumbnail || "/kaizoku.net.png"}
+                <img src={formatThumbnailUrl(displayThumbnail)}
                   alt={displayTitle}
                   style={{ aspectRatio: '4/6' }}
                   className="h-96 object-cover rounded-lg border"

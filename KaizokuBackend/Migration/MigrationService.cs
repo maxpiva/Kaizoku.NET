@@ -40,8 +40,8 @@ public class MigrationService
     private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private ProviderCacheService _providerCache;
-
-
+    private ThumbCacheService _thumbs;
+    
     public MigrationService(IServiceProvider factory, MihonBridgeService mihon, ILogger<MigrationService> logger,
                 IConfiguration configuration)
     {
@@ -114,7 +114,13 @@ public class MigrationService
         newDatabasePath = Path.GetFullPath(newDatabasePath);
         if (!File.Exists(newDatabasePath))
         {
-            _logger.LogError("No existing database found at {Path}.", newDatabasePath);
+            _logger.LogError("No existing database found at {Path}. Assuming new installation.", newDatabasePath);
+            var newDbOptions2 = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite($"Data Source={newDatabasePath}")
+                .UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll)
+                .Options;
+            await using var targetDb2 = new AppDbContext(newDbOptions2);
+            await targetDb2.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
         if (Version2Database(newDatabasePath))
@@ -157,10 +163,10 @@ public class MigrationService
         }
 
         await targetDb.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
-        
         MigrationState state = new();
         await MigrateSettingsAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
         _providerCache = _serviceProvider.GetRequiredService<ProviderCacheService>();
+        _thumbs = _serviceProvider.GetRequiredService<ThumbCacheService>();
         await MigrateProvidersAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
         await MigrateSeriesProvidersAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
         await MigrateSeriesAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
@@ -352,6 +358,11 @@ public class MigrationService
         }
 
         await targetDb.Series.AddRangeAsync(migratedSeries, cancellationToken).ConfigureAwait(false);
+        foreach (var series in state.SeriesProviders)
+        {
+            if (series.ThumbnailUrl != null)
+               await _thumbs.AddUrlAsync(series.ThumbnailUrl, series.MihonProviderId, cancellationToken).ConfigureAwait(false);
+        }
         await targetDb.SeriesProviders.AddRangeAsync(state.SeriesProviders, cancellationToken).ConfigureAwait(false);
 
 

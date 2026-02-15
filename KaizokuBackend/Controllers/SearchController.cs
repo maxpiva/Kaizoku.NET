@@ -77,7 +77,7 @@ namespace KaizokuBackend.Controllers
             try
             {
                 var sources = await _searchQueryService.GetAvailableSearchSourcesAsync(token).ConfigureAwait(false);
-                return Ok(sources);
+                return Ok(sources.OrderBy(a=>a.Provider).ToList());
             }
             catch (Exception ex)
             {

@@ -1,16 +1,17 @@
 using KaizokuBackend.Extensions;
+using KaizokuBackend.Models.Abstractions;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Settings;
 using Microsoft.Extensions.Caching.Memory;
-using Mihon.ExtensionsBridge.Models.Extensions;
 using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models.Extensions;
 using System.Collections.Concurrent;
 using System.Globalization;
-using KaizokuBackend.Models.Dto;
 
 namespace KaizokuBackend.Services.Search
 {
@@ -22,6 +23,7 @@ namespace KaizokuBackend.Services.Search
         private readonly MihonBridgeService _mihon;
         private readonly SettingsService _settings;
         private readonly ProviderCacheService _providerCache;
+        private readonly ThumbCacheService _thumb;
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<SearchQueryService> _logger;
 
@@ -31,12 +33,14 @@ namespace KaizokuBackend.Services.Search
             SettingsService settings,
             ProviderCacheService providerCache,
             IMemoryCache memoryCache,
+            ThumbCacheService thumb,
             ILogger<SearchQueryService> logger)
         {
             _mihon = mihon;
             _settings = settings;
             _providerCache = providerCache;
             _memoryCache = memoryCache;
+            _thumb = thumb;
             _logger = logger;
         }
 
@@ -60,7 +64,6 @@ namespace KaizokuBackend.Services.Search
             {
                 SearchSourceDto v = new SearchSourceDto
                 {
-                    Name = summary.Title,
                     Language = summary.Language,
                     Provider = summary.Provider,
                     Scanlator = summary.Scanlator,
@@ -245,9 +248,16 @@ namespace KaizokuBackend.Services.Search
                 var allSeries = new List<(ParsedManga Manga, string ProviderId, string Language)>();
                 foreach (var (providerId, lang, result) in results)
                 {
+                   
                     allSeries.AddRange(result.Mangas.Select(m => (m, providerId, lang)));
                 }
-
+                foreach(var n in allSeries)
+                {
+                    if (!string.IsNullOrEmpty(n.Manga.ThumbnailUrl))
+                    {
+                        await _thumb.AddUrlAsync(n.Manga.ThumbnailUrl, n.ProviderId, token).ConfigureAwait(false);
+                    }
+                }
                 var linked = allSeries.FindAndLinkSimilarSeries(threshold);
 
 

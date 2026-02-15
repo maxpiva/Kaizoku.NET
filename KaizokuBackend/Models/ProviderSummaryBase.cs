@@ -21,9 +21,6 @@ public abstract class ProviderSummaryBase : IThumb
     [JsonPropertyName("isStorage")]
     public virtual bool IsStorage { get; set; } = false;
 
-    [JsonPropertyName("title")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public virtual string Title { get; set; } = string.Empty;
 
     [JsonPropertyName("thumbnailUrl")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

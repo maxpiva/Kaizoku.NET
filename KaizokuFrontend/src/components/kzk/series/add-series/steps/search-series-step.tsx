@@ -12,6 +12,7 @@ import Image from "next/image";
 import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 export function SearchSeriesStep({
   setError,
   setIsLoading,
@@ -65,7 +66,7 @@ export function SearchSeriesStep({
   React.useEffect(() => {
     if (availableSources.length === 0) return;
     
-    const currentSourceIds = availableSources.map(s => s.sourceId).sort();
+    const currentSourceIds = availableSources.map(s => s.mihonProviderId).sort();
     const state = initializationState.current;
     
     // Check if this is the first initialization
@@ -122,7 +123,7 @@ export function SearchSeriesStep({
     if (searchResults) {
       setFormState(prev => {
         // Validate existing selections against new search results
-        const newSearchResultIds = searchResults.map(series => series.id);
+        const newSearchResultIds = searchResults.map(series => series.mihonId ?? series.providerId);
         const validatedSelections = prev.selectedLinkedSeries.filter(selectedId => 
           newSearchResultIds.includes(selectedId)
         );
@@ -160,7 +161,11 @@ export function SearchSeriesStep({
     // Enable progress immediately when user has made selections, regardless of loading state
     const hasSelections = formState.selectedLinkedSeries.length > 0;
     setCanProgress(hasSelections);
-  }, [formState.selectedLinkedSeries, setCanProgress]);  const handleSeriesToggle = (seriesId: string, checked: boolean) => {
+  }, [formState.selectedLinkedSeries, setCanProgress]);
+
+  const getSeriesId = (series: LinkedSeries): string => series.mihonId ?? series.providerId;
+
+  const handleSeriesToggle = (seriesId: string, checked: boolean) => {
     setFormState(prev => {
       let newSelection = [...prev.selectedLinkedSeries];
       const allSeries = prev.allLinkedSeries;
@@ -171,7 +176,7 @@ export function SearchSeriesStep({
         
         // Only auto-select linked series if this is the first selection
         if (prev.selectedLinkedSeries.length === 0) {
-          const series = allSeries.find((s: LinkedSeries) => s.id === seriesId);
+          const series = allSeries.find((s: LinkedSeries) => getSeriesId(s) === seriesId);
           if (series) {
             // Add linked series automatically only on first selection
             series.linkedIds.forEach((linkedId: string) => {
@@ -197,7 +202,8 @@ export function SearchSeriesStep({
   };
   
   const allSeries = formState.allLinkedSeries;
-  const isDesktop = useMediaQuery("(min-width: 768px)");  return (
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  return (
     <div className="mt-4 grid gap-2 rounded-md border bg-secondary p-4">
       <div className="flex items-center gap-2">
         <Input
@@ -225,19 +231,20 @@ export function SearchSeriesStep({
       </div><div className="h-[60dvh] overflow-y-auto">
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-3">
           {allSeries.map((series) => {
-            const isSelected = isSeriesSelected(series.id);
+            const seriesId = getSeriesId(series);
+            const isSelected = isSeriesSelected(seriesId);
             
             return (
               <div
-                key={series.id}
+                key={seriesId}
                 className={`m-1 cursor-pointer transition-all duration-200 hover:shadow-lg rounded-md overflow-hidden ${
                   isSelected ? 'ring-2 ring-primary shadow-md' : 'hover:ring-1 hover:ring-gray-300'
                 }`}
-                onClick={() => handleSeriesToggle(series.id, !isSelected)}
+                onClick={() => handleSeriesToggle(seriesId, !isSelected)}
               >
                 <div className="aspect-[3/4] relative">
                   <Image
-                    src={series.thumbnailUrl ?? '/placeholder.jpg'}
+                    src={formatThumbnailUrl(series.thumbnailUrl)}
                     alt={series.title}
                     fill
                     sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"

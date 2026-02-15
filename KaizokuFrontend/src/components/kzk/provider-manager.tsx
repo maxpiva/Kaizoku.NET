@@ -5,14 +5,19 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
 import { Download, Trash2, Search, Upload } from "lucide-react";
 import ReactCountryFlag from "react-country-flag";
 import { providerService } from "@/lib/api/services/providerService";
-import { type Provider, NsfwVisibility } from "@/lib/api/types";
+import { type Provider, type ExtensionEntry, NsfwVisibility } from "@/lib/api/types";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { LazyImage } from "@/components/ui/lazy-image";
 import { ProviderSettingsButton } from "@/components/kzk/provider-settings-button";
 import { ProviderPreferencesRequester } from "@/components/kzk/provider-preferences-requester";
+import { useSettings } from "@/lib/api/hooks/useSettings";
+import { getApiConfig } from "@/lib/api/config";
 
 interface ProviderCardProps {
   extension: Provider;
@@ -22,6 +27,57 @@ interface ProviderCardProps {
   isCompact?: boolean;
   showNsfwIndicator?: boolean;
 }
+const formatThumbnailUrl = (thumbnailUrl?: string): string => {
+  const config = getApiConfig();
+  if (!thumbnailUrl) {
+    return '/kaizoku.net.png';
+  }
+  // If it already starts with http, return as is
+  if (thumbnailUrl.startsWith('http')) {
+    return thumbnailUrl;
+  }
+  
+  // Otherwise, prefix with base URL and API path
+  return `${config.baseUrl}${thumbnailUrl}`;
+};
+const getExtensionEntries = (extension: Provider): ExtensionEntry[] =>
+  extension.onlineRepositories.flatMap((repo) => repo.entries);
+
+const getPrimaryEntry = (extension: Provider): ExtensionEntry | undefined => {
+  const allEntries = getExtensionEntries(extension);
+  if (allEntries.length === 0) return undefined;
+
+  if (extension.isInstaled) {
+    const localRepo = extension.onlineRepositories.find((repo) =>
+      repo.entries.some((entry) => entry.isLocal)
+    );
+    if (localRepo) {
+      const index = Math.min(
+        Math.max(extension.activeEntry ?? 0, 0),
+        localRepo.entries.length - 1
+      );
+      return localRepo.entries[index] ?? localRepo.entries[0];
+    }
+  }
+
+  return allEntries[0];
+};
+
+const getExtensionLanguages = (extension: Provider): string[] => {
+  const langs = getExtensionEntries(extension)
+    .flatMap((entry) => entry.sources.map((source) => source.lang))
+    .filter(Boolean);
+  return Array.from(new Set(langs));
+};
+
+const getPrimaryLanguage = (extension: Provider): string =>
+  getExtensionLanguages(extension)[0] ?? "all";
+
+const getExtensionVersion = (extension: Provider): string =>
+  getPrimaryEntry(extension)?.version ?? "";
+
+const isExtensionNsfw = (extension: Provider): boolean =>
+  getExtensionEntries(extension).some((entry) => entry.nsfw);
 
 function ProviderCard({ 
   extension, 
@@ -32,14 +88,17 @@ function ProviderCard({
   showNsfwIndicator = true 
 }: ProviderCardProps) {
   const handleAction = () => {
-    if (extension.installed && onUninstall) {
-      onUninstall(extension.pkgName);
-    } else if (!extension.installed && onInstall) {
-      onInstall(extension.pkgName);
+    if (extension.isInstaled && onUninstall) {
+      onUninstall(extension.package);
+    } else if (!extension.isInstaled && onInstall) {
+      onInstall(extension.package);
     }
   };
 
-  const countryCode = getCountryCodeForLanguage(extension.lang);
+  const primaryLanguage = getPrimaryLanguage(extension);
+  const countryCode = getCountryCodeForLanguage(primaryLanguage);
+  const version = getExtensionVersion(extension);
+  const isNsfw = isExtensionNsfw(extension);
 
   return (
     <Card className="w-full">
@@ -48,13 +107,13 @@ function ProviderCard({
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="relative flex-shrink-0">
               <LazyImage
-                src={extension.iconUrl}
+                src={formatThumbnailUrl(extension.thumbnailUrl)}
                 alt={`${extension.name} icon`}
                 className={`${isCompact ? 'h-12 w-12' : 'h-20 w-20'} rounded-lg object-cover`}
                 fallbackSrc="/kaizoku.net.png"
                 loading="lazy"
               />
-              {showNsfwIndicator && extension.isNsfw && (
+              {showNsfwIndicator && isNsfw && (
                 <div className="absolute -top-1 -right-1">
                   {isCompact ? (
                     <div className="rounded-full bg-red-500 text-white text-[9px] px-1">18+</div>
@@ -79,7 +138,7 @@ function ProviderCard({
               </div>
               <CardDescription className={`${isCompact ? 'text-xs' : 'text-xs'} truncate flex items-center`}>
                 <span className="text-muted-foreground">
-                  v{extension.versionName}
+                  {version ? `v${version}` : ""}
                       &nbsp;&nbsp;                      
                        <ReactCountryFlag
                   countryCode={countryCode}
@@ -89,23 +148,23 @@ function ProviderCard({
                     height: isCompact ? "10px" : "10px",
                     marginBottom: isCompact ? "2px" : "2px",
                   }}
-                  title={`${extension.lang.toUpperCase()} (${countryCode})`}
+                  title={`${primaryLanguage.toUpperCase()} (${countryCode})`}
                 />
                 </span>
               </CardDescription>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {extension.installed && (
+            {extension.isInstaled && (
               <ProviderSettingsButton
                 variant={isCompact ? 'default' : undefined}
-                apkName={extension.apkName}
+                pkgName={extension.package}
                 providerName={extension.name}
                 size="sm"
               />
             )}
             <Button
-              variant={extension.installed ? "destructive" : "default"}
+              variant={extension.isInstaled ? "destructive" : "default"}
               size="sm"
               onClick={handleAction}
               disabled={isLoading}
@@ -113,7 +172,7 @@ function ProviderCard({
             >
               {isLoading ? (
                 "..."
-              ) : extension.installed ? (
+              ) : extension.isInstaled ? (
                 <>
                   <Trash2 className="h-4 w-4" />
                   {isCompact ? "Remove" : "Uninstall"}
@@ -182,7 +241,7 @@ export function ProviderManager({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showPreferencesFor, setShowPreferencesFor] = useState<{
-    apkName: string;
+    pkgName: string;
     name: string;
   } | null>(null);
   const installedContainerRef = useRef<HTMLDivElement>(null);
@@ -237,46 +296,84 @@ export function ProviderManager({
 
   // Installed extensions should not be filtered by search term
   const installedExtensions = useMemo(() =>
-    extensions.filter(ext => ext.installed),
+    extensions.filter(ext => ext.isInstaled),
     [extensions]
   );
 
   // Filter available extensions based on search term
   const availableExtensions = useMemo(() => {
-    const available = extensions.filter(ext => !ext.installed);
+    const available = extensions.filter(ext => !ext.isInstaled);
     if (!searchTerm.trim()) {
       return available;
     }
     const search = searchTerm.toLowerCase();
     return available.filter(ext =>
       ext.name.toLowerCase().includes(search) ||
-      ext.lang.toLowerCase().includes(search)
+      getExtensionLanguages(ext).some((lang) => lang.toLowerCase().includes(search))
     );
   }, [extensions, searchTerm]);
 
-  const availableTotalCount = extensions.filter(ext => !ext.installed).length;
+  const filteredInstalledExtensions = useMemo(() => {
+    let installed = installedExtensions;
+    if (hideNsfwProviders) {
+      installed = installed.filter(ext => !isExtensionNsfw(ext));
+    }
+    if (filteredLanguages && filteredLanguages.length > 0) {
+      installed = installed.filter(ext =>
+        getExtensionLanguages(ext).some(lang => filteredLanguages.includes(lang))
+      );
+    }
+    return installed;
+  }, [installedExtensions, hideNsfwProviders, filteredLanguages]);
+
+  const filteredAvailableExtensions = useMemo(() => {
+    let available = availableExtensions;
+    if (hideNsfwProviders) {
+      available = available.filter(ext => !isExtensionNsfw(ext));
+    }
+    if (filteredLanguages && filteredLanguages.length > 0) {
+      available = available.filter(ext =>
+        getExtensionLanguages(ext).some(lang => filteredLanguages.includes(lang))
+      );
+    }
+    return available;
+  }, [availableExtensions, hideNsfwProviders, filteredLanguages]);
+
+  const availableTotalCount = extensions.filter(ext => !ext.isInstaled).length;
+
+  const availableLanguageOptions = useMemo<MultiSelectOption[]>(() => {
+    const languages = extensions
+      .flatMap((ext) => getExtensionLanguages(ext))
+      .filter(Boolean);
+    return Array.from(new Set(languages))
+      .sort()
+      .map((lang) => ({
+        value: lang,
+        label: lang.toUpperCase(),
+      }));
+  }, [extensions]);
 
   const handleInstall = async (pkgName: string) => {
     try {
       setActionLoading(pkgName);
       onError?.(null);
       await providerService.installProvider(pkgName);
-      
+
       // Update local state optimistically instead of full refresh
-      setExtensions(prevExtensions => 
-        prevExtensions.map(ext => 
-          ext.pkgName === pkgName 
-            ? { ...ext, installed: true }
+      setExtensions(prevExtensions =>
+        prevExtensions.map(ext =>
+          ext.package === pkgName
+            ? { ...ext, isInstaled: true }
             : ext
         )
       );
       clearSearch?.(); // Clear search after successful installation
-      
+
       // Find the installed extension to get its details for preferences
-      const installedExtension = extensions.find(ext => ext.pkgName === pkgName);
+      const installedExtension = extensions.find(ext => ext.package === pkgName);
       if (installedExtension) {
         setShowPreferencesFor({
-          apkName: installedExtension.apkName,
+          pkgName: installedExtension.package,
           name: installedExtension.name
         });
       }
@@ -293,12 +390,12 @@ export function ProviderManager({
       setActionLoading(pkgName);
       onError?.(null);
       await providerService.uninstallProvider(pkgName);
-      
+
       // Update local state optimistically instead of full refresh
-      setExtensions(prevExtensions => 
-        prevExtensions.map(ext => 
-          ext.pkgName === pkgName 
-            ? { ...ext, installed: false }
+      setExtensions(prevExtensions =>
+        prevExtensions.map(ext =>
+          ext.package === pkgName
+            ? { ...ext, isInstaled: false }
             : ext
         )
       );
@@ -315,22 +412,22 @@ export function ProviderManager({
     try {
       setIsUploadingApk(true);
       onError?.(null);
-      
+
       // Install the APK file and get the pkgName
       const pkgName = await providerService.installProviderFromFile(file);
-      
+
       if (pkgName) {
         // Refresh the extensions list to get the newly installed provider
         const updatedExtensions = await providerService.getProviders();
         setExtensions(updatedExtensions);
         onExtensionsChange?.(updatedExtensions);
-        
+
         // Find the newly installed extension by pkgName (same as normal install)
-        const newExtension = updatedExtensions.find(ext => ext.pkgName === pkgName);
+        const newExtension = updatedExtensions.find(ext => ext.package === pkgName);
         if (newExtension) {
           // Open preference requester for the newly installed provider
           setShowPreferencesFor({
-            apkName: newExtension.apkName,
+            pkgName: newExtension.package,
             name: newExtension.name
           });
         }
@@ -410,25 +507,25 @@ export function ProviderManager({
         </div>
       )}
 
-      {installedExtensions.length > 0 && (
+      {filteredInstalledExtensions.length > 0 && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
               {installedTitle}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {installedExtensions.length} provider{installedExtensions.length !== 1 ? 's' : ''} installed
+              {filteredInstalledExtensions.length} provider{filteredInstalledExtensions.length !== 1 ? 's' : ''} installed
             </p>
           </div>
           <div 
             ref={installedContainerRef}
             className={`grid ${installedGridCols} gap-${isCompact ? '2' : '4'} ${installedMaxHeight ? `${installedMaxHeight} overflow-y-auto` : ''} ${hasInstalledScrollbar ? 'pr-2' : ''}`}>
-            {installedExtensions.map((extension) => (
+            {filteredInstalledExtensions.map((extension) => (
               <ProviderCard
-                key={extension.pkgName}
+                key={extension.package}
                 extension={extension}
                 onUninstall={handleUninstall}
-                isLoading={actionLoading === extension.pkgName}
+                isLoading={actionLoading === extension.package}
                 isCompact={isCompact}
                 showNsfwIndicator={showNsfwIndicator}
               />
@@ -437,75 +534,76 @@ export function ProviderManager({
         </div>
       )}
 
-      {installedExtensions.length > 0 && availableExtensions.length > 0 && (
+      {filteredInstalledExtensions.length > 0 && filteredAvailableExtensions.length > 0 && (
         <Separator />
       )}
 
-      {availableExtensions.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
-              {availableTitle}
-            </h2>
-            <div className="flex items-center gap-4">
-              <p className="text-sm text-muted-foreground">
-                {availableTotalCount} provider{availableTotalCount !== 1 ? 's' : ''} available
-              </p>
-              <Button
-                onClick={handleApkButtonClick}
-                disabled={isUploadingApk}
-                variant="default"
-                size="sm"
-                className="gap-2"
-              >
-                <Upload className="h-4 w-4" />
-                {isUploadingApk ? 'Installing...' : 'Install From APK'}
-              </Button>
+      {filteredAvailableExtensions.length > 0 && (
+        <>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
+                {availableTitle}
+              </h2>
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-muted-foreground">
+                  {availableTotalCount} provider{availableTotalCount !== 1 ? 's' : ''} available
+                </p>
+                <Button
+                  onClick={handleApkButtonClick}
+                  disabled={isUploadingApk}
+                  variant="default"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  {isUploadingApk ? 'Installing...' : 'Install From APK'}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-4">
-          {nsfwVisibility !== NsfwVisibility.AlwaysHide && (
-            <div className="flex items-center gap-1.5">
-              <Checkbox
-                id="hide-nsfw"
-                checked={hideNsfwProviders}
-                onCheckedChange={(checked) => {
-                  setHideNsfwProviders(!!checked);
-                }}
+          <div className="flex items-center gap-4">
+            {nsfwVisibility !== NsfwVisibility.AlwaysHide && (
+              <div className="flex items-center gap-1.5">
+                <Checkbox
+                  id="hide-nsfw"
+                  checked={hideNsfwProviders}
+                  onCheckedChange={(checked: boolean) => {
+                    setHideNsfwProviders(!!checked);
+                  }}
+                />
+                <Label
+                  htmlFor="hide-nsfw"
+                  className="text-muted-foreground cursor-pointer text-sm"
+                >
+                  Hide NSFW
+                </Label>
+              </div>
+            )}
+            <div className="w-48">
+              <MultiSelect
+                options={availableLanguageOptions}
+                selectedValues={filteredLanguages ?? []}
+                onSelectionChange={setFilteredLanguages}
+                placeholder="All languages"
               />
-              <Label
-                htmlFor="hide-nsfw"
-                className="text-muted-foreground cursor-pointer text-sm"
-              >
-                Hide NSFW
-              </Label>
             </div>
-          )}
-          <div className="w-48">
-            <MultiSelectLanguages
-              options={availableLanguageOptions}
-              selectedValues={filteredLanguages ?? []}
-              onSelectionChange={setFilteredLanguages}
-            />
           </div>
-        </div>
-        {availableExtensions.length > 0 && (
           <div
             ref={availableContainerRef}
             className={`grid ${availableGridCols} gap-${isCompact ? '2' : '4'} ${availableMaxHeight ? `${availableMaxHeight} overflow-y-auto` : ''} ${hasAvailableScrollbar ? 'pr-2' : ''}`}>
-            {availableExtensions.map((extension) => (
+            {filteredAvailableExtensions.map((extension) => (
               <ProviderCard
-                key={extension.pkgName}
+                key={extension.package}
                 extension={extension}
                 onInstall={handleInstall}
-                isLoading={actionLoading === extension.pkgName}
+                isLoading={actionLoading === extension.package}
                 isCompact={isCompact}
                 showNsfwIndicator={showNsfwIndicator}
               />
             ))}
           </div>
-        </div>
+        </>
       )}
 
       {installedExtensions.length === 0 && availableExtensions.length === 0 && (
@@ -539,14 +637,14 @@ export function ProviderManager({
       />
 
       {/* Auto-open preferences after installation */}
-      {showPreferencesFor && (
-        <ProviderPreferencesRequester
+        {showPreferencesFor && (
+          <ProviderPreferencesRequester
           open={true}
           onOpenChange={(open) => !open && setShowPreferencesFor(null)}
-          apkName={showPreferencesFor.apkName}
+          pkgName={showPreferencesFor.pkgName}
           providerName={showPreferencesFor.name}
-        />
-      )}
+          />
+        )}
     </div>
   );
 }

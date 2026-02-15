@@ -22,9 +22,12 @@ namespace KaizokuBackend.Services.Daily
 
         public async Task<JobResult> ExecuteAsync(JobInfo _, CancellationToken token = default)
         {
+            _logger.LogInformation("Starting daily maintenance tasks...");
             await CreateBackupAsync(token).ConfigureAwait(false);
             await CleanupOldCompletedEnqueueAsync(token).ConfigureAwait(false);
+            _logger.LogInformation("Daily maintenance tasks completed.");
             return JobResult.Success;
+
         }
 
         public async Task CreateBackupAsync(CancellationToken token = default)

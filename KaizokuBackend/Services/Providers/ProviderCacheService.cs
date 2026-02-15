@@ -106,10 +106,12 @@ namespace KaizokuBackend.Services.Providers
                 .ToList();
         }
 
-        public async Task RefreshAllOnlineReposeAsync(CancellationToken token = default)
+        public async Task UpdateAllExtensionsAsync(CancellationToken token = default)
         {
+            _logger.LogInformation("Updating all extensions and refreshing provider cache...");
             await _mihon.RefreshAllRepositoriesAsync(token).ConfigureAwait(false);
             await RefreshCacheAsync(false, token).ConfigureAwait(false);
+            _logger.LogInformation("All extensions updated and provider cache refreshed.");
         }
 
         public async Task<bool> ReconcileLocalAsync(string package, string[] prefLanguages, RepositoryGroup? grp, List<ProviderStorageEntity> storages, List<TachiyomiRepository> onlinerepos, CancellationToken token = default)

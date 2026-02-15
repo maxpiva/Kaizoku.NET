@@ -1,9 +1,11 @@
+using com.sun.xml.@internal.bind.v2.runtime.unmarshaller;
 using KaizokuBackend.Data;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Bridge;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Extensions;
 using System.Collections.Concurrent;
@@ -41,25 +43,35 @@ namespace KaizokuBackend.Services.Providers
             try
             {
                 var providers = await _providerCache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                List<ProviderStorageEntity> storages = await _db.Providers.Where(a => a.SourcePackageName == pkgName).ToListAsync(token).ConfigureAwait(false);
-                if (storages.Count == 0)
+                if (providers.Count == 0)
                 {
                     _logger.LogError("No provider storage found for package '{PkgName}'", pkgName);
                     return null;
                 }
-                RepositoryGroup? repoGroup = _mihon.FindExtension(storages[0].Name);
-                if (repoGroup == null)
+                var provider = providers.FirstOrDefault(a => a.SourcePackageName == pkgName);
+                if (provider == null)
                 {
-                    _logger.LogError("Repository group for package '{PkgName}' not found", pkgName);
+                    _logger.LogError("No provider storage found for package '{PkgName}'", pkgName);
+                    return null;
+                }
+                var repoGroup = _mihon.ListExtensions().FirstOrDefault(a => a.GetActiveEntry().Extension.Package == pkgName);
+                if (repoGroup==null)
+                {
+                    _logger.LogError("No provider storage found for package '{PkgName}'", pkgName);
                     return null;
                 }
                 var extInterop = await _mihon.GetInteropAsync(repoGroup, token).ConfigureAwait(false);
+                if (extInterop==null)
+                {
+                    _logger.LogError("No provider storage found for package '{PkgName}'", pkgName);
+                    return null;
+                }
                 var allPreferences = await extInterop.LoadPreferencesAsync(token).ConfigureAwait(false);
                 // Create storage preference
-                var storagePreference = CreateStoragePreference(storages[0]);
+                var storagePreference = CreateStoragePreference(provider);
                 var preferences = new List<UniquePreference> { storagePreference };
                 preferences.AddRange(allPreferences);
-                return ConvertToProviderPreferences(pkgName, storages[0], preferences);
+                return ConvertToProviderPreferences(pkgName, provider, preferences);
             }
             catch (Exception ex)
             {
@@ -78,26 +90,36 @@ namespace KaizokuBackend.Services.Providers
             try
             {
                 var providers = await _providerCache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                List<ProviderStorageEntity> storages= await _db.Providers.Where(a=>a.SourcePackageName== preferences.PkgName).ToListAsync(token).ConfigureAwait(false);
-                if (storages.Count == 0)
+                if (providers.Count == 0)
                 {
                     _logger.LogError("No provider storage found for package '{PkgName}'", preferences.PkgName);
                     return;
                 }
-                RepositoryGroup? repoGroup = _mihon.FindExtension(storages[0].Name);
-                if (repoGroup==null)
+                providers = providers.Where(a => a.SourcePackageName == preferences.PkgName).ToList();
+                if (providers.Count==0)
                 {
-                    _logger.LogError("Repository group for package '{PkgName}' not found", preferences.PkgName);
+                    _logger.LogError("No provider storage found for package '{PkgName}'", preferences.PkgName);
+                    return;
+                }
+                var repoGroup = _mihon.ListExtensions().FirstOrDefault(a => a.GetActiveEntry().Extension.Package == preferences.PkgName);
+                if (repoGroup == null)
+                {
+                    _logger.LogError("No provider storage found for package '{PkgName}'", preferences.PkgName);
                     return;
                 }
                 var extInterop = await _mihon.GetInteropAsync(repoGroup, token).ConfigureAwait(false);
+                if (extInterop == null)
+                {
+                    _logger.LogError("No provider storage found for package '{PkgName}'", preferences.PkgName);
+                    return;
+                }
                 ProviderPreferenceDto isStorage = preferences.Preferences.First(a => a.Index == -1);
                 preferences.Preferences.Remove(isStorage);
-                var storageValue = (string)ConvertJsonObject(isStorage.CurrentValue!);
+                var storageValue = (string)ConvertJsonObject(isStorage.CurrentValue!,ValueType.String);
                 bool newValue = storageValue == "permanent";
-                if (newValue != storages[0].IsStorage) //At this isStorage or not is for all source belonging to an extension.
+                if (newValue != providers[0].IsStorage) //At this isStorage or not is for all source belonging to an extension.
                 {
-                    storages.ForEach(a=> a.IsStorage = newValue);
+                    providers.ForEach(a=> a.IsStorage = newValue);
                     await _db.SaveChangesAsync(token).ConfigureAwait(false);
                     await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
                 }
@@ -110,7 +132,19 @@ namespace KaizokuBackend.Services.Providers
                     {
                         if (ShouldUpdatePreference(p, u))
                         {
-                            u.Preference.CurrentValue = (string)p.CurrentValue!;
+                            object obj = ConvertJsonObject(p.CurrentValue!, p.ValueType);
+                            switch(p.ValueType)
+                            {
+                                case ValueType.String:
+                                    u.Preference.CurrentValue = (string)obj;
+                                    break;
+                                case ValueType.Boolean:
+                                    u.Preference.CurrentValue = ((bool)obj) ? "true" : "false";
+                                    break;
+                                case ValueType.StringCollection:
+                                    u.Preference.CurrentValue = JsonSerializer.Serialize((string[])obj);
+                                    break;
+                            }
                             change = true;
                         }
                     }
@@ -220,20 +254,20 @@ namespace KaizokuBackend.Services.Providers
             switch (preference.ValueType)
             {
                 case ValueType.String:
-                    string newValue = (string)ConvertJsonObject(preference.CurrentValue!);
-                    string currentValue = (string)(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? string.Empty);
+                    string newValue = (string)ConvertJsonObject(preference.CurrentValue!, preference.ValueType);
+                    string currentValue = (string)(ConvertJsonObject(currentPref.Preference.CurrentValue, preference.ValueType) ?? string.Empty);
                     if (newValue == "!empty-value!" && preference.Type == EntryType.ComboBox)
                         newValue = "";
                     return newValue != currentValue;
 
                 case ValueType.Boolean:
-                    bool newBool = (bool)ConvertJsonObject(preference.CurrentValue!);
-                    bool currentBool = (bool)(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? false);
+                    bool newBool = (bool)ConvertJsonObject(preference.CurrentValue!, preference.ValueType);
+                    bool currentBool = (bool)(ConvertJsonObject(currentPref.Preference.CurrentValue, preference.ValueType) ?? false);
                     return newBool != currentBool;
 
                 case ValueType.StringCollection:
-                    string[] newArray = (string[])ConvertJsonObject(preference.CurrentValue!);
-                    string[] currentArray = (string[])(ConvertJsonObject(currentPref.Preference.CurrentValue) ?? Array.Empty<string>());
+                    string[] newArray = (string[])ConvertJsonObject(preference.CurrentValue!, preference.ValueType);
+                    string[] currentArray = (string[])(ConvertJsonObject(currentPref.Preference.CurrentValue, preference.ValueType) ?? Array.Empty<string>());
                     return !newArray.SequenceEqual(currentArray);
 
                 default:
@@ -276,7 +310,7 @@ namespace KaizokuBackend.Services.Providers
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
         */
-        private object ConvertJsonObject(object obj)
+        private object ConvertJsonObject(object obj, ValueType type)
         {
             if (obj is JsonElement str)
             {
@@ -291,6 +325,22 @@ namespace KaizokuBackend.Services.Providers
                     case JsonValueKind.Array:
                         return JsonSerializer.Deserialize<string[]>(str.GetRawText()) ?? Array.Empty<string>();
                 }
+            }
+            if (type == ValueType.Boolean && obj is string strb)
+            {
+                return bool.Parse(strb);
+            }
+            else if (type == ValueType.Boolean && obj is bool strbo)
+            {
+                return strbo;
+            }
+            else if (type== ValueType.StringCollection && obj is string strc)
+            {
+                return new string[] { strc };
+            }
+            else if (type==ValueType.String && obj is string strcs)
+            {
+                return strcs;
             }
             return obj;
         }
@@ -325,8 +375,8 @@ namespace KaizokuBackend.Services.Providers
             }
 
             preference.Index = p.Preference.Index;
-            preference.CurrentValue = ConvertJsonObject(p.Preference.CurrentValue);
-            preference.DefaultValue = ConvertJsonObject(p.Preference.DefaultValue);
+            preference.CurrentValue = ConvertJsonObject(p.Preference.CurrentValue, preference.ValueType);
+            preference.DefaultValue = ConvertJsonObject(p.Preference.DefaultValue, preference.ValueType);
             preference.Entries = p.Preference.Entries;
             preference.EntryValues = p.Preference.EntryValues;
             preference.Summary = p.Preference.Summary;
