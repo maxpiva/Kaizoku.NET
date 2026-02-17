@@ -1,5 +1,5 @@
 using KaizokuBackend.Models.Dto;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Providers;
 using Microsoft.AspNetCore.Mvc;
 

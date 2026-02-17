@@ -1,6 +1,6 @@
 using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Models.Enums;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Series;

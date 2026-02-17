@@ -217,6 +217,7 @@ class KcefWebViewProvider(
                     trySetBooleanOption("multi_threaded_message_loop", false)
                 }
                 builder.addJcefArgs(
+                   "--no-sandbox",
                     "--disable-logging",
                     "--log-file=$NULL_DEVICE_PATH",
                     "--disable-gpu",
@@ -224,7 +225,6 @@ class KcefWebViewProvider(
                     "--use-gl=swiftshader",
                     "--off-screen-rendering-enabled",
                     "--disable-dev-shm-usage",
-                    "--enable-widevine-cdm",
                     "--change-stack-guard-on-fork=disable",
                 )
 

@@ -2,7 +2,6 @@ using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Import.Models;
-using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Bridge;
 using System.Collections.Generic;
 using System.Globalization;
@@ -16,6 +15,7 @@ using KaizokuBackend.Models.Dto;
 using Chapter = KaizokuBackend.Models.Chapter;
 using ImportEntity = KaizokuBackend.Models.Database.ImportEntity;
 using DbSeriesEntity = KaizokuBackend.Models.Database.SeriesEntity;
+using KaizokuBackend.Services.Images;
 
 namespace KaizokuBackend.Services.Series;
 

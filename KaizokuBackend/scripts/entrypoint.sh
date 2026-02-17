@@ -28,9 +28,23 @@ else
 fi
 
 # Fix permissions
-echo "Setting permissions on /config"
+echo "Setting permissions on/config"
 chown -R "$user_name:$group_name" /config
 chmod -R 777 /config
 
+# Detect architecture and add IKVM library path
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    IKVM_LIB_PATH="/app/ikvm/linux-x64/bin"
+elif [ "$ARCH" = "aarch64" ]; then
+    IKVM_LIB_PATH="/app/ikvm/linux-arm64/bin"
+else
+    echo "Warning: Unknown architecture $ARCH, IKVM libs may not be found"
+    IKVM_LIB_PATH="/app/ikvm/linux-x64/bin"
+fi
+
+# Add IKVM library directories to LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="${IKVM_LIB_PATH}:${LD_LIBRARY_PATH}"
+
 # Run the app as the correct user
-exec gosu "$user_name" xvfb-run --auto-servernum dotnet /app/KaizokuBackend.dll
+exec gosu "$user_name" xvfb-run --auto-servernum /app/KaizokuBackend

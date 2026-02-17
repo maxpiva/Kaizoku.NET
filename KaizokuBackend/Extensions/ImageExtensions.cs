@@ -1,4 +1,5 @@
-﻿using SkiaSharp;
+﻿using KaizokuBackend.Services.Images;
+using SkiaSharp;
 
 namespace KaizokuBackend.Extensions
 {
@@ -156,6 +157,24 @@ namespace KaizokuBackend.Extensions
             {
                 return false;
             }
+        }
+        public static async Task<string?> AddExtensionImageAsync(this ThumbCacheService thumbs, string path, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+            string url = "ext://" + path;
+            return await thumbs.AddUrlAsync(url, null, token).ConfigureAwait(false);
+        }
+        public static async Task<string?> AddStorageImageAsync(this ThumbCacheService thumbs, string path, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+            string url = "storage://" + path;
+            return await thumbs.AddUrlAsync(url, null, token).ConfigureAwait(false);
         }
     }
 }

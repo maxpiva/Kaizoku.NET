@@ -164,7 +164,7 @@ namespace KaizokuBackend.Services.Search
                     var existingForProvider = existingSeries.Where(a => a.MihonProviderId == ls.MihonProviderId && a.Language == ls.Lang && ls.Title == a.Title).ToList();
                     foreach (var ProviderSeriesDetailsItem in seriesPerScanlator)
                     {
-                        var existingProvider = existingForProvider.FirstOrDefault(a => 
+                        var existingProvider = existingForProvider.FirstOrDefault(a => a.MihonProviderId == ProviderSeriesDetailsItem.MihonProviderId && 
                             a.Title == ProviderSeriesDetailsItem.Title && 
                             a.Language == ProviderSeriesDetailsItem.Lang && 
                             a.Scanlator == ProviderSeriesDetailsItem.Scanlator);

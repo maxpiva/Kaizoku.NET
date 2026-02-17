@@ -9,6 +9,7 @@ using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Core.Utilities;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using System.ComponentModel;
 
@@ -16,6 +17,7 @@ namespace KaizokuBackend.Services.Background
 {
     public class StartupHostedService : IHostedService, IDisposable
     {
+        private readonly NouisanceFixer20ExtraLarge _fixes;
         private readonly ILogger<StartupHostedService> _logger;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly List<Task> _workerTasks = new();
@@ -24,10 +26,12 @@ namespace KaizokuBackend.Services.Background
 
         public StartupHostedService(ILogger<StartupHostedService> logger, 
             IServiceScopeFactory scopeFactory,
+            NouisanceFixer20ExtraLarge fixes,
             IConfiguration config)
         {
             _logger = logger;
             _scopeFactory = scopeFactory;
+            _fixes = fixes;
         }
 
         public void Dispose()
@@ -87,9 +91,14 @@ namespace KaizokuBackend.Services.Background
                 //Initialize Mihon Bridge
                 var mihon = scope.ServiceProvider.GetRequiredService<IBridgeManager>();
                 await mihon.InitializeAsync(cancellationToken);
+
+
+              
+
                 //Run migration if needed
                 var migration = scope.ServiceProvider.GetRequiredService<MigrationService>();
                 await migration.RunAsync(cancellationToken).ConfigureAwait(false);
+
 
                 // Initialize other services
                 var settingsService = scope.ServiceProvider.GetRequiredService<SettingsService>();
@@ -101,6 +110,8 @@ namespace KaizokuBackend.Services.Background
                 await settingsService.SetTimesSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
                 AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
+                await _fixes.FixThumbnailsOfSeriesWithMissingThumbnailsAsync(cancellationToken).ConfigureAwait(false);
+
                 IHostApplicationLifetime lifetime = scope.ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
                 JobManagementService jobManagement = scope.ServiceProvider.GetRequiredService<JobManagementService>();
                 _logger.LogInformation("Checking Storage folder Status...");

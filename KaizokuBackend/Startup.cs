@@ -1,8 +1,8 @@
 using KaizokuBackend.Data;
 using KaizokuBackend.Hubs;
+using KaizokuBackend.Models;
 using KaizokuBackend.Services;
 using KaizokuBackend.Services.Background;
-using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Utils;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;

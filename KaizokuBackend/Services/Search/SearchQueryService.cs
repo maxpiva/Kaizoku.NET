@@ -3,7 +3,7 @@ using KaizokuBackend.Models.Abstractions;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Services.Bridge;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Settings;

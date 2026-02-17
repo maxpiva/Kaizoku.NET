@@ -4,6 +4,8 @@ using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Daily;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
+using KaizokuBackend.Services.Images.Providers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Settings;
@@ -53,11 +55,16 @@ namespace KaizokuBackend.Services
         public static IServiceCollection AddHelperServices(this IServiceCollection services)
         {
             services.TryAddScoped<SettingsService>();
+
+            services.AddScoped<IImageProvider, UrlImageProvider>();
+            services.AddScoped<IImageProvider, ExtensionsImageProvider>();
+            services.AddScoped<IImageProvider, StorageImageProvider>();
             services.TryAddScoped<ThumbCacheService>();
             services.TryAddScoped<ArchiveHelperService>();
             services.TryAddScoped<DailyService>();
             services.TryAddScoped<MihonBridgeService>();
             services.TryAddScoped<MigrationService>();
+            services.TryAddScoped<NouisanceFixer20ExtraLarge>();
             return services;
         }
         public static IServiceCollection AddBackgroundServices(this IServiceCollection services)

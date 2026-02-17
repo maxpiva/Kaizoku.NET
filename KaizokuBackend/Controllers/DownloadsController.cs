@@ -1,7 +1,7 @@
 ﻿using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Downloads;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers

@@ -1,7 +1,8 @@
 ﻿using com.sun.xml.@internal.bind.v2.model.core;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Services.Downloads;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
+using KaizokuBackend.Services.Images.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -39,7 +40,7 @@ namespace KaizokuBackend.Controllers
                     Stream fs = FileSystemExtensions.StreamEmbeddedResource("na.jpg");
                     if (naetag == null)
                     {
-                        naetag = await ThumbCacheService.ComputeMd5HashFromStreamAsync(fs, token).ConfigureAwait(false);
+                        naetag = await UrlImageProvider.ComputeMd5HashFromStreamAsync(fs, token).ConfigureAwait(false);
                         fs.Position = 0;
                     }
                     Response.AddETag(_thumbs.GetCacheDuration(), naetag);

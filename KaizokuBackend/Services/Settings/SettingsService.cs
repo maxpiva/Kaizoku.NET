@@ -33,6 +33,8 @@ namespace KaizokuBackend.Services.Settings
         }
 
 
+        public SettingsDto? DirectSettings => _settings;
+
         public async Task<string[]> GetAvailableLanguagesAsync(CancellationToken token = default)
         {
             using (var scope = _prov.CreateScope())

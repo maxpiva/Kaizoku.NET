@@ -108,6 +108,8 @@ imageio-webp = "com.github.usefulness:webp-imageio:0.4.1"
 
 # Webview
 jcefmaven = "me.friwi:jcefmaven:141.0.10"
+#db
+h2 = "com.h2database:h2:1.4.200" 
 
 # lint - used for renovate to update ktlint version
 ktlint = { module = "com.pinterest.ktlint:ktlint-cli", version.ref = "ktlint" }
@@ -129,6 +131,8 @@ download = { id = "de.undercouch.download", version = "5.6.0"}
 
 # ShadowJar
 shadowjar = { id = "com.gradleup.shadow", version = "8.3.9"}
+
+
 
 
 [bundles]
@@ -153,6 +157,7 @@ shared = [
     "apk-parser",
     "jackson-annotations",
     "jcefmaven",
+    "h2",
     "serialization-xml",
     "serialization-xml-core",
     "okhttp-core",

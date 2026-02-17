@@ -23,6 +23,7 @@ using System.Xml.Serialization;
 using static System.Net.Mime.MediaTypeNames;
 using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Services.Images;
 
 namespace KaizokuBackend.Services.Helpers
 {

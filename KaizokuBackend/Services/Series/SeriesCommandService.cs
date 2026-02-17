@@ -7,6 +7,7 @@ using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Settings;
 using Microsoft.AspNetCore.Mvc.RazorPages;

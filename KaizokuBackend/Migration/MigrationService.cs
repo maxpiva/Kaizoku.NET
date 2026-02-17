@@ -1,9 +1,11 @@
+using com.sun.org.apache.xpath.@internal.objects;
 using KaizokuBackend.Data;
 using KaizokuBackend.Migration.Models;
 using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Bridge;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Providers;
+using KaizokuBackend.Services.Settings;
 using KaizokuBackend.Utils;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -11,9 +13,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Core.Runtime;
+using Mihon.ExtensionsBridge.Core.Utilities;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Mihon.ExtensionsBridge.Models.Extensions;
+using sun.java2d.loops;
 using sun.misc;
 using System.Globalization;
 using System.IO;
@@ -99,6 +103,7 @@ public class MigrationService
     /// </summary>
     public async Task<bool> RunAsync(CancellationToken cancellationToken = default)
     {
+
         string? newDatabasePath = _configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrEmpty(newDatabasePath))
         {
@@ -164,7 +169,12 @@ public class MigrationService
 
         await targetDb.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
         MigrationState state = new();
+        ObtainOriginalMangaMap(Path.GetDirectoryName(legacyDatabasePath)!, state);
         await MigrateSettingsAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
+        var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
+        _logger.LogInformation("Set Mihon Settings from Original database");
+        var settings = await settingsService.GetSettingsAsync(cancellationToken).ConfigureAwait(false);
+        await settingsService.SaveSettingsAsync(settings, false, cancellationToken).ConfigureAwait(false);
         _providerCache = _serviceProvider.GetRequiredService<ProviderCacheService>();
         _thumbs = _serviceProvider.GetRequiredService<ThumbCacheService>();
         await MigrateProvidersAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);
@@ -177,6 +187,12 @@ public class MigrationService
     }
 
 
+    private void ObtainOriginalMangaMap(string path, MigrationState state)
+    {
+        _logger.LogInformation("Load original Manga Information from Suwayomi DB. This may take a while...");
+        string fullPath = Path.Combine(path, "Suwayomi","database");
+        state.OriginalMap = H2DatabaseUtils.ObtainMangaTableFromSuwayomiIfPossible(fullPath) ?? new Dictionary<int, (long, ParsedManga)>();
+    }
 
     private async Task MigrateSettingsAsync(OldDbContext legacyDb, AppDbContext targetDb, MigrationState state, CancellationToken cancellationToken)
     {
@@ -285,10 +301,17 @@ public class MigrationService
 
         var cachedProviders = await _providerCache.GetCachedProvidersAsync(cancellationToken);
 
+        int cnt = 1;
         foreach (var legacyProvider in legacySeriesProviders)
         {
+            _logger.LogInformation("Migrating Series {series} Provider {provider} {cnt}/{total}...", legacyProvider.Title, legacyProvider.Provider, cnt, legacySeriesProviders.Count);
+            LegacyProvider? legacy = null;
+
             var thumbDictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            LegacyProvider? legacy = legacyProvider.Provider == "unknown" ? null : legacyProviders.First(p => string.Equals(p.Name, legacyProvider.Provider, StringComparison.OrdinalIgnoreCase));
+            if (!legacyProvider.Provider.Equals("unknown", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(legacyProvider.Provider))
+            {
+                legacy = legacyProviders.FirstOrDefault(p => string.Equals(p.Name, legacyProvider.Provider, StringComparison.OrdinalIgnoreCase));
+            }
             var context = await GetProviderRuntimeContextAsync(legacyProvider, legacy, state, cachedProviders, runtimeContexts, cancellationToken).ConfigureAwait(false);
             var destination = await ConvertSeriesProviderAsync(legacyProvider, context, thumbDictionary, state, cancellationToken).ConfigureAwait(false);
             migratedProviders.Add(destination);
@@ -297,6 +320,7 @@ public class MigrationService
             {
                 state.ThumbnailLookup[mapping.Key] = mapping.Value;
             }
+            cnt++;
         }
         foreach (var mig in migratedProviders.Where(a => a.IsLocal || a.IsUnknown))
         {
@@ -406,7 +430,7 @@ public class MigrationService
                 string id = JsonSerializer.Deserialize<string>(newJob.JobParameters);
                 Guid spid = Guid.Parse(id);
                 var p = state.SeriesProviders.FirstOrDefault(a => a.Id == spid);
-                if (p.IsLocal || p.IsUnknown)
+                if (p == null || p.IsLocal || p.IsUnknown)
                     continue;
             }
             if (newJob.JobType == JobType.GetLatest)
@@ -626,6 +650,7 @@ public class MigrationService
         MigrationState state,
         CancellationToken cancellationToken)
     {
+
         var destination = new KaizokuBackend.Models.Database.SeriesProviderEntity
         {
             Id = legacyProvider.Id,
@@ -653,22 +678,26 @@ public class MigrationService
             Status = legacyProvider.Status,
             Chapters = legacyProvider.Chapters?.Select(MapChapter).ToList() ?? new List<KaizokuBackend.Models.Chapter>()
         };
+        ParsedManga? resolvedManga = null;
         ISourceInterop? sourceInterop = null;
-        NewProviderStorage? ps = context.GetProviderStorage(legacyProvider.Language);
-        if (ps != null)
+        NewProviderStorage? ps;
+        bool fromDb = false;
+        if (state.OriginalMap.TryGetValue(legacyProvider.SuwayomiId, out var sm))
         {
-            sourceInterop = await context.GetSourceInteropAsync(destination.Provider, legacyProvider.Language, cancellationToken).ConfigureAwait(false);
-            if (sourceInterop == null)
-            {
-                destination.IsLocal = true;
-                _logger.LogWarning("Source interop unavailable for provider {Provider}; for series {SeriesId}.", legacyProvider.Provider, legacyProvider.SeriesId);
-                destination.Provider = legacyProvider.Provider;
-                destination.IsUnknown = legacyProvider.Provider == "Unknown";
-                destination.ThumbnailUrl = null;
-                return destination;
-            }
+            fromDb = true;
+            ps = context.GetProviderStorage(sm.Item1);
+            resolvedManga = sm.Item2;
+            sourceInterop = await context.GetSourceInteropAsync(sm.Item1, cancellationToken).ConfigureAwait(false);
         }
         else
+        {
+            ps = context.GetProviderStorage(legacyProvider.Language);
+            if (ps != null)
+            {
+                sourceInterop = await context.GetSourceInteropAsync(destination.Provider, legacyProvider.Language, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        if (ps==null || sourceInterop==null)
         {
             destination.IsLocal = true;
             destination.Provider = legacyProvider.Provider;
@@ -676,8 +705,45 @@ public class MigrationService
             destination.ThumbnailUrl = null;
             return destination;
         }
+
         destination.MihonProviderId = ps.MihonProviderId;
-        var resolvedManga = await TryResolveMangaAsync(sourceInterop, legacyProvider, cancellationToken).ConfigureAwait(false);
+
+        if (resolvedManga == null)
+        {
+            fromDb = false;
+            //try to create a fake
+            int p = destination.Url?.IndexOf('/',8) ?? 0;
+            if (p > 0)
+            {
+                resolvedManga = new ParsedManga();
+                resolvedManga.Url = destination.Url!.Substring(p);
+                resolvedManga.Artist = destination.Artist;
+                resolvedManga.Author = destination.Author;
+                resolvedManga.Description = destination.Description;
+                resolvedManga.Title = destination.Title;
+                resolvedManga.ThumbnailUrl = destination.ThumbnailUrl;
+                resolvedManga.Genre = string.Join(",", destination.Genre);
+                resolvedManga.Status = (Status)(int)destination.Status;
+                resolvedManga.RealUrl = destination.Url;
+                resolvedManga.UpdateStrategy = UpdateStrategy.ALWAYS_UPDATE;
+            }
+        }
+        if (resolvedManga != null)
+        {
+            string title = resolvedManga.Title ?? "";
+            var newResolvedManaga = resolvedManga = await _mihon.MihonErrorWrapperAsync(
+                                () => sourceInterop.GetDetailsAsync(resolvedManga, cancellationToken),
+                                "Unable to refresh Details for Series {title} Provider {provider}", title, destination.Provider).ConfigureAwait(false);
+            if (newResolvedManaga != null)
+                resolvedManga = newResolvedManaga;
+            else if (!fromDb)
+            {
+                resolvedManga = null;
+            }
+        }
+        else
+            resolvedManga = await TryResolveMangaAsync(sourceInterop, legacyProvider, cancellationToken).ConfigureAwait(false);
+
         if (resolvedManga == null)
         {
             _logger.LogWarning("Failed to enrich metadata for provider {Provider} (SeriesId: {SeriesId}); keeping legacy details.", legacyProvider.Provider, legacyProvider.SeriesId);
@@ -700,15 +766,19 @@ public class MigrationService
         return destination;
     }
 
-    private async Task<Manga?> TryResolveMangaAsync(ISourceInterop sourceInterop, Models.SeriesProvider legacyProvider, CancellationToken cancellationToken)
+    private async Task<ParsedManga?> TryResolveMangaAsync(ISourceInterop sourceInterop, Models.SeriesProvider legacyProvider, CancellationToken cancellationToken)
     {
         try
         {
-            var searchResults = await sourceInterop.SearchAsync(1, legacyProvider.Title, cancellationToken).ConfigureAwait(false);
+            var searchResults = await _mihon.MihonErrorWrapperAsync(
+                    () => sourceInterop.SearchAsync(1, legacyProvider.Title, cancellationToken),
+                    "Unable to Search for Series {title} Provider {provider}", legacyProvider.Title, legacyProvider.Provider).ConfigureAwait(false);
             var selection = SelectBestManga(searchResults?.Mangas, legacyProvider.Title);
             if (selection != null)
             {
-                return await sourceInterop.GetDetailsAsync(selection, cancellationToken).ConfigureAwait(false);
+                return await _mihon.MihonErrorWrapperAsync(
+                        () => sourceInterop.GetDetailsAsync(selection, cancellationToken),
+                        "Unable to get Details for Series {title} Provider {provider}", legacyProvider.Title, legacyProvider.Provider).ConfigureAwait(false);
             }
 
             if (searchResults?.Mangas != null && searchResults.Mangas.Count > 1)
@@ -716,14 +786,16 @@ public class MigrationService
                 var fallback = SelectClosestByDistance(searchResults.Mangas, legacyProvider.Title);
                 if (fallback != null)
                 {
-                    return await sourceInterop.GetDetailsAsync(fallback, cancellationToken).ConfigureAwait(false);
+                    return await _mihon.MihonErrorWrapperAsync(
+                            () => sourceInterop.GetDetailsAsync(fallback, cancellationToken),
+                            "Unable to get Details for Series {title} Provider {provider}", legacyProvider.Title, legacyProvider.Provider).ConfigureAwait(false);
                 }
             }
-            _logger.LogWarning("Bridge lookup failed for provider {Provider} (SeriesId: {SeriesId}).", legacyProvider.Provider, legacyProvider.SeriesId);
+            _logger.LogWarning("Bridge lookup failed for '{Title}' provider {Provider}.", legacyProvider.Title, legacyProvider.Provider);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Bridge lookup failed for provider {Provider} (SeriesId: {SeriesId}).", legacyProvider.Provider, legacyProvider.SeriesId);
+            _logger.LogError(ex, "Bridge lookup error for provider {Provider} (SeriesId: {SeriesId}).", legacyProvider.Title, legacyProvider.Provider);
         }
 
         return null;
@@ -1072,6 +1144,18 @@ public class MigrationService
             }
             return _interop;
         }
+        public async Task<IExtensionInterop?> GetInteropAsync(long source, CancellationToken token = default)
+        {
+            if (_interop == null)
+            {
+                List<RepositoryGroup> grps = _mihon.ListExtensions();
+                RepositoryGroup? group = grps.FirstOrDefault(g => g.Entries.Any(e => e.Extension.Sources.Any(a => a.Id == source.ToString())));
+                if (group == null)
+                    return null;
+                _interop = await _mihon.GetInteropAsync(group, token).ConfigureAwait(false);
+            }
+            return _interop;
+        }
         public NewProviderStorage? GetProviderStorage(string language)
         {
             _packageLookup.TryGetValue(Key, out var pkg);
@@ -1081,6 +1165,17 @@ public class MigrationService
             if (ret == null)
                 ret = _storages.FirstOrDefault(s => s.SourcePackageName == pkg && s.Language == "all");
             return ret;
+        }
+        public NewProviderStorage? GetProviderStorage(long source)
+        {
+            return _storages.FirstOrDefault(a => a.SourceSourceId == source.ToString());
+        }
+        public async Task<ISourceInterop?> GetSourceInteropAsync(long source, CancellationToken token = default)
+        {
+            IExtensionInterop? ext = await GetInteropAsync(token).ConfigureAwait(false);
+            if (ext!=null)
+                return ext.Sources.FirstOrDefault(s => s.Id.ToString(CultureInfo.InvariantCulture) == source.ToString());
+            return null;
         }
         public async Task<ISourceInterop?> GetSourceInteropAsync(string providerName, string language, CancellationToken token = default)
         {
@@ -1131,6 +1226,7 @@ public class MigrationService
 
     private sealed class MigrationState
     {
+        public Dictionary<int, (long, ParsedManga)> OriginalMap { get; set; }
         public List<KaizokuBackend.Models.Database.SeriesProviderEntity> SeriesProviders { get; set; } = [];
         public IReadOnlyList<string> MihonRepositories { get; set; } = Array.Empty<string>();
         public IReadOnlyList<string> Languages { get; set; } = Array.Empty<string>();

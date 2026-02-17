@@ -5,7 +5,7 @@ using KaizokuBackend.Models.Database;
 using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Bridge;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
