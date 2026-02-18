@@ -327,6 +327,7 @@ function isValidFullSeries(obj: unknown): obj is FullSeries {
 // Function to check if a FullSeries matches an ExistingSource
 function isExistingSeries(series: FullSeries, existingSources: ExistingSource[]): boolean {
   return existingSources.some(existing =>
+    existing.mihonProviderId === series.mihonProviderId &&
     existing.provider === series.provider &&
     existing.scanlator === series.scanlator &&
     existing.lang === series.lang

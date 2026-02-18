@@ -1,4 +1,5 @@
-﻿using KaizokuBackend.Models.Database;
+﻿using KaizokuBackend.Data;
+using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Settings;
 
 namespace KaizokuBackend.Services.Images.Providers
@@ -6,9 +7,11 @@ namespace KaizokuBackend.Services.Images.Providers
     public class StorageImageProvider : IImageProvider
     {
         private readonly SettingsService _settingsService;
-        public StorageImageProvider(SettingsService settingsService)
+        private readonly AppDbContext _db;
+        public StorageImageProvider(AppDbContext db, SettingsService settingsService)
         {
             _settingsService = settingsService;
+            _db = db;
         }
         public bool CanProcess(string url)
         {
@@ -18,16 +21,25 @@ namespace KaizokuBackend.Services.Images.Providers
                 return true;
             return false;
         }
-        public Task<Stream?> ObtainStreamAsync(EtagCacheEntity cache, CancellationToken token)
+        public async Task<Stream?> ObtainStreamAsync(EtagCacheEntity cache, CancellationToken token)
         {
             string? storagePath = _settingsService.DirectSettings?.StorageFolder;
             if (string.IsNullOrEmpty(storagePath))
-                return Task.FromResult((Stream?)null);
+                return null;
             string path = cache.Url.Substring(10);
             string finalPath = Path.GetFullPath(Path.Combine(storagePath, path));
             if (File.Exists(finalPath))
-                return Task.FromResult((Stream?)File.OpenRead(finalPath));
-            return Task.FromResult((Stream?)null);
+            {
+                Stream stream = File.OpenRead(finalPath);
+                if (string.IsNullOrEmpty(cache.Etag))
+                {
+                    cache.Etag = await UrlImageProvider.ComputeMd5HashFromStreamAsync(stream);
+                    stream.Position = 0;
+                    await _db.SaveChangesAsync();
+                }
+                return stream;
+            }
+            return null;
         }
     }
 }

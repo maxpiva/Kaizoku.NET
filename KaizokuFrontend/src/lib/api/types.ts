@@ -130,6 +130,7 @@ export interface ExistingSource {
   provider: string;
   scanlator: string;
   lang: string;
+  mihonProviderId: string;
 }
 
 export interface AddSeriesRequest {

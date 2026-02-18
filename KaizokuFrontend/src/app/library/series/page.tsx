@@ -1771,6 +1771,7 @@ function SeriesPageContent() {
     .map((provider: any) => ({
       provider: provider.provider,
       scanlator: provider.scanlator,
+      mihonProviderId: provider.mihonProviderId,
       lang: provider.lang
     }));
 

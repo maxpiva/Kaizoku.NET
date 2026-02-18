@@ -1,4 +1,5 @@
-﻿using KaizokuBackend.Models.Database;
+﻿using KaizokuBackend.Data;
+using KaizokuBackend.Models.Database;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 
 namespace KaizokuBackend.Services.Images.Providers
@@ -6,10 +7,11 @@ namespace KaizokuBackend.Services.Images.Providers
     public class ExtensionsImageProvider : IImageProvider
     {
         private readonly IWorkingFolderStructure _workingFolderStructure;
-
-        public ExtensionsImageProvider(IWorkingFolderStructure workingFolderStructure)
+        private readonly AppDbContext _db;
+        public ExtensionsImageProvider(AppDbContext db, IWorkingFolderStructure workingFolderStructure)
         {
             _workingFolderStructure = workingFolderStructure;
+            _db = db;
         }
 
         public bool CanProcess(string url)
@@ -21,13 +23,22 @@ namespace KaizokuBackend.Services.Images.Providers
             return false;
         }
 
-        public Task<Stream?> ObtainStreamAsync(EtagCacheEntity cache, CancellationToken token)
+        public async Task<Stream?> ObtainStreamAsync(EtagCacheEntity cache, CancellationToken token)
         {
             string originalFilename = cache.Url.Substring(6);
             string finalPath = Path.GetFullPath(Path.Combine(_workingFolderStructure.ExtensionsFolder, originalFilename));
             if (File.Exists(finalPath))
-                return Task.FromResult((Stream?)File.OpenRead(finalPath));
-            return Task.FromResult((Stream?)null);
+            {
+                Stream stream = File.OpenRead(finalPath);
+                if (string.IsNullOrEmpty(cache.Etag))
+                {
+                    cache.Etag = await UrlImageProvider.ComputeMd5HashFromStreamAsync(stream);
+                    stream.Position = 0;
+                    await _db.SaveChangesAsync();
+                }
+                return stream;
+            }
+            return null;
         }
     }
 }
