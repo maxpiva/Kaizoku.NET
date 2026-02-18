@@ -1,6 +1,7 @@
 
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
+using KaizokuBackend.Services.Naming;
 using KaizokuBackend.Services.Settings;
 using KaizokuBackend.Models.Dto;
 
@@ -15,11 +16,13 @@ namespace KaizokuBackend.Controllers
     public class SettingsController : ControllerBase
     {
         private readonly SettingsService _settingsService;
+        private readonly ITemplateParser _templateParser;
         private readonly ILogger<SettingsController> _logger;
 
-        public SettingsController(SettingsService settingsService, ILogger<SettingsController> logger)
+        public SettingsController(SettingsService settingsService, ITemplateParser templateParser, ILogger<SettingsController> logger)
         {
             _settingsService = settingsService;
+            _templateParser = templateParser;
             _logger = logger;
         }
 
@@ -101,6 +104,35 @@ namespace KaizokuBackend.Controllers
                 _logger.LogError(ex, "Error updating settings");
                 return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while updating settings" });
             }
+        }
+
+        /// <summary>
+        /// Validates a template string.
+        /// </summary>
+        [HttpGet("validate-template")]
+        [ProducesResponseType(typeof(TemplateValidationResult), StatusCodes.Status200OK)]
+        public ActionResult<TemplateValidationResult> ValidateTemplate(
+            [FromQuery][Required] string template,
+            [FromQuery] int type = 0)
+        {
+            var templateType = type == 1 ? TemplateType.FolderPath : TemplateType.FileName;
+            var result = _templateParser.ValidateTemplate(template, templateType);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Gets a preview of the template with sample data.
+        /// </summary>
+        [HttpGet("preview-template")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        public ActionResult PreviewTemplate(
+            [FromQuery][Required] string template,
+            [FromQuery] int type = 0)
+        {
+            var templateType = type == 1 ? TemplateType.FolderPath : TemplateType.FileName;
+            var preview = _templateParser.GetPreview(template, templateType);
+            var validation = _templateParser.ValidateTemplate(template, templateType);
+            return Ok(new { preview, validation });
         }
     }
 }

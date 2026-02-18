@@ -50,7 +50,7 @@ export function ImportWizard() {
   return (
     <Dialog open={true} onOpenChange={() => { /* Prevent closing */ }} modal>
       <DialogContent
-        className="max-w-[90%] max-h-[90%] flex flex-col"
+        className="w-[98vw] sm:w-[95vw] md:max-w-[90%] lg:max-w-5xl max-h-[95vh] sm:max-h-[90%] flex flex-col overflow-hidden"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >

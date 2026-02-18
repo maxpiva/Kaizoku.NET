@@ -167,12 +167,13 @@ export default function RootPage() {
       <KzkSidebar />
       <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
         <KzkHeader />
-        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0">
-                <div className="flex items-center">
+        <main className="grid flex-1 items-start gap-2 p-2 sm:gap-4 sm:p-4 sm:px-6 sm:py-0">
+                {/* Filter row - wraps on mobile */}
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Status Filter - first select */}
-                  <div className="w-40">
+                  <div className="w-28 sm:w-40">
                     <Select value={tab} onValueChange={setTab}>
-                      <SelectTrigger className="w-full !pr-2 caret-transparent">
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -195,12 +196,12 @@ export default function RootPage() {
                     </Select>
                   </div>
                  
-                    <div className="w-40 ml-2">
-                      <Select
-                        value={selectedGenre ?? "__ALL__"}
-                        onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
-                      >
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
+                  <div className="w-28 sm:w-40">
+                    <Select
+                      value={selectedGenre ?? "__ALL__"}
+                      onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
+                    >
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
                           <SelectValue placeholder="All Genres" />
                         </SelectTrigger>
                         <SelectContent>
@@ -212,13 +213,13 @@ export default function RootPage() {
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="w-48 ml-2">
-                      <Select
-                        value={selectedProvider ?? "__ALL__"}
-                        onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
-                      >
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
+                  </div>
+                  <div className="w-28 sm:w-48">
+                    <Select
+                      value={selectedProvider ?? "__ALL__"}
+                      onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
+                    >
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
                           <SelectValue placeholder="All Sources" />
                         </SelectTrigger>
                         <SelectContent>

@@ -65,6 +65,17 @@ public class EditableSettingsDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public NsfwVisibility NsfwVisibility { get; set; } = NsfwVisibility.HideByDefault;
 
+    [JsonPropertyName("fileNameTemplate")]
+    public string FileNameTemplate { get; set; } = "[{Provider}][{Language}] {Series} {Chapter}";
+
+    [JsonPropertyName("folderTemplate")]
+    public string FolderTemplate { get; set; } = "{Type}/{Series}";
+
+    [JsonPropertyName("outputFormat")]
+    public int OutputFormat { get; set; } = 0; // 0 = CBZ, 1 = PDF
+
+    [JsonPropertyName("includeChapterTitle")]
+    public bool IncludeChapterTitle { get; set; } = false;
 }
 public enum NsfwVisibility
 {

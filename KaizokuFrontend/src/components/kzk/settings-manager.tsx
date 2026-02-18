@@ -41,6 +41,7 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
+import { NamingFormatSection } from "./settings-sections/naming-format-section";
 
 // Helper functions
 const isValidUrl = (url: string): boolean => {
@@ -1020,6 +1021,12 @@ const AVAILABLE_SECTIONS: SettingsSection[] = [
     title: "Schedule Tasks",
     description: "Configure automatic update schedules and timings.",
     component: ScheduleTasksSection,
+  },
+  {
+    id: "naming-format",
+    title: "File Naming & Format",
+    description: "Configure file naming templates, folder structure, and output format.",
+    component: NamingFormatSection,
   },
   {
     id: "storage",
