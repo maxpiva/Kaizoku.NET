@@ -121,7 +121,16 @@ export const downloadsService = {
     const params = new URLSearchParams();
     params.append('id', id);
     params.append('action', action.toString());
-    
+
     return apiClient.patch<void>(`/api/downloads?${params.toString()}`);
+  },
+
+  /**
+   * Remove a scheduled download from the queue
+   * @param id - The ID of the download to remove
+   * @returns Promise resolving when the download is removed
+   */
+  async removeScheduledDownload(id: string): Promise<void> {
+    return apiClient.delete<void>(`/api/downloads/${id}`);
   },
 };

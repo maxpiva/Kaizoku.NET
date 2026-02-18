@@ -374,7 +374,7 @@ public static class SeriesExtensions
             Id = series.Id,
             Title = series.Title,
             Description = series.Description,
-            ThumbnailUrl = cp.BaseUrl + series.ThumbnailUrl,
+            ThumbnailUrl = cp.BaseUrl + (string.IsNullOrEmpty(series.ThumbnailUrl) ? "serie/thumb/unknown" : series.ThumbnailUrl),
             Artist = series.Artist,
             Author = series.Author,
             Genre = series.Genre?.ToDistinctPascalCase() ?? new List<string>(),

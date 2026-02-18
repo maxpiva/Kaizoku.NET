@@ -5,9 +5,9 @@ using KaizokuBackend.Services.Background;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Jobs.Settings;
+using KaizokuBackend.Services.Naming;
 using KaizokuBackend.Services.Providers;
 using Microsoft.EntityFrameworkCore;
-using System.ComponentModel;
 using System.Reflection;
 
 namespace KaizokuBackend.Services.Settings
@@ -18,16 +18,19 @@ namespace KaizokuBackend.Services.Settings
         private readonly AppDbContext _db;
         private readonly SuwayomiClient _client;
         private readonly IServiceScopeFactory _prov;
+        private readonly ITemplateParser _templateParser;
+        private readonly ILogger<SettingsService> _logger;
 
         private static Models.Settings? _settings;
 
-        public SettingsService(IConfiguration config, IServiceScopeFactory prov, SuwayomiClient client, AppDbContext db)
+        public SettingsService(IConfiguration config, IServiceScopeFactory prov, SuwayomiClient client, AppDbContext db, ITemplateParser templateParser, ILogger<SettingsService> logger)
         {
             _config = config;
             _client = client;
             _db = db;
             _prov = prov;
-
+            _templateParser = templateParser;
+            _logger = logger;
         }
 
 
@@ -77,10 +80,6 @@ namespace KaizokuBackend.Services.Settings
                         break;
                     case "datetime":
                         setting.Value = ((DateTime)(p.GetValue(editableSettings) ?? new DateTime(0,1,1,4,0,0))).ToString("o"); // ISO 8601 format
-                        break;
-                    default:
-                        if (p.PropertyType.IsEnum)
-                            setting.Value = p.GetValue(editableSettings)?.ToString() ?? string.Empty;
                         break;
                 }
                 serializedSettings.Add(setting);
@@ -139,10 +138,6 @@ namespace KaizokuBackend.Services.Settings
                         break;
                     case "datetime":
                         p.SetValue(newEditableSettings, DateTime.TryParse(setting.Value, out DateTime dateTimeValue) ? dateTimeValue : DateTime.MinValue);
-                        break;
-                    default:
-                        if (p.PropertyType.IsEnum)
-                            p.SetValue(newEditableSettings, Enum.TryParse(p.PropertyType, setting.Value, out var enumValue) ? enumValue : p.GetValue(defaultValues));
                         break;
                 }
             }
@@ -275,7 +270,10 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrAsResponseFallback = settings.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = settings.IsWizardSetupComplete,
                 WizardSetupStepCompleted = settings.WizardSetupStepCompleted,
-                NsfwVisibility = settings.NsfwVisibility
+                FileNameTemplate = settings.FileNameTemplate,
+                FolderTemplate = settings.FolderTemplate,
+                OutputFormat = settings.OutputFormat,
+                IncludeChapterTitle = settings.IncludeChapterTitle
             };
 
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
@@ -304,10 +302,145 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrAsResponseFallback = ed.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = ed.IsWizardSetupComplete,
                 WizardSetupStepCompleted = ed.WizardSetupStepCompleted,
-                NsfwVisibility = ed.NsfwVisibility
+                FileNameTemplate = ed.FileNameTemplate,
+                FolderTemplate = ed.FolderTemplate,
+                OutputFormat = ed.OutputFormat,
+                IncludeChapterTitle = ed.IncludeChapterTitle
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;
             return set;
+        }
+
+        /// <summary>
+        /// Renames all existing downloaded files to match the current naming scheme.
+        /// </summary>
+        public async Task<int> RenameFilesToCurrentSchemeAsync(CancellationToken token = default)
+        {
+            var settings = await GetSettingsAsync(token).ConfigureAwait(false);
+            var storageFolder = settings.StorageFolder;
+
+            if (string.IsNullOrEmpty(storageFolder) || !Directory.Exists(storageFolder))
+            {
+                _logger.LogWarning("Storage folder not found or not configured: {StorageFolder}", storageFolder);
+                return 0;
+            }
+
+            // Get all series with their providers (need tracking to update filenames)
+            // Note: Chapters are automatically loaded as they are stored as JSON in SeriesProvider
+            var allSeries = await _db.Series
+                .Include(s => s.Sources)
+                .ToListAsync(token).ConfigureAwait(false);
+
+            int renamedCount = 0;
+            int errorCount = 0;
+
+            foreach (var series in allSeries)
+            {
+                if (series.Sources == null) continue;
+
+                // Get max chapter for this series (for potential auto-padding)
+                decimal? maxChapter = series.Sources
+                    .SelectMany(sp => sp.Chapters)
+                    .Where(c => c.Number.HasValue)
+                    .Max(c => c.Number);
+
+                foreach (var source in series.Sources)
+                {
+                    if (source.Chapters == null) continue;
+
+                    foreach (var chapter in source.Chapters)
+                    {
+                        if (string.IsNullOrEmpty(chapter.Filename)) continue;
+
+                        // Build current file path
+                        var currentPath = Path.Combine(storageFolder, series.StoragePath ?? "", chapter.Filename);
+
+                        if (!File.Exists(currentPath))
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            // Create template variables from chapter data
+                            var vars = new TemplateVariables(
+                                Series: series.Title,
+                                Chapter: chapter.Number,
+                                Volume: null, // Volume info not stored in chapter
+                                Provider: source.Provider,
+                                Scanlator: source.Scanlator,
+                                Language: source.Language,
+                                Title: settings.IncludeChapterTitle ? chapter.Name : null,
+                                UploadDate: chapter.ProviderUploadDate,
+                                Type: series.Type,
+                                MaxChapter: maxChapter
+                            );
+
+                            // Generate new filename using template
+                            var newFileName = _templateParser.ParseFileName(settings.FileNameTemplate, vars, settings);
+
+                            // Ensure correct extension based on output format
+                            var currentExt = Path.GetExtension(currentPath);
+                            var expectedExt = settings.OutputFormat == 1 ? ".pdf" : ".cbz";
+
+                            // Keep original extension if it's a valid archive format
+                            if (currentExt.Equals(".cbz", StringComparison.OrdinalIgnoreCase) ||
+                                currentExt.Equals(".pdf", StringComparison.OrdinalIgnoreCase) ||
+                                currentExt.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Remove any extension the template might have added and use original
+                                if (newFileName.EndsWith(".cbz", StringComparison.OrdinalIgnoreCase) ||
+                                    newFileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    newFileName = newFileName[..^4];
+                                }
+                                newFileName += currentExt;
+                            }
+
+                            // Skip if filename is the same
+                            if (chapter.Filename.Equals(newFileName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            var newPath = Path.Combine(storageFolder, series.StoragePath ?? "", newFileName);
+
+                            // Skip if target already exists (avoid overwriting)
+                            if (File.Exists(newPath))
+                            {
+                                _logger.LogWarning("Target file already exists, skipping: {NewPath}", newPath);
+                                continue;
+                            }
+
+                            // Store old filename for logging before updating
+                            var oldFileName = chapter.Filename;
+
+                            // Rename the file
+                            File.Move(currentPath, newPath);
+
+                            // Update database
+                            chapter.Filename = newFileName;
+                            renamedCount++;
+
+                            _logger.LogInformation("Renamed: {OldName} -> {NewName}", oldFileName, newFileName);
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount++;
+                            _logger.LogError(ex, "Error renaming file {FilePath}", currentPath);
+                        }
+                    }
+                }
+            }
+
+            // Save all database changes
+            if (renamedCount > 0)
+            {
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+            }
+
+            _logger.LogInformation("Rename operation complete: {RenamedCount} files renamed, {ErrorCount} errors", renamedCount, errorCount);
+            return renamedCount;
         }
         public async ValueTask<Models.Settings> GetSettingsAsync(CancellationToken token = default)
         {

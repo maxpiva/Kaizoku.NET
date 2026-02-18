@@ -24,6 +24,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY ./scripts/kcef_download.sh /root/kcef_download.sh
+RUN chmod +x /root/kcef_download.sh
 
 # install CEF dependencies
 RUN if ([ "$TARGETPLATFORM" = "linux/amd64" ] || [ "$TARGETPLATFORM" = "linux/arm64" ]); then \
@@ -52,6 +53,7 @@ ENV HOME=/config/Suwayomi
 WORKDIR /app
 COPY ./bin/$TARGETPLATFORM/ .
 COPY ./scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 EXPOSE 9833
 EXPOSE 4567
 ENTRYPOINT ["tini", "--"]

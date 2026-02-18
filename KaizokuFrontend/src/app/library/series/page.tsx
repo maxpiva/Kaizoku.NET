@@ -167,79 +167,77 @@ const ProviderCard = ({ provider,
   };
   
   return (
-    <Card className={`transition-all overflow-visible bg-secondary ${provider.isDisabled ? "bg-opacity-50" : ""}`}>
-      <div className="p-3 space-y-2">
-        {/* Header section with thumbnail and info */}
-        <div className="flex items-start justify-between gap-3 relative">
-          <div className="absolute top-0 right-0">
-            {/* Action buttons */}
-            <div className="flex-1 ">            <div className="flex gap-2 justify-end mr-0.5">
+    <Card className={`transition-all overflow-hidden bg-secondary ${provider.isDisabled ? "bg-opacity-50" : ""}`}>
+      <div className="p-3 space-y-2 min-w-0 overflow-hidden relative">
+        {/* Action buttons - mobile/tablet: top row, desktop: top-right absolute */}
+        <div className="flex flex-wrap gap-2 justify-end mb-2 lg:absolute lg:top-3 lg:right-3 lg:mb-0 lg:z-10">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDelete}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Delete</span>
+          </Button>
 
-            
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete
-                </Button>
-                        
-              {!provider.isUnknown && !provider.isUninstalled && (
-                <Button className="opacity-100"
-                  variant={isEnabled ? "destructive" : "default"}
-                  size="sm"
-                  onClick={handleEnableDisable}
-                >
-                  <Power className="h-4 w-4 mr-1" />
-                  {isEnabled ? "Disable" : "Enable"}
-                </Button>
-              )}
+          {!provider.isUnknown && !provider.isUninstalled && (
+            <Button className="opacity-100"
+              variant={isEnabled ? "destructive" : "default"}
+              size="sm"
+              onClick={handleEnableDisable}
+            >
+              <Power className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">{isEnabled ? "Disable" : "Enable"}</span>
+            </Button>
+          )}
 
-              {provider.isUnknown && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleMatch}
-                  disabled={isLoadingMatch}
-                >
-                  <Search className="h-4 w-4 mr-1" />
-                  {isLoadingMatch ? "Loading..." : "Match Source"}
-                </Button>
-              )}
-            </div>
-              {!provider.isUnknown && (
-                <div className="mt-2">
-                  <span className="text-muted-foreground center">Continue After Chapter:&nbsp;</span>                  <Input
+          {provider.isUnknown && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleMatch}
+              disabled={isLoadingMatch}
+            >
+              <Search className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">{isLoadingMatch ? "Loading..." : "Match Source"}</span>
+            </Button>
+          )}
+        </div>
 
-                    type="number"
-                    step="0.1"                    value={localFromChapter}
-                    onChange={(e) => setLocalFromChapter(e.target.value)}
-                    placeholder="Start"
-                    className=" mr-0 h-8 w-24 text-sm bg-background text-right tabular-nums font-mono inline-block"
-                    disabled={provider.isDisabled}
-                    onBlur={handleFromChapterBlur}
-                    onKeyDown={handleFromChapterKeyDown}
-                  />
-                </div>
-              )}
-            </div>
+        {/* Continue After Chapter input - mobile/tablet: below buttons, desktop: top-right */}
+        {!provider.isUnknown && (
+          <div className="flex flex-wrap items-center gap-2 justify-end mb-2 lg:absolute lg:top-12 lg:right-3 lg:mb-0">
+            <span className="text-muted-foreground text-sm">Continue After Chapter:</span>
+            <Input
+              type="number"
+              step="0.1"
+              value={localFromChapter}
+              onChange={(e) => setLocalFromChapter(e.target.value)}
+              placeholder="Start"
+              className="h-8 w-24 text-sm bg-background text-right tabular-nums font-mono"
+              disabled={provider.isDisabled}
+              onBlur={handleFromChapterBlur}
+              onKeyDown={handleFromChapterKeyDown}
+            />
           </div>
-          <div className="flex items-start gap-3 flex-1">
+        )}
+
+        {/* Header section with thumbnail and info */}
+        <div className="flex flex-col md:flex-row items-start gap-3 relative min-w-0 overflow-hidden">
+          <div className="flex flex-col md:flex-row items-center md:items-start gap-3 flex-1 min-w-0 overflow-hidden w-full">
             {/* Provider Thumbnail */}
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 w-full md:w-auto flex justify-center md:justify-start">
               <img
                 src={provider.thumbnailUrl || "/kaizoku.net.png"}
                 alt={provider.title} style={{ aspectRatio: '4/6' }}
-
-                className="h-68 object-cover rounded border"
+                className="h-48 md:h-68 max-w-[160px] md:max-w-none object-cover rounded border"
               />
             </div>
 
-            <div className="flex-1 space-y-2">              <div>
-              <CardTitle className="text-lg">{provider.title}</CardTitle>
+            <div className="flex-1 space-y-2 min-w-0 overflow-hidden w-full text-center md:text-left">              <div className="min-w-0 overflow-hidden">
+              <CardTitle className="text-lg truncate">{provider.title}</CardTitle>
               { provider.url ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:bg-accent/80 transition-colors"
+              <div className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:bg-accent/80 transition-colors min-w-0 overflow-hidden flex-wrap justify-center md:justify-start"
                      onClick={(e) => {
                     e.stopPropagation();
                     if (provider.url) {
@@ -247,48 +245,48 @@ const ProviderCard = ({ provider,
                     }
                   }}
                   title="Click to open in the source"
-                ><ExternalLink className="h-4 w-4" />
-                <span className="text-lg">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
+                ><ExternalLink className="h-4 w-4 flex-shrink-0" />
+                <span className="text-lg truncate min-w-0">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
                 <ReactCountryFlag
                   countryCode={getCountryCodeForLanguage(provider.lang)}
                   svg
                   style={{ width: '20px', height: '15px', borderRadius: '2px', border: '1px solid #ccc' }}
                   title={provider.lang.toUpperCase()}
                 />
-                <Badge variant="default" className={`ml-2 ${getStatusDisplay(provider.status).color}`}>
+                <Badge variant="default" className={`ml-2 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
                   {getStatusDisplay(provider.status).text}
                 </Badge>
               </div>
               ) : (
-                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="text-lg">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
+                 <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0 overflow-hidden flex-wrap justify-center md:justify-start">
+                <span className="text-lg truncate min-w-0">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
                 <ReactCountryFlag
                   countryCode={getCountryCodeForLanguage(provider.lang)}
                   svg
                   style={{ width: '20px', height: '15px', borderRadius: '2px', border: '1px solid #ccc' }}
                   title={provider.lang.toUpperCase()}
                 />
-                <Badge variant="default" className={`ml-2 ${getStatusDisplay(provider.status).color}`}>
+                <Badge variant="default" className={`ml-2 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
                   {getStatusDisplay(provider.status).text}
                 </Badge>
                 </div>
               )}
             </div>{/* Stats grid */}
-              <div className="flex flex-wrap gap-2 mt-1 text-sm">
-                <div>
+              <div className="flex flex-wrap gap-2 mt-1 text-sm min-w-0 overflow-hidden justify-center md:justify-start">
+                <div className="min-w-0 overflow-hidden">
                   <Badge variant="primary">
                     {provider.chapterList}
                   </Badge>
                   {provider.lastChapter && (
-                    <span>
-                      <span className="text-muted-foreground">&nbsp;
-                        Last:&nbsp;&nbsp;<Badge variant="primary">{provider.lastChapter}</Badge>
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      <span className="text-muted-foreground">
+                        Last: <Badge variant="primary">{provider.lastChapter}</Badge>
                       </span>
                       {provider.lastChangeUTC && (
-                        <span className="font-medium">&nbsp;&nbsp;
+                        <span className="font-medium">
                           {(() => {
-                            const utcString = provider.lastChangeUTC.includes('Z') || provider.lastChangeUTC.includes('+') || provider.lastChangeUTC.includes('-', 10) 
-                              ? provider.lastChangeUTC 
+                            const utcString = provider.lastChangeUTC.includes('Z') || provider.lastChangeUTC.includes('+') || provider.lastChangeUTC.includes('-', 10)
+                              ? provider.lastChangeUTC
                               : provider.lastChangeUTC + 'Z';
                             const date = new Date(utcString);
                             return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
@@ -303,77 +301,67 @@ const ProviderCard = ({ provider,
               </div>
 
 
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm min-w-0 overflow-hidden">
                 {provider.author && (
-                  <div>
+                  <div className="min-w-0 overflow-hidden">
                     <span className="text-muted-foreground">Author:</span>
-                    <span className="ml-2 font-medium">{provider.author}</span>
+                    <span className="ml-2 font-medium truncate">{provider.author}</span>
                   </div>
                 )}
                 {provider.artist && (
-                  <div>
+                  <div className="min-w-0 overflow-hidden">
                     <span className="text-muted-foreground">Artist:</span>
-                    <span className="ml-2 font-medium">{provider.artist}</span>
+                    <span className="ml-2 font-medium truncate">{provider.artist}</span>
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2 mt-1">
+              <div className="flex flex-wrap gap-1 mt-1 min-w-0 overflow-hidden justify-center md:justify-start">
                 {provider.genre && provider.genre.length > 0 && (
-                  <>
-                    <div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {provider.genre.map((genre) => (
-                          <Badge key={genre} variant="primary" className="text-xs">
-                            {genre}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </>)}
-
-
-              </div>
-              <div className="flex flex-wrap gap-2 mt-1">
-
-                {provider.description && (
-                  <>
-                    <div>
-                      <p className="text-sm mt-1 line-clamp-4">{provider.description}</p>
-                    </div>
-                  </>
+                  provider.genre.map((genre) => (
+                    <Badge key={genre} variant="primary" className="text-xs flex-shrink-0">
+                      {genre}
+                    </Badge>
+                  ))
                 )}
-
+              </div>
+              <div className="min-w-0 overflow-hidden mt-1">
+                {provider.description && (
+                  <p className="text-sm line-clamp-4 break-words overflow-hidden">{provider.description}</p>
+                )}
               </div>
               {/* Switches */}              {!provider.isUnknown && (
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
                     <Switch
                       id={`storage-${provider.id}`}
                       checked={useStorage}
                       onCheckedChange={(checked) => onUseStorageChange(provider.id, checked)}
                       disabled={provider.isDisabled}
+                      className="flex-shrink-0"
                     />
-                    <Label htmlFor={`storage-${provider.id}`} className="text-sm font-medium">
+                    <Label htmlFor={`storage-${provider.id}`} className="text-sm font-medium truncate">
                       Use as Permanent Source
                     </Label>
-                  </div>                <div className="flex items-center gap-2">                  <Switch
+                  </div>                <div className="flex items-center gap-2 min-w-0">                  <Switch
                     id={`cover-${provider.id}`}
                     checked={useCover}
                     onCheckedChange={hasUnknownThumbnail ? undefined : (checked) => onUseCoverChange(provider.id, checked)}
                     disabled={provider.isDisabled || hasUnknownThumbnail}
+                    className="flex-shrink-0"
                   />
-                    <Label htmlFor={`cover-${provider.id}`} className="text-sm font-medium">
+                    <Label htmlFor={`cover-${provider.id}`} className="text-sm font-medium truncate">
                       Use Cover
                     </Label>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <Switch
                       id={`title-${provider.id}`}
                       checked={useTitle}
                       onCheckedChange={(checked) => onUseTitleChange(provider.id, checked)}
                       disabled={provider.isDisabled}
+                      className="flex-shrink-0"
                     />
-                    <Label htmlFor={`title-${provider.id}`} className="text-sm font-medium">
+                    <Label htmlFor={`title-${provider.id}`} className="text-sm font-medium truncate">
                       Use Title
                     </Label>
                   </div>
@@ -519,9 +507,9 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
   // Do not show for RUNNING status
 
   return (
-    <Card className="transition-all duration-200 flex-shrink-0">
+    <Card className="transition-all duration-200 flex-shrink-0 overflow-hidden">
       <CardHeader className="pb-2 p-2">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0 overflow-hidden">
           <Image
             src={download.thumbnailUrl ? formatThumbnailUrl(download.thumbnailUrl) : '/kaizoku.net.png'}
             alt={download.title || 'Download'}
@@ -533,18 +521,18 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
               target.src = '/kaizoku.net.png';
             }}
           />
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-base line-clamp-2 leading-tight">
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <CardTitle className="text-base line-clamp-2 leading-tight break-words">
               {download.title || 'Unknown Series'}
             </CardTitle>
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+            <p className="text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
               {download.chapterTitle ? download.chapterTitle : `Chapter ${download.chapter}`}
             </p>
-            <div className='flex items-center gap-2 mt-1'>
+            <div className='flex flex-wrap items-center gap-2 mt-1 min-w-0'>
               {(download.provider || download.scanlator) && (
                 download.url ? (
                   <p
-                    className="text-sm text-muted-foreground flex items-center gap-1 cursor-pointer hover:bg-accent/80 transition-colors"
+                    className="text-sm text-muted-foreground flex items-center gap-1 cursor-pointer hover:bg-accent/80 transition-colors truncate min-w-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (download.url) {
@@ -553,12 +541,12 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
                     }}
                     title="Click to open the chapter in the source"
                   >
-                    <ExternalLink className="h-3 w-3" />
-                    {download.provider}
-                    {(download.provider !== download.scanlator && download.scanlator) ? ` • ${download.scanlator}` : ''}
+                    <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                    <span className="truncate">{download.provider}
+                    {(download.provider !== download.scanlator && download.scanlator) ? ` • ${download.scanlator}` : ''}</span>
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground truncate min-w-0">
                     {download.provider}
                     {(download.provider !== download.scanlator && download.scanlator) ? ` • ${download.scanlator}` : ''}
                   </p>
@@ -566,7 +554,7 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
               )}
               {getStatusIcon(download.status, download.status === QueueStatus.WAITING && displayDate > now)}
               {showDate && (
-                <div className="text-xs text-muted-foreground font-medium">
+                <div className="text-xs text-muted-foreground font-medium flex-shrink-0">
                   {download.status === QueueStatus.COMPLETED || download.status === QueueStatus.FAILED ? (
                     <>
                       {displayDate.toLocaleDateString()}&nbsp;
@@ -578,7 +566,7 @@ const DownloadItem = ({ download }: { download: DownloadInfo }) => {
                 </div>
               )}
               {download.retries > 0 && (
-                <div className="text-xs text-orange-600 font-medium ml-auto w-auto">
+                <div className="text-xs text-orange-600 font-medium ml-auto flex-shrink-0">
                   Retries: {download.retries}
                 </div>
               )}
@@ -687,14 +675,14 @@ const DownloadsPanel = memo(({ seriesId, isDeleting }: { seriesId: string; isDel
 
   if (downloadsError) {
     return (
-      <Card className="lg:col-span-1 flex flex-col">
+      <Card className="lg:col-span-1 flex flex-col overflow-hidden min-w-0">
         <CardHeader className="pl-4 pr-4 pt-4 pb-0">
           <CardTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            Latest Downloads
+            <Download className="h-5 w-5 flex-shrink-0" />
+            <span className="truncate">Latest Downloads</span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-4 flex-1">
+        <CardContent className="p-4 flex-1 min-w-0">
           <div className="text-center text-muted-foreground py-3">
             <Download className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>Failed to load downloads</p>
@@ -705,22 +693,22 @@ const DownloadsPanel = memo(({ seriesId, isDeleting }: { seriesId: string; isDel
   }
 
   return (
-    <Card className="lg:col-span-1 flex flex-col">
+    <Card className="lg:col-span-1 flex flex-col overflow-hidden min-w-0">
       <CardHeader className="pl-4 pr-4 pt-4 pb-0">
-        <CardTitle className="flex items-center gap-2">
-          <Download className="h-5 w-5" />
-          Latest Downloads
+        <CardTitle className="flex items-center gap-2 flex-wrap">
+          <Download className="h-5 w-5 flex-shrink-0" />
+          <span className="truncate">Latest Downloads</span>
           {sortedDownloads.length > 0 && (
-            <Badge variant="secondary" className="ml-2 text-xs">
+            <Badge variant="secondary" className="ml-2 text-xs flex-shrink-0">
               {sortedDownloads.length}
             </Badge>
           )}
           {downloadsLoading && (
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary flex-shrink-0"></div>
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 overflow-auto p-3">
+      <CardContent className="flex-1 overflow-auto p-3 min-w-0">
         {sortedDownloads.length > 0 ? (
           <div className="space-y-2">
             {sortedDownloads.map((download, index) => (
@@ -1792,40 +1780,40 @@ function SeriesPageContent() {
 
   return (<>
     {/* Three-area layout */}
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 h-full">          {/* Left Column - Two rows (80% width) */}
-      <div className="lg:col-span-4 space-y-3 ">
-        {/* Top Left: Series Details */}          <Card className="bg-secondary ">
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 h-full w-full overflow-hidden">          {/* Left Column - Two rows (80% width) */}
+      <div className="lg:col-span-4 space-y-3 min-w-0 overflow-hidden">
+        {/* Top Left: Series Details */}          <Card className="bg-secondary overflow-hidden">
           <CardHeader className="p-4">
-            <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row gap-4 min-w-0 overflow-hidden">
               {/* Poster */}
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 mx-auto md:mx-0">
                 <img src={displayThumbnail || "/kaizoku.net.png"}
                   alt={displayTitle}
                   style={{ aspectRatio: '4/6' }}
-                  className="h-96 object-cover rounded-lg border"
+                  className="h-64 md:h-96 object-cover rounded-lg border"
                 />
               </div>
               {/* Series Info */}
-              <div className="flex-1 gap-2 relative flex flex-col">
+              <div className="flex-1 gap-2 relative flex flex-col min-w-0 overflow-hidden">
                 {/* Status Badge - Top Right of Info Pane */}
-                <div className="absolute top-0 right-0">
+                <div className="lg:absolute lg:top-0 lg:right-0 mb-2 lg:mb-0">
                   <Badge className={'text-base ' + statusDisplay.color}>
                     {statusDisplay.text}
                   </Badge>
                 </div>
-                <div>
-                  <CardTitle className="text-2xl pr-20">{displayTitle}</CardTitle>
-                  <div className="flex items-center gap-3 mt-2 text-sm">
+                <div className="min-w-0 overflow-hidden">
+                  <CardTitle className="text-xl lg:text-2xl lg:pr-20 truncate">{displayTitle}</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-sm min-w-0">
                     <Badge variant="primary">
                       {series.chapterList}
                     </Badge>
                     {series.lastChapter && (
-                      <span>
+                      <span className="inline-flex flex-wrap items-center gap-1">
                         <span className="text-muted-foreground">
-                          Last:&nbsp;&nbsp;<Badge variant="primary">{series.lastChapter}</Badge>
+                          Last: <Badge variant="primary">{series.lastChapter}</Badge>
                         </span>
                         {series.lastChangeUTC && (
-                          <span className="font-medium">&nbsp;&nbsp;
+                          <span className="font-medium">
                             {new Date(series.lastChangeUTC).toLocaleDateString()} {new Date(series.lastChangeUTC).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
@@ -1833,50 +1821,43 @@ function SeriesPageContent() {
                       </span>
                     )}
                   </div>
-                </div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                </div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm min-w-0 overflow-hidden">
                   {series.author && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <span className="text-muted-foreground">Author:</span>
-                      <span className="ml-2 font-medium">{series.author}</span>
+                      <span className="ml-2 font-medium truncate">{series.author}</span>
                     </div>
                   )}
                   {series.artist && (
-                    <div>
+                    <div className="min-w-0 overflow-hidden">
                       <span className="text-muted-foreground">Artist:</span>
-                      <span className="ml-2 font-medium">{series.artist}</span>
+                      <span className="ml-2 font-medium truncate">{series.artist}</span>
                     </div>
                   )}
                 </div>
 
                 {series.genre && series.genre.length > 0 && (
-                  <div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {series.genre.map((genre) => (
-                        <Badge key={genre} variant="primary" className="text-sm">
-                          {genre}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>                )}
-                  
+                  <div className="flex flex-wrap gap-1 mt-1 min-w-0 overflow-hidden">
+                    {series.genre.map((genre) => (
+                      <Badge key={genre} variant="primary" className="text-sm flex-shrink-0">
+                        {genre}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
                   {/* Description - Flexible area that fills available space */}
                   {series.description && (
-                    <div className="flex-1">
-                      <p className="text-sm mt-1">{series.description}</p>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <p className="text-sm mt-1 break-words">{series.description}</p>
                     </div>
                   )}
 
                   {/* Series Path Display - Bottom of info section */}
                   {series.path && (
-                    <div className="mt-auto">
+                    <div className="mt-auto min-w-0 overflow-hidden">
                       <div
-                      className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm"
-                      style={{
-                        display: "inline-block",
-                        minWidth: "120px",
-                        maxWidth: "100%",
-                        width: "auto",
-                      }}
+                      className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden"
                       >
                       {series.path}
                       </div>
@@ -1884,7 +1865,7 @@ function SeriesPageContent() {
                   )}
                 
                 {/* Action Buttons - Delete, Verify, and Pause/Resume Downloads */}
-                <div className="absolute bottom-0 right-0 flex gap-2">
+                <div className="mt-auto pt-2 lg:absolute lg:bottom-0 lg:right-0 flex flex-wrap gap-2 justify-center md:justify-end">
                   {/* Delete Series Button */}
                   <Button
                     variant="destructive"
@@ -1892,9 +1873,10 @@ function SeriesPageContent() {
                     onClick={handleDeleteSeriesClick}
                   >
                     <Trash2 className="h-4 w-4 mr-1" />
-                    Delete Series
+                    <span className="hidden sm:inline">Delete Series</span>
+                    <span className="sm:hidden">Delete</span>
                   </Button>
-                  
+
                   {/* Verify Integrity Button */}
                   <Button
                     variant="default"
@@ -1903,9 +1885,9 @@ function SeriesPageContent() {
                     disabled={verifyIntegrity.isPending}
                   >
                     <ShieldCheck className="h-4 w-4 mr-1" />
-                    {verifyIntegrity.isPending ? "Verifying..." : "Verify"}
+                    {verifyIntegrity.isPending ? "..." : "Verify"}
                   </Button>
-                  
+
                   {/* Pause/Resume Downloads Button */}
                   <Button
                     variant={pausedDownloads ? "default" : "destructive"}
@@ -1916,12 +1898,14 @@ function SeriesPageContent() {
                     {pausedDownloads ? (
                       <>
                         <Play className="h-4 w-4" />
-                        Resume Downloads
+                        <span className="hidden sm:inline">Resume Downloads</span>
+                        <span className="sm:hidden">Resume</span>
                       </>
                     ) : (
                       <>
                         <Pause className="h-4 w-4" />
-                        Pause Downloads
+                        <span className="hidden sm:inline">Pause Downloads</span>
+                        <span className="sm:hidden">Pause</span>
                       </>
                     )}
                   </Button>
@@ -1929,12 +1913,14 @@ function SeriesPageContent() {
               </div>
             </div>            </CardHeader>
         </Card>          {/* Bottom Left: Providers */}
-        <Card>
-          <CardHeader className="p-4  pb-0">
-            <div className="flex items-center justify-between">              <CardTitle className="flex items-center gap-2">
-              Sources
-              <Badge variant="secondary">{visibleProvidersCount}</Badge>
-            </CardTitle><AddSeries
+        <Card className="overflow-hidden">
+          <CardHeader className="p-4 pb-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2">
+                Sources
+                <Badge variant="secondary">{visibleProvidersCount}</Badge>
+              </CardTitle>
+              <AddSeries
                 title={displayTitle}
                 existingSources={existingSources}
                 seriesId={series.id}
@@ -1946,7 +1932,9 @@ function SeriesPageContent() {
                 }
               />
             </div>
-          </CardHeader><CardContent className="p-4">            <div className="space-y-2">              {series.providers
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="space-y-2 min-w-0 overflow-hidden">              {series.providers
             .filter(provider => !providerDeletedStates[provider.id]) // Filter out deleted providers
             .map((provider) => {
               const switches = providerSwitches[provider.id] || { useTitle: false, useCover: false, useStorage: false };

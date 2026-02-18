@@ -10,7 +10,8 @@ import {
   useSetupWizardSearchSeries,
   useSignalRProgress
 } from "@/lib/api/hooks/useSetupWizard";
-import { JobType } from "@/lib/api/types";
+import { setupWizardService } from "@/lib/api/services/setupWizardService";
+import { JobType, QueueStatus } from "@/lib/api/types";
 
 // Custom hook to detect if scrollbar is visible
 function useScrollbarDetection() {
@@ -193,21 +194,88 @@ export function ImportLocalStep({ setError, setIsLoading, setCanProgress }: Impo
     },
   ];
 
-  // Auto-start the import process when component mounts (only once)
+  // Resume or start the import process when component mounts (only once)
   useEffect(() => {
-    if (!hasStartedRef.current && !scanMutation.isPending) {
-      hasStartedRef.current = true;
-      setError(null);
-      setCurrentActionIndex(0);
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+    setError(null);
 
-      // Start the scan process
-      scanMutation.mutateAsync().catch((error) => {
-        console.error('Scan failed:', error);
-        setError('Failed to start scan process');
-        setCurrentActionIndex(-1);
-        hasStartedRef.current = false; // Reset on error to allow retry
-      });
-    }
+    const resumeOrStart = async () => {
+      try {
+        const status = await setupWizardService.getWizardJobStatus();
+
+        const scanStatus = status.scanLocalFiles;
+        const installStatus = status.installAdditionalExtensions;
+        const searchStatus = status.searchProviders;
+
+        // Check from the latest step backwards to find where we are
+        if (searchStatus === QueueStatus.Completed) {
+          // All done — mark everything completed
+          completedJobsRef.current.add(JobType.ScanLocalFiles);
+          completedJobsRef.current.add(JobType.InstallAdditionalExtensions);
+          completedJobsRef.current.add(JobType.SearchProviders);
+          setAllActionsCompleted(true);
+          setCurrentActionIndex(-1);
+          return;
+        }
+
+        if (searchStatus === QueueStatus.Running || searchStatus === QueueStatus.Waiting) {
+          // Search is in progress — mark scan+install as completed, wait for SignalR
+          completedJobsRef.current.add(JobType.ScanLocalFiles);
+          completedJobsRef.current.add(JobType.InstallAdditionalExtensions);
+          setCurrentActionIndex(2);
+          return;
+        }
+
+        if (installStatus === QueueStatus.Completed) {
+          // Install done but search not started — trigger search
+          completedJobsRef.current.add(JobType.ScanLocalFiles);
+          completedJobsRef.current.add(JobType.InstallAdditionalExtensions);
+          setCurrentActionIndex(2);
+          await searchMutation.mutateAsync();
+          return;
+        }
+
+        if (installStatus === QueueStatus.Running || installStatus === QueueStatus.Waiting) {
+          // Install in progress — mark scan completed, wait for SignalR
+          completedJobsRef.current.add(JobType.ScanLocalFiles);
+          setCurrentActionIndex(1);
+          return;
+        }
+
+        if (scanStatus === QueueStatus.Completed) {
+          // Scan done but install not started — trigger install
+          completedJobsRef.current.add(JobType.ScanLocalFiles);
+          setCurrentActionIndex(1);
+          await installMutation.mutateAsync();
+          return;
+        }
+
+        if (scanStatus === QueueStatus.Running || scanStatus === QueueStatus.Waiting) {
+          // Scan in progress — wait for SignalR
+          setCurrentActionIndex(0);
+          return;
+        }
+
+        // Nothing running — start fresh scan
+        setCurrentActionIndex(0);
+        await scanMutation.mutateAsync();
+      } catch (error) {
+        console.error('Failed to resume/start import process:', error);
+        // Fallback: try starting a fresh scan
+        try {
+          setCurrentActionIndex(0);
+          await scanMutation.mutateAsync();
+        } catch (scanError) {
+          console.error('Scan failed:', scanError);
+          setError('Failed to start scan process');
+          setCurrentActionIndex(-1);
+          hasStartedRef.current = false;
+        }
+      }
+    };
+
+    void resumeOrStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array - only run once on mount
 
@@ -232,7 +300,7 @@ export function ImportLocalStep({ setError, setIsLoading, setCanProgress }: Impo
 
           {actions.map((action, index) => {
             const isActive = currentActionIndex === index;
-            const isCompleted = isJobCompleted(action.jobType);
+            const isCompleted: boolean = isJobCompleted(action.jobType) || completedJobsRef.current.has(action.jobType);
             const isFailed = isJobFailed(action.jobType);
             const progress = isCompleted ? 100 : getJobProgress(action.jobType);
             const progressData = getProgressForJob(action.jobType);

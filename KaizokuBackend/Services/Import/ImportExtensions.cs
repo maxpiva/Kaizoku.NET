@@ -11,7 +11,7 @@ namespace KaizokuBackend.Services.Import;
 
 public static class ImportExtensions
 {
-    public static List<LinkedSeries> FindAndLinkSimilarSeries(this List<SuwayomiSeries> series, ContextProvider cp, double threshold = 0.1)
+    public static List<LinkedSeries> FindAndLinkSimilarSeries(this List<SuwayomiSeries> series, ContextProvider cp, double threshold = 0.3)
     {
         // ...moved logic from ModelExtensions...
         if (series == null || series.Count == 0)
@@ -70,7 +70,7 @@ public static class ImportExtensions
         return linkedSeries;
     }
 
-    public static void MergeSimilarSeries(this List<LinkedSeries> linkedSeries, double threshold = 0.1)
+    public static void MergeSimilarSeries(this List<LinkedSeries> linkedSeries, double threshold = 0.3)
     {
         if (linkedSeries.Count <= 1)
         {
@@ -172,10 +172,13 @@ public static class ImportExtensions
                 int prevIdx = ordered[prev].Index;
                 int nextIdx = ordered[next].Index;
                 int gap = nextIdx - prevIdx;
-                decimal step = (nextNum - prevNum) / gap;
-                for (int j = prev + 1; j < next; j++)
+                if (gap > 0)
                 {
-                    ordered[j].ChapterNumber = prevNum + step * (ordered[j].Index - prevIdx);
+                    decimal step = (nextNum - prevNum) / gap;
+                    for (int j = prev + 1; j < next; j++)
+                    {
+                        ordered[j].ChapterNumber = prevNum + step * (ordered[j].Index - prevIdx);
+                    }
                 }
                 i = next;
             }

@@ -21,6 +21,7 @@ namespace KaizokuBackend.Services.Import;
 
 public class ImportCommandService
 {
+    private static readonly SemaphoreSlim _importLock = new SemaphoreSlim(1, 1);
     private readonly ILogger _logger;
     private readonly AppDbContext _db;
     private readonly SuwayomiClient _sc;
@@ -74,110 +75,130 @@ public class ImportCommandService
     public async Task<JobResult> ScanAsync(string directoryPath, JobInfo jobInfo, CancellationToken token = default)
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
-        if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)) 
+        if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false))
             || (await _jobManagementService.IsJobTypeRunningAsync(JobType.InstallAdditionalExtensions, token).ConfigureAwait(false)))
         {
+            _logger.LogWarning("Scan skipped: SearchProviders or InstallAdditionalExtensions job is currently running.");
+            progress.Report(ProgressStatus.Completed, 100, "Scan skipped: another import job is currently running.");
+            return JobResult.Success;
+        }
+
+        await _importLock.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            List<KaizokuBackend.Models.Database.Series> allseries = await _db.Series.Include(a => a.Sources).ToListAsync(token).ConfigureAwait(false);
+            List<SuwayomiExtension> exts = await _sc.GetExtensionsAsync(token).ConfigureAwait(false);
+            if (!Directory.Exists(directoryPath))
+            {
+                _logger.LogError("Directory not found: {directoryPath}", directoryPath);
+                return JobResult.Failed;
+            }
+            progress.Report(ProgressStatus.Started, 0, "Scanning Directories...");
+            var seriesDict = new List<KaizokuInfo>();
+            await _scanner.RecurseDirectoryAsync(allseries, exts, seriesDict, directoryPath, directoryPath, progress, token).ConfigureAwait(false);
+            HashSet<string> folders = seriesDict.Select(a => a.Path).ToHashSet();
+            await SaveImportsAsync(folders, seriesDict, token).ConfigureAwait(false);
             progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
             return JobResult.Success;
-        }            
-  
-        List<KaizokuBackend.Models.Database.Series> allseries = await _db.Series.Include(a => a.Sources).ToListAsync(token).ConfigureAwait(false);
-        List<SuwayomiExtension> exts = await _sc.GetExtensionsAsync(token).ConfigureAwait(false);
-        if (!Directory.Exists(directoryPath))
-        {
-            _logger.LogError("Directory not found: {directoryPath}", directoryPath);
-            return JobResult.Failed;
         }
-        progress.Report(ProgressStatus.Started, 0, "Scanning Directories...");
-        var seriesDict = new List<KaizokuInfo>();
-        await _scanner.RecurseDirectoryAsync(allseries, exts, seriesDict, directoryPath, directoryPath, progress, token).ConfigureAwait(false);
-        HashSet<string> folders = seriesDict.Select(a => a.Path).ToHashSet();
-        await SaveImportsAsync(folders, seriesDict, token).ConfigureAwait(false);
-        progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
-        return JobResult.Success;
+        finally
+        {
+            _importLock.Release();
+        }
     }
 
     private async Task SaveImportsAsync(HashSet<string> existingFolders, List<KaizokuInfo> newSeries, CancellationToken token = default)
     {
-        var imports = await _db.Imports.ToListAsync(token).ConfigureAwait(false);
-        foreach (KaizokuBackend.Models.Database.Import a in imports)
+        using var transaction = await _db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+        try
         {
-            if (!existingFolders.Contains(a.Path, StringComparer.InvariantCultureIgnoreCase) && a.Status != ImportStatus.DoNotChange)
+            var imports = await _db.Imports.ToListAsync(token).ConfigureAwait(false);
+            foreach (KaizokuBackend.Models.Database.Import a in imports)
             {
-                _db.Imports.Remove(a);
-            }
-        }
-        Dictionary<string, Guid> paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
-        foreach (KaizokuInfo k in newSeries)
-        {
-            KaizokuBackend.Models.Database.Series? s = null;
-            if (!string.IsNullOrEmpty(k.Path) && paths.TryGetValue(k.Path, out Guid id))
-            {
-                s = await _db.Series.Include(a => a.Sources)
-                    .Where(a => a.Id == id)
-                    .FirstOrDefaultAsync(token).ConfigureAwait(false);
-            }
-            bool update = false;
-            bool exists = false;
-            if (s != null)
-            {
-                exists = true;
-                Dictionary<Chapter, SeriesProvider> chapters = s.Sources.SelectMany(a => a.Chapters, (p, c) => new { Provider = p, Chapter = c }).Where(a=>!string.IsNullOrEmpty(a.Chapter.Filename)).ToDictionary(x => x.Chapter, x => x.Provider);
-                Dictionary<ArchiveInfo, ProviderInfo> archives = k.Providers.SelectMany(a => a.Archives, (p, c) => new { Provider = p, Chapter = c }).Where(a => !string.IsNullOrEmpty(a.Chapter.ArchiveName)).ToDictionary(a => a.Chapter, a => a.Provider);
-                foreach (ArchiveInfo archive in archives.Keys)
+                if (!existingFolders.Contains(a.Path, StringComparer.InvariantCultureIgnoreCase) && a.Status != ImportStatus.DoNotChange)
                 {
-                    Chapter? c = chapters.Keys.FirstOrDefault(a => a.Filename!.Equals(archive.ArchiveName!, StringComparison.InvariantCultureIgnoreCase));
-                    if (c != null)
+                    _db.Imports.Remove(a);
+                }
+            }
+            Dictionary<string, Guid> paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
+            foreach (KaizokuInfo k in newSeries)
+            {
+                KaizokuBackend.Models.Database.Series? s = null;
+                if (!string.IsNullOrEmpty(k.Path) && paths.TryGetValue(k.Path, out Guid id))
+                {
+                    s = await _db.Series.Include(a => a.Sources)
+                        .Where(a => a.Id == id)
+                        .FirstOrDefaultAsync(token).ConfigureAwait(false);
+                }
+                bool update = false;
+                bool exists = false;
+                if (s != null)
+                {
+                    exists = true;
+                    Dictionary<Chapter, SeriesProvider> chapters = s.Sources.SelectMany(a => a.Chapters, (p, c) => new { Provider = p, Chapter = c }).Where(a => !string.IsNullOrEmpty(a.Chapter.Filename)).ToDictionary(x => x.Chapter, x => x.Provider);
+                    Dictionary<ArchiveInfo, ProviderInfo> archives = k.Providers.SelectMany(a => a.Archives, (p, c) => new { Provider = p, Chapter = c }).Where(a => !string.IsNullOrEmpty(a.Chapter.ArchiveName)).ToDictionary(a => a.Chapter, a => a.Provider);
+                    foreach (ArchiveInfo archive in archives.Keys)
                     {
-                        chapters.Remove(c);
+                        Chapter? c = chapters.Keys.FirstOrDefault(a => a.Filename!.Equals(archive.ArchiveName!, StringComparison.InvariantCultureIgnoreCase));
+                        if (c != null)
+                        {
+                            chapters.Remove(c);
+                        }
+                        else
+                        {
+                            update = true;
+                        }
+                    }
+                    if (chapters.Count > 0)
+                    {
+                        foreach (Chapter c in chapters.Keys)
+                        {
+                            _logger.LogWarning("Removing chapter '{Filename}' from provider '{Provider}' for series '{Title}' — file no longer found on disk.",
+                                c.Filename, chapters[c].Provider, s.Title);
+                            chapters[c].Chapters.Remove(c);
+                            _db.Touch(chapters[c], c => c.Chapters);
+                        }
+                    }
+                }
+                KaizokuBackend.Models.Database.Import? import = imports.FirstOrDefault(a => a.Path.Equals(k.Path, StringComparison.InvariantCultureIgnoreCase));
+                if (import != null)
+                {
+                    bool change = false;
+                    if ((k.ArchiveCompare & ArchiveCompare.Equal) != ArchiveCompare.Equal)
+                        (change, import.Info) = import.Info.Merge(k);
+                    _db.Touch(import, a => a.Info);
+                    if (update)
+                        import.Status = ImportStatus.Import;
+                    else if (!exists && import.Action != Action.Skip)
+                        import.Status = ImportStatus.Import;
+                    else if (import.Action == Action.Skip)
+                    {
+                        import.Status = ImportStatus.Skip;
                     }
                     else
-                    {
-                        update = true;
-                    }
-                }
-                if (chapters.Count > 0)
-                {
-                    foreach (Chapter c in chapters.Keys)
-                    {
-                        chapters[c].Chapters.Remove(c);
-                        _db.Touch(chapters[c],c=>c.Chapters);
-                    }
-                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                }
-            }
-            KaizokuBackend.Models.Database.Import? import = imports.FirstOrDefault(a => a.Path.Equals(k.Path, StringComparison.InvariantCultureIgnoreCase));
-            if (import != null)
-            {
-                bool change = false;
-                if ((k.ArchiveCompare & ArchiveCompare.Equal) != ArchiveCompare.Equal)
-                    (change, import.Info) = import.Info.Merge(k);
-                _db.Touch(import, a => a.Info);
-                if (update)
-                    import.Status = ImportStatus.Import;
-                else if (!exists && import.Action!=Action.Skip)
-                    import.Status = ImportStatus.Import;
-                else if (import.Action == Action.Skip)
-                {
-                    import.Status = ImportStatus.Skip;
+                        import.Status = ImportStatus.DoNotChange;
                 }
                 else
-                    import.Status = ImportStatus.DoNotChange;
-            }
-            else
-            {
-                KaizokuBackend.Models.Database.Import imp = new KaizokuBackend.Models.Database.Import
                 {
-                    Title = k.Title,
-                    Path = k.Path,
-                    Status = ImportStatus.Import,
-                    Action = Action.Add,
-                    Info = k
-                };
-                _db.Imports.Add(imp);
+                    KaizokuBackend.Models.Database.Import imp = new KaizokuBackend.Models.Database.Import
+                    {
+                        Title = k.Title,
+                        Path = k.Path,
+                        Status = ImportStatus.Import,
+                        Action = Action.Add,
+                        Info = k
+                    };
+                    _db.Imports.Add(imp);
+                }
             }
+            await _db.SaveChangesAsync(token).ConfigureAwait(false);
+            await transaction.CommitAsync(token).ConfigureAwait(false);
         }
-        await _db.SaveChangesAsync(token).ConfigureAwait(false);
+        catch
+        {
+            await transaction.RollbackAsync(token).ConfigureAwait(false);
+            throw;
+        }
     }
 
     public async Task<JobResult> AddExtensionsAsync(JobInfo jobInfo, int startPercentage, int maxPercentage, CancellationToken token = default)
@@ -187,7 +208,8 @@ public class ImportCommandService
             ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
             if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)))
             {
-                progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+                _logger.LogWarning("Extension installation skipped: SearchProviders job is currently running.");
+                progress.Report(ProgressStatus.Completed, maxPercentage, "Extension installation skipped: search job is running.");
                 return JobResult.Success;
             }
             progress.Report(ProgressStatus.InProgress, startPercentage, null);
@@ -237,6 +259,7 @@ public class ImportCommandService
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         progress.Report(ProgressStatus.Started, 0, "Starting series search...");
+        await _importLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
             List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports
@@ -487,7 +510,7 @@ public class ImportCommandService
                             {
                                 foreach (string title in titles)
                                 {
-                                    if (l.Title.AreStringSimilar(title,0.1))
+                                    if (l.Title.AreStringSimilar(title))
                                     {
                                         linked.Add(l);
                                         break;
@@ -530,6 +553,9 @@ public class ImportCommandService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error searching for series: {Title}", import.Info.Title);
+                    import.Status = ImportStatus.Skip;
+                    import.Action = Action.Skip;
+                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 }
             }
             progress.Report(ProgressStatus.Completed, 100, $"Search completed for {imports.Count} series");
@@ -541,20 +567,24 @@ public class ImportCommandService
             progress.Report(ProgressStatus.Failed, 100, $"Series search failed: {ex.Message}");
             return JobResult.Failed;
         }
+        finally
+        {
+            _importLock.Release();
+        }
     }
 
     public async Task<JobResult> ImportSeriesAsync(JobInfo jobInfo, bool disableJob, CancellationToken token = default)
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         progress.Report(ProgressStatus.Started, 0, "Starting series import...");
-        List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports
-            .Where(a => a.Status != ImportStatus.DoNotChange)
-            .AsNoTracking()
-            .ToListAsync(token).ConfigureAwait(false);
-        float step = 100 / (float)imports.Count;
-        float acum = 0F;
+        await _importLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports
+                .Where(a => a.Status != ImportStatus.DoNotChange)
+                .ToListAsync(token).ConfigureAwait(false);
+            float step = 100 / (float)imports.Count;
+            float acum = 0F;
             foreach (KaizokuBackend.Models.Database.Import import in imports)
             {
                 if (import.Series != null && import.Series.Count > 0 && import.Action == Action.Add)
@@ -569,7 +599,7 @@ public class ImportCommandService
                     augmented.Action = import.Action;
                     augmented.Status = import.Status;
                     Guid seriesid = await _seriesCommand.AddSeriesAsync(augmented, token).ConfigureAwait(false);
-                    KaizokuBackend.Models.Database.Series? serie = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesid).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
+                    KaizokuBackend.Models.Database.Series? serie = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesid).FirstOrDefaultAsync(token).ConfigureAwait(false);
                     if (serie != null)
                     {
                         KaizokuBackend.Models.Settings settings2 = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
@@ -592,6 +622,10 @@ public class ImportCommandService
             _logger.LogError(ex, "Error importing series");
             progress.Report(ProgressStatus.Failed, 100, "Error importing series");
             return JobResult.Failed;
+        }
+        finally
+        {
+            _importLock.Release();
         }
     }
 }

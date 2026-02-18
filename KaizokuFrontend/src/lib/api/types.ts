@@ -64,6 +64,11 @@ export interface Settings {
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
+  // Naming & Format properties
+  fileNameTemplate: string;
+  folderTemplate: string;
+  outputFormat: number;    // 0=CBZ, 1=PDF
+  includeChapterTitle: boolean;
 }
 
 export interface LinkedSeries {
@@ -253,6 +258,22 @@ export enum JobType {
 export enum ProgressStatus {
   Started = 0,
   InProgress = 1,
+  Completed = 2,
+  Failed = 3,
+}
+
+// Wizard Job Status (from GET /api/setup/job-status)
+export interface WizardJobStatus {
+  scanLocalFiles: number | null;
+  installAdditionalExtensions: number | null;
+  searchProviders: number | null;
+  importSeries: number | null;
+}
+
+// QueueStatus enum matching backend values
+export enum QueueStatus {
+  Waiting = 0,
+  Running = 1,
   Completed = 2,
   Failed = 3,
 }

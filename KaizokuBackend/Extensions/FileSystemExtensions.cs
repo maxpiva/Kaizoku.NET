@@ -126,11 +126,24 @@ namespace KaizokuBackend.Extensions
         /// <returns>Rewritten path</returns>
         public static string RewriteToKaizokuPath(this SuwayomiSeries series)
         {
-            if (series.ThumbnailUrl == null)
+            // Handle null or empty thumbnail URL
+            if (string.IsNullOrEmpty(series.ThumbnailUrl))
                 return "serie/thumb/unknown";
 
-            string thumb = series.ThumbnailUrl[(series.ThumbnailUrl.IndexOf("/manga/", StringComparison.InvariantCulture) + 6)..];
-            thumb = thumb[..thumb.LastIndexOf('/')];
+            // Find the /manga/ marker in the URL
+            int mangaIndex = series.ThumbnailUrl.IndexOf("/manga/", StringComparison.InvariantCulture);
+            if (mangaIndex < 0)
+                return "serie/thumb/unknown";
+
+            // Extract the path after /manga/ (keeping the leading slash)
+            string thumb = series.ThumbnailUrl[(mangaIndex + 6)..];
+
+            // Find the last slash to remove the filename portion
+            int lastSlash = thumb.LastIndexOf('/');
+            if (lastSlash < 0)
+                return "serie/thumb/unknown";
+
+            thumb = thumb[..lastSlash];
             return $"serie/thumb{thumb}!{series.ThumbnailUrlLastFetched}";
         }
 

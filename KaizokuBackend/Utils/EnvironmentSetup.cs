@@ -29,6 +29,8 @@ namespace KaizokuBackend.Utils
         public const string SuwayomiJar = "Suwayomi-Server-{version}.jar";
         public const string SuwayomiJarUrl = "https://github.com/Suwayomi/Suwayomi-Server/releases/download/{version}/{jar}";
         public const string SuwayomiJarPreviewUrl = "https://github.com/Suwayomi/Suwayomi-Server-preview/releases/download/{version}/{jar}";
+        public const string SuwayomiLatestReleaseUrl = "https://api.github.com/repos/Suwayomi/Suwayomi-Server/releases/latest";
+        public const string SuwayomiLatestPreviewReleaseUrl = "https://api.github.com/repos/Suwayomi/Suwayomi-Server-preview/releases/latest";
 
         public const string AppKaizokuNET = "Kaiz.NET";
         public const string AppSuwayomi = "Suwayomi";
@@ -509,6 +511,59 @@ namespace KaizokuBackend.Utils
             return null;
         }
 
+        /// <summary>
+        /// Fetches the latest Suwayomi release version tag from the GitHub API.
+        /// </summary>
+        /// <param name="usePreview">Whether to check the preview repository</param>
+        /// <param name="token">Cancellation token</param>
+        /// <returns>The latest version tag (e.g. "v2.0.1833"), or null if the request fails</returns>
+        public static async Task<string?> GetLatestSuwayomiVersionAsync(bool usePreview, CancellationToken token = default)
+        {
+            string apiUrl = usePreview ? SuwayomiLatestPreviewReleaseUrl : SuwayomiLatestReleaseUrl;
+            try
+            {
+                _logger?.LogInformation("Fetching latest Suwayomi version from GitHub ({repo})...",
+                    usePreview ? "preview" : "stable");
+
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "KaizokuNET");
+                httpClient.Timeout = TimeSpan.FromSeconds(10);
+
+                using var response = await httpClient.GetAsync(apiUrl, token).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger?.LogWarning("GitHub API returned {StatusCode} when fetching latest Suwayomi version.", response.StatusCode);
+                    return null;
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+                using var json = await JsonDocument.ParseAsync(stream, cancellationToken: token).ConfigureAwait(false);
+
+                string? tag = json.RootElement.TryGetProperty("tag_name", out var tagElement)
+                    ? tagElement.GetString()
+                    : null;
+
+                if (string.IsNullOrWhiteSpace(tag))
+                {
+                    _logger?.LogWarning("GitHub API response did not contain a valid tag_name.");
+                    return null;
+                }
+
+                _logger?.LogInformation("Latest Suwayomi version: {Version}", tag);
+                return tag;
+            }
+            catch (TaskCanceledException)
+            {
+                _logger?.LogWarning("Timed out fetching latest Suwayomi version from GitHub.");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to fetch latest Suwayomi version from GitHub.");
+                return null;
+            }
+        }
+
         public static async Task<bool> DownloadSuwayomiIfNeededAsync(CancellationToken token = default)
         {
             _logger?.LogInformation("Checking if Suwayomi is downloaded and up to date.");
@@ -516,13 +571,22 @@ namespace KaizokuBackend.Utils
             if (useCustomApi)
                 return true;
             bool usePreview = Configuration!.GetValue<bool>("Suwayomi:UsePreview", false);
-            string version = Configuration!.GetValue<string>("Suwayomi:Version", "v2.0.1727");
-            string jar = SuwayomiJar;
-            string url = SuwayomiJarUrl;
-            if (usePreview)
-                url = SuwayomiJarPreviewUrl;
-            jar = jar.Replace("{version}", version);
-            url = url.Replace("{version}", version).Replace("{jar}", jar);
+            bool autoUpdate = Configuration!.GetValue<bool>("Suwayomi:AutoUpdate", true);
+            string configVersion = Configuration!.GetValue<string>("Suwayomi:Version", "v2.0.1727");
+
+            string version = configVersion;
+            if (autoUpdate)
+            {
+                string? latestVersion = await GetLatestSuwayomiVersionAsync(usePreview, token).ConfigureAwait(false);
+                version = latestVersion ?? configVersion;
+                if (latestVersion == null)
+                    _logger?.LogWarning("Could not fetch latest version from GitHub, falling back to configured version {Version}.", configVersion);
+            }
+
+            string jar = SuwayomiJar.Replace("{version}", version);
+            string url = (usePreview ? SuwayomiJarPreviewUrl : SuwayomiJarUrl)
+                .Replace("{version}", version)
+                .Replace("{jar}", jar);
             string suwayomiPath = System.IO.Path.Combine(Path, "Suwayomi");
             string suwayomiJarFullPath = System.IO.Path.Combine(suwayomiPath, jar);
             if (File.Exists(suwayomiJarFullPath))

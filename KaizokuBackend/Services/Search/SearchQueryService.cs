@@ -74,7 +74,7 @@ namespace KaizokuBackend.Services.Search
         /// <param name="token">Cancellation token</param>
         /// <returns>List of linked series matching the search criteria</returns>
         public async Task<List<LinkedSeries>> SearchSeriesAsync(string keyword, List<string> languages,
-            List<string>? searchSources = null, double threshold = 0.1f, CancellationToken token = default)
+            List<string>? searchSources = null, double threshold = 0.3, CancellationToken token = default)
         {
             if (string.IsNullOrWhiteSpace(keyword) || languages == null || languages.Count == 0)
             {
@@ -95,7 +95,7 @@ namespace KaizokuBackend.Services.Search
             return await SearchSeriesAsync(keyword, filteredSources, appSettings, threshold, token).ConfigureAwait(false);
         }
 
-        public async Task<List<LinkedSeries>> SearchSeriesAsync(List<(string, SuwayomiSource, ProviderStorage)> sources, KaizokuBackend.Models.Settings? appSettings, double threshold = 0.1f, CancellationToken token = default)
+        public async Task<List<LinkedSeries>> SearchSeriesAsync(List<(string, SuwayomiSource, ProviderStorage)> sources, KaizokuBackend.Models.Settings? appSettings, double threshold = 0.3, CancellationToken token = default)
         {
             var results = new ConcurrentBag<(string, SuwayomiSource Source, ProviderStorage Storag, SuwayomiSeriesResult Result)>();
             var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
@@ -184,7 +184,7 @@ namespace KaizokuBackend.Services.Search
         /// <param name="token">Cancellation token</param>
         /// <returns>List of linked series matching the search criteria</returns>
         public async Task<List<LinkedSeries>> SearchSeriesAsync(string keyword, Dictionary<SuwayomiSource, ProviderStorage> sources,
-            KaizokuBackend.Models.Settings? appSettings, double threshold = 0.1f, CancellationToken token = default)
+            KaizokuBackend.Models.Settings? appSettings, double threshold = 0.3, CancellationToken token = default)
         {
             try
             {

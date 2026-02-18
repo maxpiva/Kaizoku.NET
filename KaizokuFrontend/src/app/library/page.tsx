@@ -167,12 +167,13 @@ export default function RootPage() {
       <KzkSidebar />
       <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
         <KzkHeader />
-        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0">
-                <div className="flex items-center">
+        <main className="grid flex-1 items-start gap-2 p-2 sm:gap-4 sm:p-4 sm:px-6 sm:py-0">
+                {/* Filter row - wraps on mobile */}
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Status Filter - first select */}
-                  <div className="w-40">
+                  <div className="w-28 sm:w-40">
                     <Select value={tab} onValueChange={setTab}>
-                      <SelectTrigger className="w-full !pr-2 caret-transparent">
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -194,60 +195,62 @@ export default function RootPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                 
-                    <div className="w-40 ml-2">
-                      <Select
-                        value={selectedGenre ?? "__ALL__"}
-                        onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
-                      >
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
-                          <SelectValue placeholder="All Genres" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__ALL__">All Genres</SelectItem>
-                          {genres.map((genre) => (
-                            <SelectItem key={genre} value={genre}>
-                              {genre}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="w-48 ml-2">
-                      <Select
-                        value={selectedProvider ?? "__ALL__"}
-                        onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
-                      >
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
-                          <SelectValue placeholder="All Sources" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__ALL__">All Sources</SelectItem>
-                          {providers.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                              {provider}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  <div className="ml-auto flex items-center gap-2">
-                     {/* Order Select - immediately after tabs, to the left */}
-                  <div className="w-32">
-                    <Select value={orderBy} onValueChange={setOrderBy}>
-                      <SelectTrigger className="w-full !pr-2 caret-transparent">
-                        <SelectValue />
+
+                  <div className="w-28 sm:w-40">
+                    <Select
+                      value={selectedGenre ?? "__ALL__"}
+                      onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
+                    >
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
+                        <SelectValue placeholder="All Genres" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="title">Alphabetical</SelectItem>
-                        <SelectItem value="lastChange">Last Change</SelectItem>
+                        <SelectItem value="__ALL__">All Genres</SelectItem>
+                        {genres.map((genre) => (
+                          <SelectItem key={genre} value={genre}>
+                            {genre}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  {/* Card Size Select */}
-                    <div className="w-16">
+                  <div className="w-28 sm:w-48">
+                    <Select
+                      value={selectedProvider ?? "__ALL__"}
+                      onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
+                    >
+                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
+                        <SelectValue placeholder="All Sources" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__ALL__">All Sources</SelectItem>
+                        {providers.map((provider) => (
+                          <SelectItem key={provider} value={provider}>
+                            {provider}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Right side controls */}
+                  <div className="flex items-center gap-2 ml-auto">
+                    {/* Order Select */}
+                    <div className="w-24 sm:w-32">
+                      <Select value={orderBy} onValueChange={setOrderBy}>
+                        <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="title">Alphabetical</SelectItem>
+                          <SelectItem value="lastChange">Last Change</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {/* Card Size Select */}
+                    <div className="w-14 sm:w-16">
                       <Select value={cardWidth} onValueChange={setCardWidth}>
-                        <SelectTrigger className="w-full !pr-2 caret-transparent">
+                        <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
                           <SelectValue placeholder="Card Size" />
                         </SelectTrigger>
                         <SelectContent>
@@ -258,12 +261,12 @@ export default function RootPage() {
                       </Select>
                     </div>
 
-                    <div className="h-9">
+                    <div className="h-8 sm:h-9">
                       <AddSeries />
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-4 pt-4">
+                <div className="flex flex-wrap gap-2 sm:gap-4 pt-2 sm:pt-4">
                   <ListSeries 
                     filterFn={filterFn} 
                     sortFn={sortFn} 

@@ -17,7 +17,8 @@ namespace KaizokuBackend.Services.Background
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<JobQueueHostedService> _logger;
         private readonly JobsSettings _settings;
-        private readonly ConcurrentDictionary<JobQueues, HashSet<string>> _runningJobs = new();
+        private readonly ConcurrentDictionary<JobQueues, ConcurrentDictionary<string, byte>> _runningJobs = new();
+        private readonly object _slotLock = new object();
 
         public JobQueueHostedService(IServiceScopeFactory scopeFactory, ILogger<JobQueueHostedService> logger,
             JobsSettings settings)
@@ -29,7 +30,7 @@ namespace KaizokuBackend.Services.Background
             // Initialize running jobs tracking
             foreach (var queue in _settings.GetQueueSettings())
             {
-                _runningJobs[queue.Name] = new HashSet<string>();
+                _runningJobs[queue.Name] = new ConcurrentDictionary<string, byte>();
             }
         }
 
@@ -74,12 +75,13 @@ namespace KaizokuBackend.Services.Background
             }
         }
 
-        private async Task ProcessQueueAsync(JobManagementService jobManagement, QueueSettings queueSettings, 
+        private async Task ProcessQueueAsync(JobManagementService jobManagement, QueueSettings queueSettings,
             CancellationToken stoppingToken)
         {
             var queueName = queueSettings.Name;
-            var runningJobsInQueue = _runningJobs.GetValueOrDefault(queueName, new HashSet<string>());
-            
+            var runningJobsInQueue = _runningJobs.GetOrAdd(queueName, _ => new ConcurrentDictionary<string, byte>());
+
+            // Check available slots outside lock first (quick exit optimization)
             if (runningJobsInQueue.Count >= queueSettings.MaxThreads)
                 return;
 
@@ -88,7 +90,7 @@ namespace KaizokuBackend.Services.Background
                 return;
 
             // Get jobs ready for execution
-            var jobsToProcess = await GetJobsToProcessAsync(jobManagement, queueName, queueSettings, 
+            var jobsToProcess = await GetJobsToProcessAsync(jobManagement, queueName, queueSettings,
                 availableSlots, stoppingToken).ConfigureAwait(false);
 
             foreach (var job in jobsToProcess)
@@ -96,16 +98,24 @@ namespace KaizokuBackend.Services.Background
                 if (stoppingToken.IsCancellationRequested)
                     break;
 
-                runningJobsInQueue.Add(job.Id.ToString());
-                
+                // Atomic slot allocation: check and reserve under lock
+                lock (_slotLock)
+                {
+                    if (runningJobsInQueue.Count >= queueSettings.MaxThreads)
+                        break;
+
+                    if (!runningJobsInQueue.TryAdd(job.Id.ToString(), 0))
+                        continue; // Job already running, skip
+                }
+
                 // Update job status to running
                 job.Status = QueueStatus.Running;
                 job.StartedDate = DateTime.UtcNow;
-                
+
                 // Save changes through the service
                 await UpdateJobStatusAsync(job, stoppingToken).ConfigureAwait(false);
                 jobManagement.DetachJob(job);
-                
+
                 // Start job execution in background
                 _ = ExecuteJobAsync(job, queueName, queueSettings, stoppingToken);
             }
@@ -181,7 +191,7 @@ namespace KaizokuBackend.Services.Background
                 // Remove job from running list
                 if (_runningJobs.TryGetValue(queueName, out var runningJobs))
                 {
-                    runningJobs.Remove(jobId);
+                    runningJobs.TryRemove(jobId, out _);
                 }
             }
         }

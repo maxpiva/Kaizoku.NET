@@ -1,6 +1,7 @@
 ﻿using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Downloads;
+using KaizokuBackend.Services.Jobs;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -12,12 +13,14 @@ namespace KaizokuBackend.Controllers
     {
         private readonly DownloadQueryService _downloadQuery;
         private readonly DownloadCommandService _downloadCommand;
+        private readonly JobManagementService _jobManagement;
         private readonly ILogger _logger;
 
-        public DownloadsController(ILogger<DownloadsController> logger, DownloadQueryService downloadQuery, DownloadCommandService downloadCommand)
+        public DownloadsController(ILogger<DownloadsController> logger, DownloadQueryService downloadQuery, DownloadCommandService downloadCommand, JobManagementService jobManagement)
         {
             _downloadQuery = downloadQuery;
             _downloadCommand = downloadCommand;
+            _jobManagement = jobManagement;
             _logger = logger;
         }
 
@@ -84,6 +87,49 @@ namespace KaizokuBackend.Controllers
             {
                 _logger.LogError(ex, "Error managing download: {Message}", ex.Message);
                 return StatusCode(500, new { error = "An error occurred while managing the download." });
+            }
+        }
+
+        /// <summary>
+        /// Clears all queued downloads from the queue
+        /// </summary>
+        [HttpDelete("clear")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<object>> ClearAllDownloadsAsync(CancellationToken token = default)
+        {
+            try
+            {
+                int count = await _jobManagement.ClearAllDownloadsAsync(token).ConfigureAwait(false);
+                return Ok(new { cleared = count, message = $"Cleared {count} downloads from queue" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing downloads: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while clearing downloads" });
+            }
+        }
+
+        /// <summary>
+        /// Removes a scheduled download from the queue
+        /// </summary>
+        [HttpDelete("{id:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> RemoveScheduledDownloadAsync(Guid id, CancellationToken token = default)
+        {
+            try
+            {
+                bool removed = await _downloadCommand.RemoveScheduledDownloadAsync(id, token).ConfigureAwait(false);
+                if (!removed)
+                    return NotFound(new { error = "Download not found or not in waiting status" });
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error removing download {Id}: {Message}", id, ex.Message);
+                return StatusCode(500, new { error = "An error occurred while removing the download" });
             }
         }
     }

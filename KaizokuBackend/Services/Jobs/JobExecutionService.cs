@@ -11,15 +11,16 @@ namespace KaizokuBackend.Services.Jobs
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<JobExecutionService> _logger;
-        private readonly List<Type> _commandTypes;
+
+        private static readonly Lazy<Dictionary<string, Type>> _commandTypeMap = new(() =>
+            Assembly.GetExecutingAssembly().GetTypes()
+                .Where(type => typeof(ICommand).IsAssignableFrom(type) && type.IsClass && !type.IsAbstract)
+                .ToDictionary(type => type.Name, type => type));
 
         public JobExecutionService(IServiceScopeFactory scopeFactory, ILogger<JobExecutionService> logger)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
-            _commandTypes = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(type => typeof(ICommand).IsAssignableFrom(type) && type.IsClass && !type.IsAbstract)
-                .ToList();
         }
 
         public async Task<JobResult> ExecuteJobAsync(JobInfo jobInfo, CancellationToken token = default)
@@ -50,9 +51,15 @@ namespace KaizokuBackend.Services.Jobs
 
         private ICommand? GetCommandInstance(IServiceProvider serviceProvider, JobType jobType)
         {
-            Type? commandType = _commandTypes.FirstOrDefault(t => t.Name == jobType.ToString());
-            if (commandType == null)
+            string commandName = jobType.ToString();
+            if (!_commandTypeMap.Value.TryGetValue(commandName, out Type? commandType))
+            {
+                _logger.LogError(
+                    "Command type '{CommandName}' not found. Available commands: {AvailableCommands}",
+                    commandName,
+                    string.Join(", ", _commandTypeMap.Value.Keys));
                 return null;
+            }
 
             return ActivatorUtilities.CreateInstance(serviceProvider, commandType) as ICommand;
         }

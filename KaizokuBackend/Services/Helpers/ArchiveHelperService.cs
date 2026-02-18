@@ -82,39 +82,11 @@ namespace KaizokuBackend.Services.Helpers
                     string archivePath = Path.Combine(settings.StorageFolder, series.StoragePath, chap.Filename);
                     if (!File.Exists(archivePath))
                         continue;
-                    // Now check if the filename should be changed
-                    string prefix = $"[{sp.Provider}][{sp.Language}]";
-                    string safeName = MakeFileNameSafe(sp.Provider, sp.Scanlator, sp.Title, sp.Language, chap.Number, chap.Name, sp.ChapterCount);
-                    string extension = Path.GetExtension(chap.Filename) ?? ".cbz";
-                    string newFileName = safeName + extension;
-                    if (!chap.Filename.StartsWith(prefix))
-                    {
-                        //Not ours or renamed by us
-                        continue;
-                    }
-                    if (!onlyDownloadByKaizoku)
-                        extension = ".cbz"; // Force .cbz, we don't write other formats.
-                    if (!string.Equals(newFileName, chap.Filename, StringComparison.OrdinalIgnoreCase))
-                    {
-                        string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
-                        string oldFullPath = Path.Combine(basePath, chap.Filename);
-                        string newFullPath = Path.Combine(basePath, newFileName);
-                        try
-                        {
-                            //SharpCompress do not care if we call a rar a zip, so no issues to rename it first.
-                            File.Move(oldFullPath, newFullPath);
-                            chap.Filename = newFileName;
-                            _db.Touch(sp, a => a.Chapters);
-                            await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                            _logger.LogInformation("Renamed archive from {oldFullPath} to {newFullPath} and updated chapters filename.", oldFullPath, newFullPath);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to rename archive from {oldFullPath} to {newFullPath}", oldFullPath, newFullPath);
-                        }
 
-                        archivePath = newFullPath;
-                    }
+                    // Note: Automatic file renaming has been removed to avoid conflicts with the template-based
+                    // naming system. Use Settings > "Rename Files" to manually rename files to match the current template.
+
+                    string prefix = $"[{sp.Provider}][{sp.Language}]";
 
                     if (onlyDownloadByKaizoku)
                     {

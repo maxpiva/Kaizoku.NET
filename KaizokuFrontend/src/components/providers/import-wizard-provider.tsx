@@ -8,6 +8,7 @@ interface ImportWizardState {
   currentStep: number;
   completedSteps: number;
   stepData: Record<string, unknown>;
+  lastUpdated?: number; // Timestamp for state expiration
 }
 
 interface ImportWizardContextType {
@@ -48,19 +49,36 @@ export function ImportWizardProvider({ children }: { children: React.ReactNode }
     if (saved) {
       try {
         const parsedState = JSON.parse(saved) as ImportWizardState;
-        setWizardState(parsedState);
+
+        // Check if state is stale (older than 24 hours)
+        const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+        const isStale = parsedState.lastUpdated &&
+          (Date.now() - parsedState.lastUpdated > STALE_THRESHOLD_MS);
+
+        if (isStale) {
+          // Clear stale state
+          localStorage.removeItem(IMPORT_WIZARD_STORAGE_KEY);
+          console.log('Cleared stale import wizard state');
+        } else {
+          setWizardState(parsedState);
+        }
       } catch {
-        // If parsing fails, keep default state
+        // If parsing fails, clear invalid state
+        localStorage.removeItem(IMPORT_WIZARD_STORAGE_KEY);
       }
     }
   }, []);
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(IMPORT_WIZARD_STORAGE_KEY, JSON.stringify(wizardState));
+    if (typeof window !== 'undefined' && isClient) {
+      const stateWithTimestamp = {
+        ...wizardState,
+        lastUpdated: Date.now(),
+      };
+      localStorage.setItem(IMPORT_WIZARD_STORAGE_KEY, JSON.stringify(stateWithTimestamp));
     }
-  }, [wizardState]);
+  }, [wizardState, isClient]);
 
   const startWizard = useCallback(() => {
     setWizardState({

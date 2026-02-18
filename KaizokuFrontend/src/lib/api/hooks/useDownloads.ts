@@ -270,7 +270,7 @@ export const useDownloadsMetrics = (
  */
 export const useManageErrorDownload = () => {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ id, action }: { id: string; action: ErrorDownloadAction }) =>
       downloadsService.manageErrorDownload(id, action),
@@ -278,6 +278,24 @@ export const useManageErrorDownload = () => {
       // Invalidate and refetch failed downloads to get updated list
       queryClient.invalidateQueries({ queryKey: ['downloads', 'failed'] });
       queryClient.invalidateQueries({ queryKey: ['downloads', 'failed-with-count'] });
+      queryClient.invalidateQueries({ queryKey: ['downloads', 'metrics'] });
+    },
+  });
+};
+
+/**
+ * Hook to remove a scheduled download from the queue
+ * @returns Mutation for removing scheduled downloads
+ */
+export const useRemoveScheduledDownload = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => downloadsService.removeScheduledDownload(id),
+    onSuccess: () => {
+      // Invalidate waiting downloads queries
+      queryClient.invalidateQueries({ queryKey: ['downloads', 'waiting'] });
+      queryClient.invalidateQueries({ queryKey: ['downloads', 'waiting-with-count'] });
       queryClient.invalidateQueries({ queryKey: ['downloads', 'metrics'] });
     },
   });

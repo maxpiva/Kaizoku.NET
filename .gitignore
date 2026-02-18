@@ -310,3 +310,7 @@ next-env.d.ts
 KaizokuBackend/runtime/kaizoku.schedule.db-wal
 /KaizokuBackend/wwwroot.sha256
 /KaizokuBackend/wwwroot.zip
+
+# Unraid templates (keep .example, ignore local customizations)
+/unraid/*.xml
+!/unraid/*.xml.example

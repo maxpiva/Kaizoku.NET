@@ -85,9 +85,39 @@ namespace KaizokuBackend.Services.Background
                     
                     // Update job for next execution
                     job.PreviousExecution = job.NextExecution;
-                    while(job.NextExecution < DateTime.UtcNow)
-                       job.NextExecution = job.NextExecution.Add(job.TimeBetweenJobs);
-                    
+
+                    // Guard against infinite loop if TimeBetweenJobs is zero or negative
+                    if (job.TimeBetweenJobs <= TimeSpan.Zero)
+                    {
+                        _logger.LogWarning("Job {Key} has invalid TimeBetweenJobs ({TimeBetweenJobs}), skipping schedule update",
+                            job.Key, job.TimeBetweenJobs);
+                        continue;
+                    }
+
+                    var iterationCount = 0;
+                    const int maxIterations = 1000;
+                    var initialNextExecution = job.NextExecution;
+
+                    while (job.NextExecution < DateTime.UtcNow)
+                    {
+                        job.NextExecution = job.NextExecution.Add(job.TimeBetweenJobs);
+                        iterationCount++;
+
+                        if (iterationCount >= maxIterations)
+                        {
+                            _logger.LogWarning("Job {Key} exceeded {MaxIterations} catch-up iterations, setting next execution to now",
+                                job.Key, maxIterations);
+                            job.NextExecution = DateTime.UtcNow.Add(job.TimeBetweenJobs);
+                            break;
+                        }
+                    }
+
+                    if (iterationCount > 1)
+                    {
+                        _logger.LogInformation("Job {Key} caught up from {InitialTime} to {NewTime} ({Iterations} intervals behind)",
+                            job.Key, initialNextExecution, job.NextExecution, iterationCount);
+                    }
+
                     await dbContext.SaveChangesAsync(stoppingToken).ConfigureAwait(false);
                     
                     _logger.LogInformation("Next Queued Execution of job {Key} will be {NextExecution}",

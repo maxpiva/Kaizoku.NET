@@ -5,6 +5,7 @@ using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Jobs;
+using KaizokuBackend.Services.Naming;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,15 +20,17 @@ namespace KaizokuBackend.Services.Series
         private readonly SettingsService _settings;
         private readonly JobBusinessService _jobBusinessService;
         private readonly JobManagementService _jobManagementService;
+        private readonly ITemplateParser _templateParser;
         private readonly ILogger<SeriesProviderService> _logger;
 
         public SeriesProviderService(AppDbContext db, SettingsService settings, JobBusinessService jobBusinessService,
-            JobManagementService jobManagementService, ILogger<SeriesProviderService> logger)
+            JobManagementService jobManagementService, ITemplateParser templateParser, ILogger<SeriesProviderService> logger)
         {
             _db = db;
             _settings = settings;
             _jobBusinessService = jobBusinessService;
             _jobManagementService = jobManagementService;
+            _templateParser = templateParser;
             _logger = logger;
         }
 
@@ -104,8 +107,22 @@ namespace KaizokuBackend.Services.Series
                 if (ch != null && dst != null)
                 {
                     decimal? maxChap = mi.Chapters.Max(c => c.Number);
-                    string filename = ArchiveHelperService.MakeFileNameSafe(mi.Provider, mi.Scanlator, mi.Title,
-                        mi.Language, dst.Number, dst.Name, maxChap);
+
+                    // Use template parser for consistent filename generation
+                    var vars = new TemplateVariables(
+                        Series: mi.Title,
+                        Chapter: dst.Number,
+                        Volume: null,
+                        Provider: mi.Provider,
+                        Scanlator: mi.Scanlator,
+                        Language: mi.Language,
+                        Title: settings.IncludeChapterTitle ? dst.Name : null,
+                        UploadDate: dst.ProviderUploadDate,
+                        Type: series.Type,
+                        MaxChapter: maxChap
+                    );
+                    string filename = _templateParser.ParseFileName(settings.FileNameTemplate, vars, settings);
+
                     string? extension = Path.GetExtension(ch.Filename);
                     string newFilename = filename + extension;
                     string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");

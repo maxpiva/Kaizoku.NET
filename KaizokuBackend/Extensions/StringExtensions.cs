@@ -166,7 +166,7 @@ namespace KaizokuBackend.Extensions
         /// <param name="title2">Second title</param>
         /// <param name="threshold">Similarity threshold (0.0 to 1.0)</param>
         /// <returns>True if titles are similar, false otherwise</returns>
-        public static bool AreStringSimilar(this string title1, string title2, double threshold = 0.1)
+        public static bool AreStringSimilar(this string title1, string title2, double threshold = 0.3)
         {
             if (string.IsNullOrWhiteSpace(title1) || string.IsNullOrWhiteSpace(title2))
             {

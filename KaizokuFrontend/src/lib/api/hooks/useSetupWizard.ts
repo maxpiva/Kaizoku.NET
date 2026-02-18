@@ -105,6 +105,14 @@ export function useSetupWizardUpdateImport() {
   });
 }
 
+export function useSetupWizardJobStatus() {
+  return useQuery({
+    queryKey: ['setup-wizard', 'job-status'],
+    queryFn: () => setupWizardService.getWizardJobStatus(),
+    enabled: false, // Only fetch when explicitly requested
+  });
+}
+
 export function useSetupWizardLookupSeries() {
   return useMutation({
     mutationFn: ({ keyword, searchSources }: { keyword: string; searchSources?: string[] }) => 

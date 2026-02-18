@@ -93,8 +93,9 @@ namespace KaizokuBackend
             services.AddJobServices();
             services.AddProviderServices();
             services.AddSearchServices();
-            services.AddDownloadServices(); 
+            services.AddDownloadServices();
             services.AddHelperServices();
+            services.AddNamingServices();
 
             
 
@@ -134,11 +135,43 @@ namespace KaizokuBackend
             // Add or update .txt mapping to ensure react/next.js fragments work
             provider.Mappings[".txt"] = "text/plain; charset=utf-8";
 
+            var wwwrootPath = Path.Combine(EnvironmentSetup.Configuration!["runtimeDirectory"]!, "wwwroot");
+
+            // Rewrite RSC payload requests: /{route}.txt -> /{route}/index.txt
+            // Next.js 15 with trailingSlash: true generates RSC payloads at /{route}/index.txt
+            // but the client requests them at /{route}.txt
+            app.Use(async (context, next) =>
+            {
+                var path = context.Request.Path.Value;
+
+                // Check if this is an RSC payload request (*.txt with _rsc query param)
+                // and it's not already targeting index.txt or an API route
+                if (path != null &&
+                    path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) &&
+                    !path.EndsWith("/index.txt", StringComparison.OrdinalIgnoreCase) &&
+                    !path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) &&
+                    context.Request.Query.ContainsKey("_rsc"))
+                {
+                    // Transform /route.txt to /route/index.txt
+                    var routePath = path.Substring(0, path.Length - 4); // Remove .txt
+                    var newPath = routePath + "/index.txt";
+
+                    // Check if the rewritten file exists before rewriting
+                    var physicalPath = Path.Combine(wwwrootPath, newPath.TrimStart('/'));
+                    if (File.Exists(physicalPath))
+                    {
+                        context.Request.Path = newPath;
+                    }
+                }
+
+                await next();
+            });
+
             // Serve default files (index.html)
             app.UseDefaultFiles(new DefaultFilesOptions
             {
                 DefaultFileNames = new List<string> { "index.html" },
-                FileProvider = new PhysicalFileProvider(Path.Combine(EnvironmentSetup.Configuration!["runtimeDirectory"]!, "wwwroot"))
+                FileProvider = new PhysicalFileProvider(wwwrootPath)
             });
 
             // Serve static files with custom content type provider

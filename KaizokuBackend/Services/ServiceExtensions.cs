@@ -1,9 +1,11 @@
-﻿using KaizokuBackend.Services.Daily;
+﻿using KaizokuBackend.Services.Archives;
+using KaizokuBackend.Services.Daily;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Settings;
+using KaizokuBackend.Services.Naming;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Series;
@@ -92,7 +94,16 @@ namespace KaizokuBackend.Services
             // Download CQRS Services
             services.TryAddScoped<DownloadQueryService>();
             services.TryAddScoped<DownloadCommandService>();
-            
+
+            return services;
+        }
+
+        public static IServiceCollection AddNamingServices(this IServiceCollection services)
+        {
+            // Template parsing and file naming
+            services.TryAddSingleton<ITemplateParser, TemplateParser>();
+            services.TryAddSingleton<ArchiveWriterFactory>();
+
             return services;
         }
     }

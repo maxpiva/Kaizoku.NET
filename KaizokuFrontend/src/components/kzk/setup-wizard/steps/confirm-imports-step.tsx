@@ -204,7 +204,7 @@ const VirtualizedImportList = React.memo(function VirtualizedImportList({
 
   if (items.length === 0) {
     return (
-      <div className="h-[59vh] w-full flex items-center justify-center">
+      <div className="h-[40vh] sm:h-[50vh] md:h-[59vh] w-full flex items-center justify-center">
         <div className="text-center py-8 text-muted-foreground">
           {getEmptyStateMessage()}
         </div>
@@ -213,7 +213,7 @@ const VirtualizedImportList = React.memo(function VirtualizedImportList({
   }
 
   return (
-    <div ref={containerRef} className={`h-[59vh] w-full}`}>
+    <div ref={containerRef} className="h-[40vh] sm:h-[50vh] md:h-[59vh] w-full">
       <AutoSizer>
         {({ height, width }) => (
           <List
@@ -337,7 +337,7 @@ function ScrollableTabContent({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={containerRef}
-      className={`h-[59vh] w-full overflow-y-auto ${hasScrollbar ? 'pr-2' : ''}`}
+      className={`h-[40vh] sm:h-[50vh] md:h-[59vh] w-full overflow-y-auto ${hasScrollbar ? 'pr-2' : ''}`}
     >
       {children}
     </div>
@@ -390,9 +390,18 @@ const useSimpleImportState = () => {
     );
   }, []);
 
-  // Prevent propagation for switch changes (do nothing)
   const updateSeriesProperty = useCallback((path: string, seriesIndex: number, property: 'useCover' | 'isStorage' | 'useTitle', value: boolean) => {
-    // No-op: do not update parent state for switch changes
+    setImports(prev =>
+      prev.map(item => {
+        if (item.path !== path || !item.series) return item;
+        return {
+          ...item,
+          series: item.series.map((series, idx) =>
+            idx === seriesIndex ? { ...series, [property]: value } : series
+          )
+        };
+      })
+    );
   }, []);
 
   const replaceImport = useCallback((updatedImport: ImportInfo) => {
@@ -514,7 +523,7 @@ const ImportCard = React.memo(function ImportCard({ import: importItem, isUpdati
       disabled={isUpdating}
     >
       <SelectTrigger
-        className="w-40 will-change-auto transform-gpu"
+        className="w-24 sm:w-40 min-h-[44px] will-change-auto transform-gpu"
         onPointerDown={handleSelectPointerDown}
         onClick={handleSelectClick}
       >
@@ -528,11 +537,12 @@ const ImportCard = React.memo(function ImportCard({ import: importItem, isUpdati
   ), [actionValue, isUpdating, handleActionChange, handleSelectPointerDown, handleSelectClick]);
 
   return (
-    <div >
+    <div>
       <Card className="w-full">
-        <div className="flex">        {/* Thumbnail - Fixed poster aspect ratio */}
+        <div className="flex flex-col sm:flex-row">
+          {/* Thumbnail - Fixed poster aspect ratio */}
           {thumbnailSrc && (
-            <div className="flex-shrink-0 p-3 pr-0">
+            <div className="flex-shrink-0 p-3 pb-0 sm:pb-3 sm:pr-0 flex justify-center sm:justify-start">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -542,13 +552,13 @@ const ImportCard = React.memo(function ImportCard({ import: importItem, isUpdati
                         alt={importItem.title || 'Series thumbnail'}
                         width={128}
                         height={196}
-                        className="w-32 h-49 object-cover rounded-lg"
+                        className="w-24 h-36 sm:w-32 sm:h-49 object-cover rounded-lg"
                         unoptimized
                         onError={handleImgError}
                       />
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="right" className="p-2 border-none bg-transparent shadow-2xl">
+                  <TooltipContent side="right" className="p-2 border-none bg-transparent shadow-2xl hidden sm:block">
                     <Image
                       src={imgSrc}
                       alt={`${importItem.title || 'Series thumbnail'} - enlarged`}
@@ -565,64 +575,70 @@ const ImportCard = React.memo(function ImportCard({ import: importItem, isUpdati
           )}
 
           {/* Card Content */}
-          <div className="flex-1 flex flex-col">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">              <div className="space-y-1 flex-1 min-w-0">
-                <CardTitle className="text-base line-clamp-2">
-                  {importItem.title || 'Unknown Title'}
-                </CardTitle>
-                <div className="text-sm text-muted-foreground">
-                  Path: {importItem.path}
+          <div className="flex-1 flex flex-col min-w-0">
+            <CardHeader className="pb-3 px-3 sm:px-6">
+              <div className="flex flex-col gap-3">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <CardTitle className="text-sm sm:text-base line-clamp-2">
+                    {importItem.title || 'Unknown Title'}
+                  </CardTitle>
+                  <div className="text-xs sm:text-sm text-muted-foreground break-all">
+                    Path: {importItem.path}
+                  </div>
                 </div>
-              </div><div className="ml-4 flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Continue After Chapter:</span>                  <Input
+                    <span className="text-xs sm:text-sm font-medium whitespace-nowrap">After Ch:</span>
+                    <Input
                       type="number"
                       min="0"
                       value={localChapter}
                       onChange={handleChapterChange}
-                      className="w-24"
+                      className="w-16 sm:w-24 h-9 min-h-[44px]"
                       placeholder="0"
                     />
-                  </div>                    {/* Show Search button when enabled */}
+                  </div>
+                  {/* Show Search button when enabled */}
                   {(showSearchButton || !importItem.series || importItem.series.length===0) && (
                     <Button
                       size="sm"
                       onClick={handleSearchClick}
                       disabled={isUpdating}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-1 sm:gap-2 min-h-[44px] px-2 sm:px-3"
                     >
                       <Search className="h-4 w-4" />
-                      Search
+                      <span className="hidden xs:inline">Search</span>
                     </Button>
-                  )}                {/* Show Skip button when enabled */}
+                  )}
+                  {/* Show Skip button when enabled */}
                   {showSkipButton && (
                     <Button
                       size="sm"
                       onClick={handleSkipClick}
                       disabled={isUpdating}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-1 sm:gap-2 min-h-[44px] px-2 sm:px-3"
                     >
                       <X className="h-4 w-4" />
-                      Mismatch
+                      <span className="hidden xs:inline">Mismatch</span>
                     </Button>
-                  )}                {/* Show Add button when enabled and there is at least one series */}
-                  {showAddButton  && (
+                  )}
+                  {/* Show Add button when enabled and there is at least one series */}
+                  {showAddButton && (
                     <Button
                       size="sm"
                       onClick={handleAddClick}
                       disabled={isUpdating}
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-1 sm:gap-2 min-h-[44px] px-2 sm:px-3"
                     >
                       <Plus className="h-4 w-4" />
-                      Add
+                      <span className="hidden xs:inline">Add</span>
                     </Button>
                   )}
 
                   {/* Conditionally show Action combobox */}
                   {showActionCombobox && (
                     <div className="flex items-center gap-2 relative isolate">
-                      <span className="text-sm font-medium">Action:</span>
+                      <span className="text-xs sm:text-sm font-medium">Action:</span>
                       <div className="relative z-10 contain-layout">
                         {actionSelect}
                       </div>
@@ -631,15 +647,17 @@ const ImportCard = React.memo(function ImportCard({ import: importItem, isUpdati
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-3">              {/* Available Providers */}
+            <CardContent className="pt-0 px-3 sm:px-6">
+              <div className="space-y-3">
+                {/* Available Providers */}
                 {importItem.series && importItem.series.length > 0 && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                     </div>
                     <div className="space-y-2">
-                      {/* Grid layout for provider cards */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">                      {importItem.series.map((series: SmallSeries, index: number) => (
+                      {/* Grid layout for provider cards - responsive */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
+                        {importItem.series.map((series: SmallSeries, index: number) => (
                         <SeriesCard
                           key={`series-${series.id}-${series.provider}-${series.scanlator ?? ""}`}
                           series={series}
@@ -797,15 +815,15 @@ const SeriesCard = React.memo((props: SeriesCardProps) => {
       </div>
 
       {/* Switch controls */}
-      <div className="flex items-center justify-between pt-1 border-t border-border/20 gap-1">
+      <div className="flex flex-wrap items-center justify-between pt-1 border-t border-border/20 gap-1 sm:gap-2">
         <div
-          className="flex items-center gap-1"
+          className="flex items-center gap-1 min-h-[36px]"
           onClick={(e) => e.stopPropagation()}
         >
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className={`text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
-                Permanent
+              <span className={`text-[10px] sm:text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+                Perm
               </span>
             </TooltipTrigger>
             <TooltipContent>
@@ -819,10 +837,10 @@ const SeriesCard = React.memo((props: SeriesCardProps) => {
           />
         </div>
         <div
-          className="flex items-center gap-1"
+          className="flex items-center gap-1 min-h-[36px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <span className={`text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+          <span className={`text-[10px] sm:text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
             Cover
           </span>
           <Switch
@@ -832,10 +850,10 @@ const SeriesCard = React.memo((props: SeriesCardProps) => {
           />
         </div>
         <div
-          className="flex items-center gap-1"
+          className="flex items-center gap-1 min-h-[36px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <span className={`text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+          <span className={`text-[10px] sm:text-xs ${preferred ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
             Title
           </span>
           <Switch
@@ -1036,11 +1054,26 @@ export function ConfirmImportsStep({ setError, setIsLoading, setCanProgress }: C
           }
         });
         delete debounceTimeoutsRef.current[path];
-      }, 5000);
+      }, 1500);
 
       return newImports;
     });
   }, [updateMutation, setError, refetch]);
+
+  // Flush all pending debounced saves on unmount to prevent data loss
+  useEffect(() => {
+    return () => {
+      Object.keys(debounceTimeoutsRef.current).forEach(path => {
+        clearTimeout(debounceTimeoutsRef.current[path]);
+        delete debounceTimeoutsRef.current[path];
+      });
+      // Flush the current global state to backend
+      globalImports.forEach(importItem => {
+        updateMutation.mutate(importItem);
+      });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch imports on mount
   useEffect(() => {
@@ -1088,10 +1121,25 @@ export function ConfirmImportsStep({ setError, setIsLoading, setCanProgress }: C
 
   if (globalImports.length === 0) {
     return (
-      <div className="text-center space-y-4">
+      <div className="text-center space-y-6 py-8">
         <div className="text-muted-foreground">
-          Loading Series
+          No series found to import.
         </div>
+        <div className="text-sm text-muted-foreground">
+          Please go back to the previous step and select a folder containing manga/comic files, or check that your library path is correctly configured.
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => {
+            // Clear localStorage wizard state to allow fresh start
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('import-wizard-state');
+            }
+            window.location.href = '/library';
+          }}
+        >
+          Start Over
+        </Button>
       </div>
     );
   }
@@ -1107,23 +1155,23 @@ export function ConfirmImportsStep({ setError, setIsLoading, setCanProgress }: C
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="flex items-center justify-between mb-2">
-            <TabsList className="grid w-auto grid-cols-4">
-              <TabsTrigger value="import" className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                Add ({importsToProcess.length})
+          <div className="flex items-center justify-between mb-2 overflow-x-auto">
+            <TabsList className="flex w-max sm:grid sm:w-auto sm:grid-cols-4 gap-1">
+              <TabsTrigger value="import" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 min-h-[44px] whitespace-nowrap">
+                <span className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></span>
+                <span className="hidden xs:inline">Add</span> ({importsToProcess.length})
               </TabsTrigger>
-              <TabsTrigger value="completed" className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-violet-500 rounded-full"></span>
-                Finished ({completedImports.length})
+              <TabsTrigger value="completed" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 min-h-[44px] whitespace-nowrap">
+                <span className="w-2 h-2 bg-violet-500 rounded-full flex-shrink-0"></span>
+                <span className="hidden xs:inline">Finished</span> ({completedImports.length})
               </TabsTrigger>
-              <TabsTrigger value="unchanged" className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                Already Imported ({unchangedImports.length})
+              <TabsTrigger value="unchanged" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 min-h-[44px] whitespace-nowrap">
+                <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></span>
+                <span className="hidden sm:inline">Already Imported</span><span className="sm:hidden">Imported</span> ({unchangedImports.length})
               </TabsTrigger>
-              <TabsTrigger value="skip" className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-gray-500 rounded-full"></span>
-                Not Matched or Mismatched ({skippedImports.length})
+              <TabsTrigger value="skip" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 min-h-[44px] whitespace-nowrap">
+                <span className="w-2 h-2 bg-gray-500 rounded-full flex-shrink-0"></span>
+                <span className="hidden sm:inline">Not Matched or Mismatched</span><span className="sm:hidden">Skipped</span> ({skippedImports.length})
               </TabsTrigger>
             </TabsList>
           </div>

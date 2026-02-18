@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using KaizokuBackend.Models;
 using KaizokuBackend.Services.Providers;
+using KaizokuBackend.Utils;
 
 namespace KaizokuBackend.Controllers
 {
@@ -68,6 +69,10 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 500)]
         public async Task<IActionResult> InstallProvider([FromRoute] string pkgName, CancellationToken token = default)
         {
+            if (!PathValidationHelper.IsValidPackageName(pkgName))
+            {
+                return BadRequest(new { error = "Invalid package name" });
+            }
             try
             {
                 var success = await _installationService.InstallProviderAsync(pkgName, token).ConfigureAwait(false);
@@ -101,6 +106,10 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 500)]
         public async Task<ActionResult<ProviderPreferences>> GetPreferencesAsync([FromRoute] string pkgName, CancellationToken token = default)
         {
+            if (!PathValidationHelper.IsValidPackageName(pkgName))
+            {
+                return BadRequest(new { error = "Invalid package name" });
+            }
             try
             {
                 var prefs = await _preferencesService.GetProviderPreferencesAsync(pkgName, token).ConfigureAwait(false);
@@ -157,6 +166,10 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 500)]
         public async Task<IActionResult> UninstallProviderAsync([FromRoute] string pkgName, CancellationToken token = default)
         {
+            if (!PathValidationHelper.IsValidPackageName(pkgName))
+            {
+                return BadRequest(new { error = "Invalid package name" });
+            }
             try
             {
                 var success = await _installationService.UninstallProviderAsync(pkgName, token).ConfigureAwait(false);
@@ -183,9 +196,14 @@ namespace KaizokuBackend.Controllers
         /// <response code="500">If an error occurs while retrieving the icon</response>
         [HttpGet("icon/{apkName}")]
         [ProducesResponseType(typeof(FileResult), 200)]
+        [ProducesResponseType(typeof(object), 400)]
         [ProducesResponseType(typeof(object), 500)]
         public async Task<IActionResult> GetExtensionIcon([FromRoute] string apkName, CancellationToken token = default)
         {
+            if (!PathValidationHelper.IsValidPackageName(apkName))
+            {
+                return BadRequest(new { error = "Invalid package name" });
+            }
             try
             {
                 return await _resourceService.GetProviderIconAsync(apkName, token).ConfigureAwait(false);
@@ -214,6 +232,13 @@ namespace KaizokuBackend.Controllers
             if (file == null || file.Length == 0)
             {
                 return BadRequest(new { error = "No file uploaded" });
+            }
+
+            // Validate filename to prevent path traversal
+            var fileName = Path.GetFileName(file.FileName);
+            if (string.IsNullOrWhiteSpace(fileName) || !PathValidationHelper.IsValidPackageName(fileName))
+            {
+                return BadRequest(new { error = "Invalid filename" });
             }
 
             try

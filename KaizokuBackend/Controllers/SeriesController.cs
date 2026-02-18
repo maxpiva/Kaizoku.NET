@@ -3,6 +3,7 @@ using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Series;
+using KaizokuBackend.Utils;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -158,9 +159,14 @@ namespace KaizokuBackend.Controllers
         /// <returns>The icon as an image result.</returns>
         [HttpGet("source/icon/{apk}")]
         [ProducesResponseType(typeof(FileResult), 200)]
+        [ProducesResponseType(400)]
         [ProducesResponseType(500)]
         public async Task<IActionResult> GetSourceIconAsync([FromRoute] string apk, CancellationToken token = default)
         {
+            if (!PathValidationHelper.IsValidPackageName(apk))
+            {
+                return BadRequest(new { error = "Invalid package name" });
+            }
             try
             {
                 return await _providerQueryService.GetExtensionIconAsync(apk, token).ConfigureAwait(false);
@@ -184,9 +190,15 @@ namespace KaizokuBackend.Controllers
         /// <returns>The thumbnail as an image result.</returns>
         [HttpGet("thumb/{id}")]
         [ProducesResponseType(typeof(FileResult), 200)]
+        [ProducesResponseType(400)]
         [ProducesResponseType(500)]
         public async Task<IActionResult> GetSeriesThumbAsync([FromRoute] string id, CancellationToken token = default)
         {
+            // Thumbnail IDs are in format "{suwayomiId}!{timestamp}" or "unknown", not GUIDs
+            if (string.IsNullOrEmpty(id))
+            {
+                return BadRequest(new { error = "Invalid thumbnail id" });
+            }
             try
             {
                 return await _queryService.GetSeriesThumbnailAsync(id, token).ConfigureAwait(false);

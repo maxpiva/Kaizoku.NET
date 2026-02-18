@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Kaizoku.NET</Name>
+  <Repository>ghcr.io/quickkill0/kaizoku.net:main</Repository>
+  <Registry>https://github.com/Quickkill0/Kaizoku.NET/pkgs/container/kaizoku.net</Registry>
+  <Branch>
+    <Tag>main</Tag>
+    <TagDescription>Latest stable release from main branch</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Quickkill0/Kaizoku.NET/issues</Support>
+  <Project>https://github.com/Quickkill0/Kaizoku.NET</Project>
+  <Overview>Kaizoku.NET is a manga management application that integrates with Suwayomi Server to download and organize manga from various sources. It provides a web interface for managing your manga library, automatic downloads, and organization features.&#xD;
+&#xD;
+Features:&#xD;
+- Automatic manga downloads from multiple sources via Suwayomi&#xD;
+- Series management and organization&#xD;
+- Job queue for background processing&#xD;
+- Web-based UI for easy management&#xD;
+&#xD;
+Ports:&#xD;
+- 9833: Kaizoku.NET Web UI&#xD;
+- 4567: Suwayomi Server (internal)</Overview>
+  <Category>MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:9833]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Quickkill0/Kaizoku.NET/main/unraid/kaizoku.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Quickkill0/Kaizoku.NET/main/KaizokuFrontend/public/kaizoku.net.png</Icon>
+  <ExtraParams>--restart unless-stopped --gpus all</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled></DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Web UI Port" Target="9833" Default="9833" Mode="tcp" Description="Kaizoku.NET web interface port" Type="Port" Display="always" Required="true" Mask="false">9833</Config>
+  <Config Name="Suwayomi Port" Target="4567" Default="4567" Mode="tcp" Description="Suwayomi Server port (optional external access)" Type="Port" Display="advanced" Required="false" Mask="false">4567</Config>
+  <Config Name="Config Path" Target="/config" Default="/mnt/user/appdata/kaizoku" Mode="rw" Description="Configuration and database storage" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/kaizoku</Config>
+  <Config Name="Downloads Path" Target="/downloads" Default="/mnt/user/data/media/manga" Mode="rw" Description="Path where manga will be downloaded" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/manga</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file permissions (default: nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file permissions (default: users)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="TZ" Target="TZ" Default="America/New_York" Mode="" Description="Timezone (e.g., America/New_York, Europe/London)" Type="Variable" Display="advanced" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="NVIDIA_VISIBLE_DEVICES" Target="NVIDIA_VISIBLE_DEVICES" Default="all" Mode="" Description="GPU devices to expose (all, none, or GPU UUID)" Type="Variable" Display="advanced" Required="false" Mask="false">all</Config>
+  <Config Name="NVIDIA_DRIVER_CAPABILITIES" Target="NVIDIA_DRIVER_CAPABILITIES" Default="all" Mode="" Description="Driver capabilities (all, compute, graphics, utility, video)" Type="Variable" Display="advanced" Required="false" Mask="false">all</Config>
+</Container>

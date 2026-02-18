@@ -371,6 +371,24 @@ namespace KaizokuBackend.Services.Jobs
             }
         }
 
+        /// <summary>
+        /// Clears all queued and waiting download jobs from the queue
+        /// </summary>
+        public async Task<int> ClearAllDownloadsAsync(CancellationToken token = default)
+        {
+            using (await _lock.LockAsync(token))
+            {
+                var downloadJobs = _db.Queues.Where(j =>
+                    j.JobType == JobType.Download &&
+                    j.Status == QueueStatus.Waiting);
+                int count = await downloadJobs.CountAsync(token).ConfigureAwait(false);
+                _db.Queues.RemoveRange(downloadJobs);
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                _logger.LogInformation("Cleared {Count} download jobs from queue", count);
+                return count;
+            }
+        }
+
         #endregion
 
         #region System Operations

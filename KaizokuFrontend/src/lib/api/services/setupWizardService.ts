@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import type { ImportInfo, LinkedSeries, SetupOperationResponse, ImportResponse, ImportTotals } from '../types';
+import type { ImportInfo, LinkedSeries, SetupOperationResponse, ImportResponse, ImportTotals, WizardJobStatus } from '../types';
 
 export const setupWizardService = {
   /**
@@ -63,6 +63,13 @@ export const setupWizardService = {
    */
   async updateImport(importInfo: ImportInfo): Promise<void> {
     await apiClient.post('/api/setup/update', importInfo);
+  },
+
+  /**
+   * Get current status of wizard-related jobs
+   */
+  async getWizardJobStatus(): Promise<WizardJobStatus> {
+    return await apiClient.get<WizardJobStatus>('/api/setup/job-status');
   },
 
   /**

@@ -104,14 +104,38 @@ export class ProgressHub {
     const signalR = await this.loadSignalR();
     if (!signalR || !this.connection) return;
 
-    // Handle all non-connected states
-    if (this.connection.state !== signalR.HubConnectionState.Connected) {
+    // Only start connection if in Disconnected state
+    // start() throws if called in Connecting, Connected, Disconnecting, or Reconnecting states
+    if (this.connection.state === signalR.HubConnectionState.Disconnected) {
       try {
         await this.connection.start();
       } catch (err) {
         console.error('SignalR Connection Error:', err);
         throw err;
       }
+    } else if (this.connection.state === signalR.HubConnectionState.Connecting ||
+               this.connection.state === signalR.HubConnectionState.Reconnecting) {
+      // Wait for connection to complete if currently connecting
+      await new Promise<void>((resolve) => {
+        const checkState = setInterval(async () => {
+          const currentSignalR = await this.loadSignalR();
+          if (!currentSignalR || !this.connection) {
+            clearInterval(checkState);
+            resolve();
+            return;
+          }
+          if (this.connection.state === currentSignalR.HubConnectionState.Connected ||
+              this.connection.state === currentSignalR.HubConnectionState.Disconnected) {
+            clearInterval(checkState);
+            resolve();
+          }
+        }, 100);
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          clearInterval(checkState);
+          resolve();
+        }, 10000);
+      });
     }
   }
 

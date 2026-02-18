@@ -2,14 +2,14 @@
 
 import React, { useMemo, memo } from 'react';
 import { useQueue, useRemoveFromQueue, useDownloadProgress } from '@/lib/api/hooks/useQueue';
-import { useCompletedDownloadsWithCount, useWaitingDownloadsWithCount, useFailedDownloadsWithCount, useManageErrorDownload } from '@/lib/api/hooks/useDownloads';
+import { useCompletedDownloadsWithCount, useWaitingDownloadsWithCount, useFailedDownloadsWithCount, useManageErrorDownload, useRemoveScheduledDownload } from '@/lib/api/hooks/useDownloads';
 import { useSettings } from '@/lib/api/hooks/useSettings';
 import { useSearch } from '@/contexts/search-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Trash2, Download, AlertTriangle, CheckCircle, Clock, Smile, Calendar, ExternalLink, RotateCcw } from 'lucide-react';
+import { Trash2, Download, AlertTriangle, CheckCircle, Clock, Smile, Calendar, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { ProgressStatus, QueueStatus, type DownloadInfo, type DownloadInfoList, ErrorDownloadAction } from '@/lib/api/types';
 import { getApiConfig } from '@/lib/api/config';
 import Image from 'next/image';
@@ -41,7 +41,7 @@ interface ExtendedQueueItem {
 }
 
 // Download Card Component - Shared UI for all download panels
-const DownloadCard = memo(({ item }: { item: ExtendedQueueItem | DownloadInfo }) => {
+const DownloadCard = memo(({ item, onClear, isClearing }: { item: ExtendedQueueItem | DownloadInfo; onClear?: () => void; isClearing?: boolean }) => {
   // Helper function to normalize UTC date strings
   const normalizeUtcString = (dateString: string) => {
     return dateString.includes('Z') || dateString.includes('+') || dateString.includes('-', 10) 
@@ -136,7 +136,22 @@ const DownloadCard = memo(({ item }: { item: ExtendedQueueItem | DownloadInfo })
   };
 
   return (
-    <Card className="transition-all duration-200 flex-shrink-0">
+    <Card className={`transition-all duration-200 flex-shrink-0 ${onClear ? 'relative' : ''}`}>
+      {/* Clear button positioned at top right when onClear is provided */}
+      {onClear && (
+        <div className="absolute top-2 right-2 z-10 flex gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onClear}
+            disabled={isClearing}
+            className="h-6 w-6 p-0 hover:bg-red-50 hover:border-red-300"
+            title="Remove from queue"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
       <CardHeader className="pb-2 p-2">
         <div className="flex items-start gap-3">
           <Image
@@ -501,7 +516,8 @@ const ScheduledDownloadsPanel = memo(() => {
   const { data: settings } = useSettings();
   const { debouncedSearchTerm } = useSearch();
   const limit = settings?.numberOfSimultaneousDownloads || 10;
-  
+  const removeScheduledDownloadMutation = useRemoveScheduledDownload();
+
   const { data: scheduledDownloadsData, isLoading } = useWaitingDownloadsWithCount(
     limit,
     debouncedSearchTerm.trim() || undefined, // Pass search term to server
@@ -514,6 +530,10 @@ const ScheduledDownloadsPanel = memo(() => {
 
   const memoizedDownloads = useMemo(() => scheduledDownloadsData?.downloads || [], [scheduledDownloadsData?.downloads]);
   const totalCount = scheduledDownloadsData?.totalCount || 0;
+
+  const handleClearDownload = (id: string) => {
+    removeScheduledDownloadMutation.mutate(id);
+  };
 
   return (
     <Card className="h-full flex flex-col">
@@ -545,7 +565,12 @@ const ScheduledDownloadsPanel = memo(() => {
         ) : (
           <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
             {memoizedDownloads.map((download) => (
-              <DownloadCard key={`${download.title}-${download.chapter}-${download.provider}-${download.scheduledDateUTC}`} item={download} />
+              <DownloadCard
+                key={`${download.title}-${download.chapter}-${download.provider}-${download.scheduledDateUTC}`}
+                item={download}
+                onClear={() => handleClearDownload(download.id)}
+                isClearing={removeScheduledDownloadMutation.isPending}
+              />
             ))}
           </div>
         )}

@@ -79,13 +79,13 @@ export function PreferencesStep({
     setStepData(0, settings);
     // Note: Settings will be actually saved to backend when next step is triggered
   };  return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 overflow-hidden">
       <div className="text-sm text-muted-foreground">
-        Configure your content preferences, download settings, and other preferences. 
+        Configure your content preferences, download settings, and other preferences.
         These settings can be changed later in the Settings page.
-      </div>      <div 
+      </div>      <div
         ref={containerRef}
-        className={`max-h-[60vh] overflow-y-auto ${hasScrollbar ? 'pr-2' : ''}`}
+        className={`max-h-[50vh] sm:max-h-[60vh] overflow-y-auto overflow-x-hidden ${hasScrollbar ? 'pr-2' : ''}`}
       >
         <SettingsManager
           sections={[
