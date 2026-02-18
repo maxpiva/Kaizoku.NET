@@ -31,7 +31,7 @@ export function ProviderSettingsButton({
         onClick={() => setPreferencesOpen(true)}
       >
         <Settings className="h-4 w-4" />
-        {size !== "icon" && <span className="ml-1">Settings</span>}
+        {size !== "icon" && <span className="ml-1 hidden md:inline">Settings</span>}
       </Button>
 
       <ProviderPreferencesRequester
