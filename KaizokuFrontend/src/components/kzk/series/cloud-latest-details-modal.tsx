@@ -48,17 +48,17 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0">
+      <DialogContent className="w-[95vw] sm:max-w-2xl p-0 overflow-hidden">
         {/* Header with title and status badge */}
-        <DialogHeader className="p-4 pb-0">
-          <div className="flex items-start justify-between gap-4 pr-8">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
+        <DialogHeader className="p-3 sm:p-4 pb-0">
+          <div className="flex items-start justify-between gap-2 pr-8 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
               {item.latestChapter && (
                 <Badge variant="secondary" className="shrink-0">
                   {item.latestChapter}
                 </Badge>
               )}
-              <DialogTitle className="text-base font-semibold text-primary truncate">
+              <DialogTitle className="text-sm sm:text-base font-semibold text-primary line-clamp-2 break-words">
                 {item.title}
               </DialogTitle>
             </div>
@@ -72,10 +72,10 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
         </DialogHeader>
 
         {/* Content - responsive layout */}
-        <div className="p-4 pt-2 space-y-3">
-          <div className="flex flex-col sm:flex-row gap-4">
-            {/* Thumbnail */}
-            <div className="relative w-full sm:w-32 aspect-[3/4] shrink-0 mx-auto sm:mx-0 max-w-[10rem]">
+        <div className="p-3 sm:p-4 pt-2 space-y-3 min-w-0 overflow-hidden">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 min-w-0">
+            {/* Thumbnail - centered on mobile, side on desktop */}
+            <div className="relative mx-auto sm:mx-0 shrink-0 w-[120px] sm:w-32 aspect-[3/4]">
               <Image
                 src={formatThumbnailUrl(item.thumbnailUrl)}
                 alt={item.title}
@@ -91,7 +91,7 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
             </div>
 
             {/* Details */}
-            <div className="flex-1 space-y-2 min-w-0">
+            <div className="flex-1 space-y-2 min-w-0 overflow-hidden">
               {/* Author/Artist */}
               {(item.author || item.artist) && (
                 <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
@@ -108,8 +108,8 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
               )}
 
               {/* Description - scrollable */}
-              <div className="max-h-32 overflow-y-auto pr-1">
-                <p className="text-sm text-muted-foreground whitespace-pre-line">
+              <div className="max-h-28 sm:max-h-32 overflow-y-auto pr-1">
+                <p className="text-sm text-muted-foreground whitespace-pre-line break-words overflow-wrap-anywhere">
                   {item.description || "No description available"}
                 </p>
               </div>
@@ -122,11 +122,12 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
                     onClick={handleViewSource}
                     title="Click to open in the source"
                   >
-                    <ExternalLink className="h-3 w-3" />
-                    {item.provider}
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{item.provider}</span>
                     <ReactCountryFlag
                       countryCode={getCountryCodeForLanguage(item.language)}
                       svg
+                      className="shrink-0"
                       style={{
                         width: '16px',
                         height: '12px',
@@ -138,10 +139,11 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 bg-accent text-accent-foreground rounded px-2 py-0.5 text-sm font-medium border border-border">
-                    {item.provider}
+                    <span className="truncate">{item.provider}</span>
                     <ReactCountryFlag
                       countryCode={getCountryCodeForLanguage(item.language)}
                       svg
+                      className="shrink-0"
                       style={{
                         width: '16px',
                         height: '12px',
@@ -158,12 +160,12 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
         </div>
 
         {/* Footer with action buttons */}
-        <DialogFooter className="p-4 pt-0 flex-row gap-2 sm:justify-end">
+        <DialogFooter className="p-3 sm:p-4 pt-0 flex-row gap-2 justify-end">
           {item.url && (
             <Button
               variant="outline"
               size="sm"
-              className="gap-1"
+              className="gap-1 min-h-[44px]"
               onClick={handleViewSource}
             >
               <ExternalLink className="h-4 w-4" />
@@ -174,7 +176,7 @@ export const CloudLatestDetailsModal: React.FC<CloudLatestDetailsModalProps> = (
           {item.inLibrary === InLibraryStatus.NotInLibrary && (
             <Button
               size="sm"
-              className="gap-1"
+              className="gap-1 min-h-[44px]"
               onClick={handleAddSeries}
             >
               <Plus className="h-4 w-4" />
