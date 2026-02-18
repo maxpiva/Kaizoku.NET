@@ -351,6 +351,20 @@ namespace KaizokuBackend.Services.Jobs
             return _db.Queues.AnyAsync(a=>a.JobType==jobType && a.Status == QueueStatus.Running, token);
         }
 
+        public async Task<int> ClearAllDownloadsAsync(CancellationToken token = default)
+        {
+            using (await _lock.LockAsync(token))
+            {
+                var waitingDownloads = await _db.Queues.Where(j =>
+                    j.JobType == JobType.Download &&
+                    j.Status == QueueStatus.Waiting).ToListAsync(token).ConfigureAwait(false);
+                int count = waitingDownloads.Count;
+                _db.Queues.RemoveRange(waitingDownloads);
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                return count;
+            }
+        }
+
         public async Task DeleteQueuedJobsAsync(JobType jobType, string extraKey, CancellationToken token = default)
         {
             using (await _lock.LockAsync(token))
