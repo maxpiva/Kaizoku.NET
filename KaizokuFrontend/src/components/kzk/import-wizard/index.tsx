@@ -50,7 +50,7 @@ export function ImportWizard() {
   return (
     <Dialog open={true} onOpenChange={() => { /* Prevent closing */ }} modal>
       <DialogContent
-        className="max-w-[90%] max-h-[90%] flex flex-col"
+        className="w-[98vw] sm:w-[95vw] md:max-w-[90%] lg:max-w-5xl max-h-[95vh] sm:max-h-[90%] flex flex-col overflow-hidden"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -61,7 +61,7 @@ export function ImportWizard() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex w-full flex-col gap-4">
+        <div className="flex w-full flex-col gap-4 min-w-0 overflow-hidden">
           <Stepper
             initialStep={0}
             activeStep={currentStep}
@@ -172,24 +172,24 @@ function Footer({ currentStep, totalSteps, canProgress, isLoading, onNext, onPre
   const isLastStep = currentStep === totalSteps - 1;
 
   return (
-    <div className="flex justify-between items-center pt-4">
+    <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-3 sm:gap-2 pt-4 border-t sm:border-t-0">
       <Button
         variant="outline"
         onClick={onPrevious}
         disabled={isFirstStep || isLoading}
-        className={`flex items-center gap-2 transition-opacity duration-200 ${isFirstStep ? 'opacity-0 pointer-events-none' : ''}`}
+        className={`flex items-center gap-2 transition-opacity duration-200 w-full sm:w-auto min-h-[44px] ${isFirstStep ? 'opacity-0 pointer-events-none hidden sm:flex' : ''}`}
         style={isFirstStep ? { visibility: 'hidden' } : {}}
       >
         <ArrowLeft className="h-4 w-4" />
         Previous
       </Button>
-      <div className="text-sm text-muted-foreground">
+      <div className="text-sm text-muted-foreground order-first sm:order-none pb-2 sm:pb-0">
         Step {currentStep + 1} of {totalSteps}
       </div>
       <Button
         onClick={onNext}
         disabled={!canProgress || isLoading}
-        className="flex items-center gap-2"
+        className="flex items-center gap-2 w-full sm:w-auto min-h-[44px]"
       >
         {isLoading ? (
           <LoaderCircle className="h-4 w-4 animate-spin" />

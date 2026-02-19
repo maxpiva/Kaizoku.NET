@@ -313,3 +313,6 @@ KaizokuBackend/runtime/kaizoku.schedule.db-wal
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/AndroidCompat/lib
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/.gradle
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/build/reports/problems
+/uploads
+/.claude/
+Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/AndroidCompat/build/classes/kotlin/main/extension/bridge/security/TrustManagerBridge$installSubjectKeyIdentifierTolerantTrustManager$tolerantTm$1$checkServerTrusted$skidCause$1.class

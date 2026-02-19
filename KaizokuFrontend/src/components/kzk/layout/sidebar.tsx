@@ -13,6 +13,12 @@ import {
 
 export const sidebarItems = [
   {
+    name: "Library",
+    href: "/library",
+    icon: <Library className="h-6 w-6" />,
+    topSide: true,
+  },
+  {
     name: "Newly Minted",
     href: "/cloud-latest",
     icon: <Sparkles className="h-6 w-6" />,

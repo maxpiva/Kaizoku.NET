@@ -1,0 +1,145 @@
+name: Build and Push Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: '2.0'
+        type: string
+      platforms:
+        description: 'Target platforms (comma-separated)'
+        required: true
+        default: 'linux/amd64,linux/arm64'
+        type: choice
+        options:
+          - 'linux/amd64'
+          - 'linux/arm64'
+          - 'linux/amd64,linux/arm64'
+      tag:
+        description: 'Docker image tag (leave empty for branch name)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          lfs: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Node.js and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Build Frontend
+        working-directory: KaizokuFrontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Package Frontend for Backend
+        run: |
+          cd KaizokuFrontend/out
+          zip -r ../../KaizokuBackend/wwwroot.zip .
+          sha256sum ../../KaizokuBackend/wwwroot.zip | awk '{print $1}' > ../../KaizokuBackend/wwwroot.sha256
+
+      - name: Build Backend (linux-x64)
+        if: contains(inputs.platforms, 'linux/amd64')
+        run: |
+          dotnet publish KaizokuBackend/KaizokuBackend.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -o KaizokuBackend/bin/linux/amd64
+
+      - name: Build Backend (linux-arm64)
+        if: contains(inputs.platforms, 'linux/arm64')
+        run: |
+          dotnet publish KaizokuBackend/KaizokuBackend.csproj \
+            -c Release \
+            -r linux-arm64 \
+            --self-contained true \
+            -o KaizokuBackend/bin/linux/arm64
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            # Sanitize branch name for Docker tag
+            BRANCH="${{ inputs.branch }}"
+            TAG=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g' | tr '[:upper:]' '[:lower:]')
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.tag.outputs.tag }}
+            type=raw,value=${{ steps.tag.outputs.tag }}-${{ github.sha }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./KaizokuBackend
+          file: ./KaizokuBackend/Dockerfile
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ inputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** ${{ inputs.platforms }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
