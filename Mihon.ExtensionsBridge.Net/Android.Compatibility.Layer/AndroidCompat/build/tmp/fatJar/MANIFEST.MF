@@ -1,4 +1,0 @@
-Manifest-Version: 1.0
-Implementation-Title: AndroidCompat
-Implementation-Version: 1.0
-

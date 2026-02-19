@@ -313,3 +313,7 @@ KaizokuBackend/runtime/kaizoku.schedule.db-wal
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/AndroidCompat/lib
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/.gradle
 /Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/build/reports/problems
+/KaizokuFrontend/pnpm-lock.yaml
+**/build/
+/Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/IKVM.Android.Compatibility.Layer.CILPatcher/libs/
+
