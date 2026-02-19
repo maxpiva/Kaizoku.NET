@@ -39,11 +39,6 @@ export interface Settings {
   socksProxyUsername: string;
   socksProxyPassword: string;
   nsfwVisibility: NsfwVisibility;
-  // File naming template properties
-  fileNameTemplate: string;
-  folderTemplate: string;
-  outputFormat: number; // 0 = CBZ, 1 = PDF
-  includeChapterTitle: boolean;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;

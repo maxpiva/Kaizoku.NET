@@ -12,8 +12,6 @@ using KaizokuBackend.Services.Jobs.Settings;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Series;
-using KaizokuBackend.Services.Archives;
-using KaizokuBackend.Services.Naming;
 using KaizokuBackend.Services.Settings;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -21,13 +19,6 @@ namespace KaizokuBackend.Services
 {
     public static class ServiceExtensions
     {
-        public static IServiceCollection AddNamingServices(this IServiceCollection services)
-        {
-            services.TryAddSingleton<ITemplateParser, TemplateParser>();
-            services.TryAddScoped<ArchiveWriterFactory>();
-            return services;
-        }
-
         public static IServiceCollection AddImportService(this IServiceCollection services)
         {
             services.TryAddScoped<SeriesScanner>();

@@ -103,7 +103,6 @@ namespace KaizokuBackend
             services.AddProviderServices();
             services.AddSearchServices();
             services.AddDownloadServices();
-            services.AddNamingServices();
             services.AddHelperServices();
             services.AddBackgroundServices();
 

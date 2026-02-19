@@ -299,11 +299,8 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = settings.SocksProxyVersion,
                 SocksProxyUsername = settings.SocksProxyUsername,
                 SocksProxyPassword = settings.SocksProxyPassword,
-                NsfwVisibility = settings.NsfwVisibility,
-                FileNameTemplate = settings.FileNameTemplate,
-                FolderTemplate = settings.FolderTemplate,
-                OutputFormat = settings.OutputFormat,
-                IncludeChapterTitle = settings.IncludeChapterTitle
+                NsfwVisibility = settings.NsfwVisibility
+
             };
 
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
@@ -338,11 +335,8 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = ed.SocksProxyVersion,
                 SocksProxyUsername = ed.SocksProxyUsername,
                 SocksProxyPassword = ed.SocksProxyPassword,
-                NsfwVisibility = ed.NsfwVisibility,
-                FileNameTemplate = ed.FileNameTemplate,
-                FolderTemplate = ed.FolderTemplate,
-                OutputFormat = ed.OutputFormat,
-                IncludeChapterTitle = ed.IncludeChapterTitle
+                NsfwVisibility = ed.NsfwVisibility
+
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;
             return set;
