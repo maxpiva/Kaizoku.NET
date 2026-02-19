@@ -305,7 +305,7 @@ namespace KaizokuBackend.Services.Settings
 
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
         }
-        
+
         public SettingsDto GetFromEditableSettings(EditableSettingsDto ed)
         {
             SettingsDto set = new SettingsDto
