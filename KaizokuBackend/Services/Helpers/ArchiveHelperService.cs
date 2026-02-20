@@ -5,6 +5,7 @@ using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Import.KavitaParser;
 using KaizokuBackend.Services.Jobs.Report;
 using KaizokuBackend.Services.Settings;
+using KaizokuBackend.Services.Series;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using SharpCompress.Archives;
@@ -20,6 +21,9 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
 using static System.Net.Mime.MediaTypeNames;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Services.Images;
 
 namespace KaizokuBackend.Services.Helpers
 {
@@ -28,37 +32,38 @@ namespace KaizokuBackend.Services.Helpers
         private readonly AppDbContext _db;
         private readonly ILogger<ArchiveHelperService> _logger;
         private readonly SettingsService _settings;
-        private readonly SuwayomiClient _suwayomi;
-        public ArchiveHelperService(AppDbContext db, ILogger<ArchiveHelperService> logger, SuwayomiClient suwayomi,  SettingsService settings)
+        private readonly ThumbCacheService _thumbs;
+        public ArchiveHelperService(AppDbContext db, ILogger<ArchiveHelperService> logger, ThumbCacheService thumbs, SettingsService settings)
         {
             _db = db;
             _logger = logger;
             _settings = settings;
-            _suwayomi = suwayomi;
+            _thumbs = thumbs;
         }
-        public async Task WriteComicThumbnailAsync(Models.Database.Series series, CancellationToken token = default)
+        public async Task WriteComicThumbnailAsync(Models.Database.SeriesEntity series, CancellationToken token = default)
         {
-            Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(series.ThumbnailUrl) || series.ThumbnailUrl.Contains("unknown"))
                 return;
-            string? lastPart = series.ThumbnailUrl.Split('/').LastOrDefault();
-            if (string.IsNullOrEmpty(lastPart))
+            string? key = await _thumbs.AddUrlAsync(series.ThumbnailUrl, null, token).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(key)) 
                 return;
-            string fid = lastPart.Split('!').FirstOrDefault() ?? lastPart;
-            if (int.TryParse(fid, out int rfid))
-            {
-                Stream ms = await _suwayomi.GetMangaThumbnailAsync(rfid, token).ConfigureAwait(false);
-                if (ms.Length == 0)
-                    return;
-                await ms.WriteCoverJpegAsync(Path.Combine(settings.StorageFolder, series.StoragePath), 85, token);
-            }
+            var cache = await _thumbs.GetEtagAsync(key, token).ConfigureAwait(false);
+            if (cache == null)
+                return;
+            Stream? coverStream = await _thumbs.GetStreamAsync(cache, token).ConfigureAwait(false);
+            if (coverStream == null)
+                return;
+            if (coverStream.Length == 0)
+                return;
+            await coverStream.WriteCoverJpegAsync(Path.Combine(settings.StorageFolder, series.StoragePath), 85, token);
         }
 
 
         public async Task UpdateTitleAndAddComicInfoAsync(Guid seriesId, bool onlyDownloadByKaizoku = true,
          CancellationToken token = default)
         {
-            Models.Database.Series? series = await _db.Series
+            Models.Database.SeriesEntity? series = await _db.Series
                 .Include(s => s.Sources).AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == seriesId, token).ConfigureAwait(false);
             if (series == null)
@@ -66,9 +71,9 @@ namespace KaizokuBackend.Services.Helpers
             await UpdateTitleAndAddComicInfoAsync(series, onlyDownloadByKaizoku, token).ConfigureAwait(false);
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
         }
-        public async Task UpdateTitleAndAddComicInfoAsync(Models.Database.Series series, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
+        public async Task UpdateTitleAndAddComicInfoAsync(Models.Database.SeriesEntity series, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
         {
-            Models.Settings settings = await _settings.GetSettingsAsync(token);
+            SettingsDto settings = await _settings.GetSettingsAsync(token);
             foreach (var sp2 in series.Sources)
             {
                 var sp = await _db.SeriesProviders
@@ -178,6 +183,7 @@ namespace KaizokuBackend.Services.Helpers
         /// </summary>
         public async Task UpdateAllTitlesAndAddComicInfoAsync(ProgressReporter reporter, bool onlyDownloadByKaizoku = true, CancellationToken token = default)
         {
+            _logger.LogInformation("Starting bulk update of all series titles and ComicInfo.xml...");
             reporter.Report(ProgressStatus.Started,0, "Updating all Series...");
             var allSeries = await _db.Series.Include(s => s.Sources).AsNoTracking().ToListAsync(token);
             float step = 100 / (float)allSeries.Count;
@@ -188,6 +194,7 @@ namespace KaizokuBackend.Services.Helpers
                 await UpdateTitleAndAddComicInfoAsync(series, onlyDownloadByKaizoku, token);
                 acum += step;
             }
+            _logger.LogInformation("Completed bulk update of all series titles and ComicInfo.xml.");
             reporter.Report(ProgressStatus.Completed, (decimal)acum, $"Update Complete.");
         }
 
@@ -373,7 +380,7 @@ namespace KaizokuBackend.Services.Helpers
             return safeName;
         }
 
-        public static ComicInfo CreateComicInfo(Models.Database.Series s, SeriesProvider sp, Chapter chap, int cnt)
+        public static ComicInfo CreateComicInfo(Models.Database.SeriesEntity s, SeriesProviderEntity sp, Chapter chap, int cnt)
         {
             List<string> ratings = Enum.GetNames<AgeRating>().ToList();
             ComicInfo info = new ComicInfo();
@@ -427,7 +434,7 @@ namespace KaizokuBackend.Services.Helpers
                 info.Count = (int)chDownload.ChapterCount.Value;
             string chapName = chDownload.ChapterName?.Trim() ?? "";
             if (string.IsNullOrEmpty(chapName))
-                chapName = "Chapter " + chDownload.Chapter.ChapterNumber?.FormatDecimal() ?? "";
+                chapName = "Chapter " + chDownload.Chapter.ParsedNumber.FormatDecimal() ?? "";
             info.Title = chapName;
             info.Format = "Web";
             if (chDownload.Tags.Count > 0)
@@ -440,7 +447,7 @@ namespace KaizokuBackend.Services.Helpers
                 }
             }
             info.LanguageISO = chDownload.Language.ToLowerInvariant();
-            info.Number = chDownload.Chapter.ChapterNumber?.FormatDecimal() ?? "";
+            info.Number = chDownload.Chapter.ParsedNumber.FormatDecimal() ?? "";
             info.PageCount = cnt;
             info.Series = chDownload.Title.Trim();
             info.LocalizedSeries = chDownload.SeriesTitle.Trim();

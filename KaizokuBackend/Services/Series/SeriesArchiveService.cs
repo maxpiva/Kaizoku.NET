@@ -2,6 +2,8 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
@@ -38,10 +40,10 @@ namespace KaizokuBackend.Services.Series
         /// <param name="seriesId">The series ID to verify</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>Series integrity result</returns>
-        public async Task<SeriesIntegrityResult> VerifyIntegrityAsync(Guid seriesId, CancellationToken token = default)
+        public async Task<SeriesIntegrityResultDto> VerifyIntegrityAsync(Guid seriesId, CancellationToken token = default)
         {
-            KaizokuBackend.Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
-            Models.Database.Series? series = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesId)
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            Models.Database.SeriesEntity? series = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesId)
                 .FirstOrDefaultAsync(token).ConfigureAwait(false);
             
             if (series == null)
@@ -50,7 +52,7 @@ namespace KaizokuBackend.Services.Series
             string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
             
             // Remove empty unknown providers
-            SeriesProvider? sp = series.Sources.FirstOrDefault(a =>
+            SeriesProviderEntity? sp = series.Sources.FirstOrDefault(a =>
                 a.IsUnknown && a.Chapters.All(a => string.IsNullOrEmpty(a.Filename)));
             if (sp != null)
             {
@@ -72,8 +74,8 @@ namespace KaizokuBackend.Services.Series
         /// <param name="token">Cancellation token</param>
         public async Task CleanupSeriesAsync(Guid seriesId, CancellationToken token = default)
         {
-            KaizokuBackend.Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
-            Models.Database.Series? series = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesId)
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            Models.Database.SeriesEntity? series = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesId)
                 .FirstOrDefaultAsync(token).ConfigureAwait(false);
             
             if (series == null)
@@ -82,10 +84,10 @@ namespace KaizokuBackend.Services.Series
             List<Chapter> chaps = series.Sources.SelectMany(a => a.Chapters)
                 .Where(a => !string.IsNullOrEmpty(a.Filename)).ToList();
             string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
-            SeriesIntegrityResult sr = GetIntegrityResult(basePath, chaps);
+            SeriesIntegrityResultDto sr = GetIntegrityResult(basePath, chaps);
             bool update = false;
 
-            foreach (ArchiveIntegrityResult r in sr.BadFiles)
+            foreach (ArchiveIntegrityResultDto r in sr.BadFiles)
             {
                 if (r.Result == ArchiveResult.NoImages || r.Result == ArchiveResult.NotAnArchive)
                 {
@@ -102,7 +104,7 @@ namespace KaizokuBackend.Services.Series
                 Chapter? chapter = chaps.FirstOrDefault(a => a.Filename == r.Filename);
 
                 
-                foreach (SeriesProvider s in series.Sources)
+                foreach (SeriesProviderEntity s in series.Sources)
                 {
                     foreach (Chapter ch in s.Chapters.Where(a => a.Filename == r.Filename))
                     {
@@ -139,9 +141,9 @@ namespace KaizokuBackend.Services.Series
         /// <param name="path">Base path for the series</param>
         /// <param name="chapters">List of chapters to check</param>
         /// <returns>Series integrity result</returns>
-        private static SeriesIntegrityResult GetIntegrityResult(string path, List<Chapter> chapters)
+        private static SeriesIntegrityResultDto GetIntegrityResult(string path, List<Chapter> chapters)
         {
-            SeriesIntegrityResult result = new SeriesIntegrityResult
+            SeriesIntegrityResultDto result = new SeriesIntegrityResultDto
             {
                 BadFiles = []
             };
@@ -152,9 +154,9 @@ namespace KaizokuBackend.Services.Series
                 ArchiveResult ar = ArchiveHelperService.CheckArchive(fileName);
                 if (ar != ArchiveResult.Fine)
                 {
-                    result.BadFiles.Add(new ArchiveIntegrityResult 
+                    result.BadFiles.Add(new ArchiveIntegrityResultDto 
                     { 
-                        Filename = c.Filename!, 
+                        Filename = c.Filename!,
                         Result = ar 
                     });
                 }

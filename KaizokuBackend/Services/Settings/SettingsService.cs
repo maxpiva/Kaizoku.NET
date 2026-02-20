@@ -1,12 +1,16 @@
 ﻿using KaizokuBackend.Data;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Background;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Jobs.Settings;
 using KaizokuBackend.Services.Providers;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Models;
+using Mihon.ExtensionsBridge.Models.Abstractions;
 using System.ComponentModel;
 using System.Reflection;
 
@@ -16,29 +20,28 @@ namespace KaizokuBackend.Services.Settings
     {
         private readonly IConfiguration _config;
         private readonly AppDbContext _db;
-        private readonly SuwayomiClient _client;
         private readonly IServiceScopeFactory _prov;
 
-        private static Models.Settings? _settings;
+        private static SettingsDto? _settings;
 
-        public SettingsService(IConfiguration config, IServiceScopeFactory prov, SuwayomiClient client, AppDbContext db)
+        public SettingsService(IConfiguration config, IServiceScopeFactory prov, AppDbContext db)
         {
             _config = config;
-            _client = client;
             _db = db;
             _prov = prov;
 
         }
 
 
+        public SettingsDto? DirectSettings => _settings;
+
         public async Task<string[]> GetAvailableLanguagesAsync(CancellationToken token = default)
         {
             using (var scope = _prov.CreateScope())
             {
-                ProviderCacheService cache = scope.ServiceProvider.GetRequiredService<ProviderCacheService>();
-                var all = await cache.GetCachedProvidersAsync(token).ConfigureAwait(false);
-                List<string> languages = all.SelectMany(p => p.Mappings).Select(s => s.Source?.Lang.ToLowerInvariant() ?? "")
-                    .Distinct()
+                MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
+                var all = bridgeManager.ListOnlineRepositories();
+                List<string> languages = all.SelectMany(a=>a.Extensions).SelectMany(a=>a.Sources).Select(a=>a.Language).Distinct()
                     .OrderBy(a => a).ToList();
                 languages.Remove("all");
                 return languages.ToArray();
@@ -46,13 +49,13 @@ namespace KaizokuBackend.Services.Settings
         }
 
 
-        private static List<Setting> Serialize(EditableSettings editableSettings)
+        private static List<SettingEntity> Serialize(EditableSettingsDto editableSettings)
         {
-            List<Setting> serializedSettings = new List<Setting>();
-            List<PropertyInfo> props = typeof(EditableSettings).GetProperties().ToList();
+            List<SettingEntity> serializedSettings = new List<SettingEntity>();
+            List<PropertyInfo> props = typeof(EditableSettingsDto).GetProperties().ToList();
             foreach (PropertyInfo p in props)
             {
-                Setting setting = new Setting
+                SettingEntity setting = new SettingEntity
                 {
                     Name = p.Name,
 
@@ -88,15 +91,15 @@ namespace KaizokuBackend.Services.Settings
             return serializedSettings;
         }
 
-        private static (bool, EditableSettings) Deserialize(List<Setting> settings, EditableSettings defaultValues) 
+        private static (bool, EditableSettingsDto) Deserialize(List<SettingEntity> settings, EditableSettingsDto defaultValues) 
         {
             bool needSave = false;
-            List<PropertyInfo> props = typeof(EditableSettings).GetProperties().ToList();
-            EditableSettings newEditableSettings = new EditableSettings();
+            List<PropertyInfo> props = typeof(EditableSettingsDto).GetProperties().ToList();
+            EditableSettingsDto newEditableSettings = new EditableSettingsDto();
             foreach (PropertyInfo p in props)
             {
                 string propType = p.PropertyType.Name.ToLowerInvariant();
-                Setting? setting = settings.FirstOrDefault(s => s.Name == p.Name);
+                SettingEntity? setting = settings.FirstOrDefault(s => s.Name == p.Name);
                 if (setting == null)
                 {
                     string value;
@@ -111,7 +114,7 @@ namespace KaizokuBackend.Services.Settings
                             break;
                     }
 
-                    setting = new Setting
+                    setting = new SettingEntity
                     {
                         Name = p.Name, 
                         Value = value
@@ -152,44 +155,7 @@ namespace KaizokuBackend.Services.Settings
         {
             return string.Join('|', array.OrderBy(a => a));
         }
-        private async Task SaveToSuwayomiAsync(EditableSettings set, bool force = false, CancellationToken token = default)
-        {
-            Dictionary<string, object> parametersToSaveOnSuwayomi = new Dictionary<string, object>();
-            if (force || _settings == null || _settings.NumberOfSimultaneousDownloads != set.NumberOfSimultaneousDownloads)
-            {
-                parametersToSaveOnSuwayomi.Add("maxSourcesInParallel", set.NumberOfSimultaneousDownloads);
-            }
-            if (force || _settings == null || JoinAndSortArray(_settings.MihonRepositories) != JoinAndSortArray(set.MihonRepositories))
-            {
-                parametersToSaveOnSuwayomi.Add("mihonRepositories", set.MihonRepositories);
-            }
-            if (force || _settings == null || _settings.FlareSolverrEnabled != set.FlareSolverrEnabled)
-            {
-                parametersToSaveOnSuwayomi.Add("flareSolverrEnabled", set.FlareSolverrEnabled);
-            }
-            if (force || _settings == null || _settings.FlareSolverrUrl != set.FlareSolverrUrl)
-            {
-                parametersToSaveOnSuwayomi.Add("flareSolverrUrl", set.FlareSolverrUrl);
-            }
-            if (force || _settings == null || _settings.FlareSolverrTimeout != set.FlareSolverrTimeout)
-            {
-                parametersToSaveOnSuwayomi.Add("flareSolverrTimeout", set.FlareSolverrTimeout.TotalSeconds);
-            }
-            if (force || _settings == null || _settings.FlareSolverrSessionTtl != set.FlareSolverrSessionTtl)
-            {
-                parametersToSaveOnSuwayomi.Add("flareSolverrSessionTtl", set.FlareSolverrSessionTtl.TotalMinutes);
-            }
-            if (force || _settings == null || _settings.FlareSolverrAsResponseFallback != set.FlareSolverrAsResponseFallback)
-            {
-                parametersToSaveOnSuwayomi.Add("flareSolverrAsResponseFallback", set.FlareSolverrAsResponseFallback);
-            }
-            if (parametersToSaveOnSuwayomi.Count > 0)
-            {
-                await _client.SetServerSettingsAsync(parametersToSaveOnSuwayomi, token).ConfigureAwait(false);
-            }
-        }
-
-        public void SetThreadSettings(EditableSettings set)
+        public void SetThreadSettings(EditableSettingsDto set)
         {
             using (var scope = _prov.CreateScope())
             {
@@ -199,7 +165,7 @@ namespace KaizokuBackend.Services.Settings
             }
         }
 
-        public async Task SetTimesSettingsAsync(EditableSettings set, CancellationToken token = default)
+        public async Task SetTimesSettingsAsync(EditableSettingsDto set, CancellationToken token = default)
         {
             using (var scope = _prov.CreateScope())
             {
@@ -214,7 +180,7 @@ namespace KaizokuBackend.Services.Settings
             }
         }
 
-        public async Task SaveSettingsAsync(EditableSettings set, bool force = false, CancellationToken token = default)
+        public async Task SaveSettingsAsync(EditableSettingsDto set, bool force = false, CancellationToken token = default)
         {
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
                 set.ChapterDownloadFailRetries != _settings?.ChapterDownloadFailRetries ||
@@ -229,13 +195,64 @@ namespace KaizokuBackend.Services.Settings
             {
                 await SetTimesSettingsAsync(set, token).ConfigureAwait(false);
             }
-            await SaveToSuwayomiAsync(set, force, token).ConfigureAwait(false);
-            List<Setting> dbsettings = await _db.Settings.ToListAsync(token).ConfigureAwait(false);
-            List<Setting> newSettings = Serialize(set);
-            bool needSave = false;
-            foreach (Setting setting in newSettings)
+            using (var scope = _prov.CreateScope())
             {
-                Setting? dbsetting = dbsettings.FirstOrDefault(s => s.Name == setting.Name);
+                MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
+                var onlineRepos = bridgeManager.ListOnlineRepositories();
+                List<string> repos = set.MihonRepositories.ToList();
+                foreach (var t in onlineRepos)
+                {
+                    foreach (string s in repos.ToList())
+                    {
+                        if (s.Equals(t.Url, StringComparison.OrdinalIgnoreCase))
+                        {
+                            repos.Remove(s);
+                            break;
+                        }
+                    }
+                }
+                if (repos.Count>0)
+                {
+                    foreach(string n in repos)
+                    {
+                        TachiyomiRepository repo = new TachiyomiRepository(n);
+                        repo = await bridgeManager.AddOnlineRepositoryAsync(repo).ConfigureAwait(false);
+                        if (!n.Equals(repo.Url, StringComparison.OrdinalIgnoreCase))
+                        {
+                            List<string> existing = set.MihonRepositories.ToList();
+                            existing.Remove(n);
+                            existing.Add(repo.Url);
+                            set.MihonRepositories = existing.ToArray();
+                        }
+                    }
+                }
+                await bridgeManager.SetPreferencesAsync(new Preferences
+                {
+                    FlareSolverr = new FlareSolverrPreferences
+                    {
+                        Enabled = set.FlareSolverrEnabled,
+                        Url = set.FlareSolverrUrl,
+                        Timeout = (int)set.FlareSolverrTimeout.TotalSeconds,
+                        SessionTtl = (int)set.FlareSolverrSessionTtl.TotalSeconds,
+                        AsResponseFallback = set.FlareSolverrAsResponseFallback
+                    },
+                    SocksProxy = new SocksProxyPreferences
+                    {
+                        Enabled = set.SocksProxyEnabled,
+                        Host = set.SocksProxyHost,
+                        Port = set.SocksProxyPort,
+                        Version = set.SocksProxyVersion,
+                        Username = set.SocksProxyUsername,
+                        Password = set.SocksProxyPassword
+                    }
+                }, token).ConfigureAwait(false);
+            }
+            List<SettingEntity> dbsettings = await _db.Settings.ToListAsync(token).ConfigureAwait(false);
+            List<SettingEntity> newSettings = Serialize(set);
+            bool needSave = false;
+            foreach (SettingEntity setting in newSettings)
+            {
+                SettingEntity? dbsetting = dbsettings.FirstOrDefault(s => s.Name == setting.Name);
                 if (dbsetting == null)
                 {
                     _db.Settings.Add(setting);
@@ -246,15 +263,16 @@ namespace KaizokuBackend.Services.Settings
                     dbsetting.Value = setting.Value;
                     needSave = true;
                 }
-            }            if (needSave)
+            }            
+            if (needSave)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             _settings = GetFromEditableSettings(set);
         }
         
-        public async Task SaveSettingsAsync(Models.Settings settings, bool force, CancellationToken token = default)
+        public async Task SaveSettingsAsync(SettingsDto settings, bool force, CancellationToken token = default)
         {
             // Convert Settings to EditableSettings since the existing logic works with EditableSettings
-            var editableSettings = new EditableSettings
+            var editableSettings = new EditableSettingsDto
             {
                 PreferredLanguages = settings.PreferredLanguages,
                 MihonRepositories = settings.MihonRepositories,
@@ -275,15 +293,22 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrAsResponseFallback = settings.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = settings.IsWizardSetupComplete,
                 WizardSetupStepCompleted = settings.WizardSetupStepCompleted,
+                SocksProxyEnabled = settings.SocksProxyEnabled,
+                SocksProxyHost = settings.SocksProxyHost,
+                SocksProxyPort = settings.SocksProxyPort,
+                SocksProxyVersion = settings.SocksProxyVersion,
+                SocksProxyUsername = settings.SocksProxyUsername,
+                SocksProxyPassword = settings.SocksProxyPassword,
                 NsfwVisibility = settings.NsfwVisibility
+
             };
 
             await SaveSettingsAsync(editableSettings, force, token).ConfigureAwait(false);
         }
-        
-        public Models.Settings GetFromEditableSettings(EditableSettings ed)
+
+        public SettingsDto GetFromEditableSettings(EditableSettingsDto ed)
         {
-            Models.Settings set = new Models.Settings
+            SettingsDto set = new SettingsDto
             {
                 PreferredLanguages = ed.PreferredLanguages,
                 MihonRepositories = ed.MihonRepositories,
@@ -304,18 +329,25 @@ namespace KaizokuBackend.Services.Settings
                 FlareSolverrAsResponseFallback = ed.FlareSolverrAsResponseFallback,
                 IsWizardSetupComplete = ed.IsWizardSetupComplete,
                 WizardSetupStepCompleted = ed.WizardSetupStepCompleted,
+                SocksProxyEnabled = ed.SocksProxyEnabled,
+                SocksProxyHost = ed.SocksProxyHost,
+                SocksProxyPort = ed.SocksProxyPort,
+                SocksProxyVersion = ed.SocksProxyVersion,
+                SocksProxyUsername = ed.SocksProxyUsername,
+                SocksProxyPassword = ed.SocksProxyPassword,
                 NsfwVisibility = ed.NsfwVisibility
+
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;
             return set;
         }
-        public async ValueTask<Models.Settings> GetSettingsAsync(CancellationToken token = default)
+        public async ValueTask<SettingsDto> GetSettingsAsync(CancellationToken token = default)
         {
             if (_settings != null)
                 return _settings;
-            Models.Settings firstTimeEditableSettings = new Models.Settings();
+            SettingsDto firstTimeEditableSettings = new SettingsDto();
             _config.Bind("FirstTimeSettings", firstTimeEditableSettings);
-            List<Setting> settings = await _db.Settings.AsNoTracking().ToListAsync(token).ConfigureAwait(false);
+            List<SettingEntity> settings = await _db.Settings.AsNoTracking().ToListAsync(token).ConfigureAwait(false);
             bool needSave;
             if (settings.Count == 0)
             {
@@ -324,7 +356,7 @@ namespace KaizokuBackend.Services.Settings
             }
             else
             {
-                (needSave, EditableSettings set) = Deserialize(settings, firstTimeEditableSettings);
+                (needSave, EditableSettingsDto set) = Deserialize(settings, firstTimeEditableSettings);
                 _settings = GetFromEditableSettings(set);
             }
             if (needSave)

@@ -1,4 +1,4 @@
-﻿using KaizokuBackend.Models;
+﻿using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Providers;
 using System.Diagnostics.CodeAnalysis;
@@ -23,7 +23,7 @@ public class UpdateExtensions : ICommand
         try
         {
             // Get all cached providers and check for updates
-            await _cache.RefreshCacheAsync(token).ConfigureAwait(false);
+            await _cache.UpdateAllExtensionsAsync(token).ConfigureAwait(false);
             return JobResult.Success;
         }
         catch (Exception)

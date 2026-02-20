@@ -1,5 +1,6 @@
 using KaizokuBackend.Utils;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
 
@@ -10,14 +11,12 @@ namespace KaizokuBackend
 
         public static async Task Main(string[] args)
         {
-            if (args.Length > 0)
-            {
-                if (args[0].StartsWith("java") || args[0].StartsWith("xvfb-run"))
-                    EnvironmentSetup.JavaRunner = args[0];
-            }
 
             await EnvironmentSetup.InitializeAsync(null);
-            await CreateHostBuilder(args).Build().RunAsync();
+
+            var host = CreateHostBuilder(args).Build();
+
+            await host.RunAsync();
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args)
@@ -38,11 +37,11 @@ namespace KaizokuBackend
 #else
     "Kestrel:Ports:Release"
 #endif
-                            , 5001);
+                            , 5005);
                         EnvironmentSetup.Logger.LogInformation("Starting Kaizoku NET on port {port}...", port);
                         server.ListenAnyIP(port);
                     });
-                }).UseSerilog(Log.Logger, dispose: false);
+                });
         }
 
         private static void AppConfiguration(WebHostBuilderContext context, IConfigurationBuilder builder)

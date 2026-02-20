@@ -1,4 +1,4 @@
-﻿using KaizokuBackend.Models;
+﻿using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs.Models;
 using System.Diagnostics.CodeAnalysis;

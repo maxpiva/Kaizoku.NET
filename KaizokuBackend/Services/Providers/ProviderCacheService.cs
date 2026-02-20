@@ -1,10 +1,16 @@
 using KaizokuBackend.Data;
-using KaizokuBackend.Models;
+using KaizokuBackend.Extensions;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using System.Linq;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
-using System.Collections.Concurrent;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models;
+using Mihon.ExtensionsBridge.Models.Abstractions;
 
 namespace KaizokuBackend.Services.Providers
 {
@@ -14,288 +20,255 @@ namespace KaizokuBackend.Services.Providers
     public class ProviderCacheService
     {
         private readonly AppDbContext _db;
-        private readonly SuwayomiClient _suwayomiClient;
+        private readonly MihonBridgeService _mihon;
         private readonly JobBusinessService _jobBusinessService;
         private readonly SettingsService _settingsService;
         private readonly ILogger<ProviderCacheService> _logger;
         
-        private static List<ProviderStorage>? _providers = [];
-        private static readonly SemaphoreSlim _providersLock = new(1);
+        private static List<ProviderStorageEntity>? _providers = [];
+        private static List<string> _languages = [];
 
-        public ProviderCacheService(AppDbContext db, SuwayomiClient suwayomiClient, JobBusinessService jobBusinessService, 
-            SettingsService settingsService, ILogger<ProviderCacheService> logger)
+        public ProviderCacheService(AppDbContext db, JobBusinessService jobBusinessService,
+            SettingsService settingsService, MihonBridgeService mihon, ILogger<ProviderCacheService> logger)
         {
             _db = db;
-            _suwayomiClient = suwayomiClient;
             _jobBusinessService = jobBusinessService;
             _settingsService = settingsService;
+            _mihon = mihon;
             _logger = logger;
         }
 
         /// <summary>
         /// Gets cached providers
         /// </summary>
-        public async Task<List<ProviderStorage>> GetCachedProvidersAsync(CancellationToken token = default)
+        public async Task<List<ProviderStorageEntity>> GetCachedProvidersAsync(CancellationToken token = default)
         {
-            await _providersLock.WaitAsync(token).ConfigureAwait(false);
-            try
+            if (_providers == null || _providers.Count == 0)
             {
-                if (_providers == null || _providers.Count == 0)
-                {
-                    await RefreshCacheAsync(token).ConfigureAwait(false);
-                }
-                return _providers ?? [];
+                await RefreshCacheAsync(false, token).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            return _providers ?? [];
+        }
+
+        public async Task<List<SmallProviderDto>> GetCachedProviderSummariesAsync(CancellationToken token = default)
+        {
+            var providers = await GetCachedProvidersAsync(token).ConfigureAwait(false);
+            return providers.Select(p => p.ToSmallProviderDto()).ToList();
+        }
+        public async Task<List<string>> GetAvailableLanguagesAsync(CancellationToken token = default)
+        {
+            if (_providers == null || _providers.Count == 0)
             {
-                _logger.LogError(ex, "Error getting cached providers");
-                return [];
+                await RefreshCacheAsync(false, token).ConfigureAwait(false);
             }
-            finally
-            {
-                _providersLock.Release();
-            }
+            return _languages ?? [];
         }
 
         /// <summary>
         /// Gets sources for specific languages
         /// </summary>
-        public async Task<Dictionary<SuwayomiSource, ProviderStorage>> GetSourcesForLanguagesAsync(
+        public async Task<List<ProviderStorageEntity>> GetSourcesForLanguagesAsync(
             IEnumerable<string>? languages, CancellationToken token = default)
         {
             var storages = (await GetCachedProvidersAsync(token).ConfigureAwait(false))
-                .Where(a => !a.IsDisabled).ToList();
-            
-            var result = new Dictionary<SuwayomiSource, ProviderStorage>();
+                .Where(a => a.IsEnabled).ToList();
+
+            var result = new HashSet<ProviderStorageEntity>();
             var languageSet = new HashSet<string>(languages ?? [], StringComparer.InvariantCultureIgnoreCase);
-            
+
+
             foreach (var provider in storages)
             {
-                foreach (var mapping in provider.Mappings)
+                if (languageSet.Count == 0)
                 {
-                    if (mapping.Source != null)
+                    if (!result.Contains(provider))
+                        result.Add(provider);
+                }
+                else
+                {
+                    if (provider.Language == "all" || languageSet.Contains(provider.Language))
                     {
-                        if (languageSet.Count == 0 || languageSet.Contains(mapping.Source.Lang))
-                        {
-                            result[mapping.Source] = provider;
-                        }
+                        if (!result.Contains(provider))
+                            result.Add(provider);
                     }
                 }
             }
+            return result.ToList();
+        }
 
-            return result;
+        public async Task<List<(string MihonProviderId, SmallProviderDto Summary)>> GetProviderSummariesForLanguagesAsync(
+            IEnumerable<string>? languages, CancellationToken token = default)
+        {
+            var storages = await GetSourcesForLanguagesAsync(languages, token).ConfigureAwait(false);
+            return storages
+                .Where(s => !string.IsNullOrEmpty(s.MihonProviderId))
+                .Select(s => (s.MihonProviderId!, s.ToSmallProviderDto()))
+                .ToList();
+        }
+
+        public async Task UpdateAllExtensionsAsync(CancellationToken token = default)
+        {
+            _logger.LogInformation("Updating all extensions and refreshing provider cache...");
+            await _mihon.RefreshAllRepositoriesAsync(token).ConfigureAwait(false);
+            await RefreshCacheAsync(false, token).ConfigureAwait(false);
+            _logger.LogInformation("All extensions updated and provider cache refreshed.");
+        }
+
+        public async Task<bool> ReconcileLocalAsync(string package, string[] prefLanguages, RepositoryGroup? grp, List<ProviderStorageEntity> storages, List<TachiyomiRepository> onlinerepos, CancellationToken token = default)
+        {
+            bool commit = false;
+            if (grp == null)
+            {
+                foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead))
+                {
+                    dead.IsDead = true;
+                    dead.IsEnabled = false;
+                    commit = true;
+                }
+            }
+            else
+            {
+                RepositoryEntry entry = grp.GetActiveEntry();
+                TachiyomiExtension extension = entry.Extension;
+                foreach (TachiyomiSource source in extension.Sources)
+                {
+                    string repoName = onlinerepos.FirstOrDefault(a => a.Id == entry.RepositoryId)?.Name ?? "Removed";
+                    ProviderStorageEntity? p = storages.FirstOrDefault(a => a.SourcePackageName == package && a.SourceSourceId == source.Id);
+                    if (p != null)
+                    {
+                        if (p.IsDead)
+                        {
+                            p.IsDead = false;
+                            p.IsEnabled = true;
+                            p.SourceRepositoryId = entry.RepositoryId;
+                            p.SourceRepositoryName = repoName;
+                            commit = true;
+                        }
+                        continue;
+                    }
+                    ProviderStorageEntity storage = new ProviderStorageEntity();
+                    storage.MihonProviderId = entry.GetMihonProviderId(source);
+                    ISourceInterop? interop = await _mihon.SourceFromProviderIdAsync(storage.MihonProviderId, token).ConfigureAwait(false);
+                    storage.FillProviderStorage(entry, extension, source, interop, repoName, entry.RepositoryId);
+                    if (storage.Language == "all")
+                        storage.IsEnabled = true;
+                    else if (prefLanguages.Contains(storage.Language, StringComparer.InvariantCultureIgnoreCase))
+                        storage.IsEnabled = true;
+                    else
+                        storage.IsEnabled = false;
+                    _db.Providers.Add(storage);
+                    commit = true;
+                }
+            }
+            return commit;
         }
 
         /// <summary>
         /// Refreshes the provider cache
         /// </summary>
-        public async Task RefreshCacheAsync(CancellationToken token = default)
+        public async Task RefreshCacheAsync(bool skipSchedule = false, CancellationToken token = default)
         {
-            var extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
-            if (extensions.Count == 0)
-            {
-                _providers = [];
-                return;
-            }
-
-            //Auto Update
-            foreach (var extension in extensions)
-            {
-                if (extension.HasUpdate)
-                {
-                    await _suwayomiClient.UpdateExtensionAsync(extension.PkgName, token).ConfigureAwait(false);
-                }
-            }
-            extensions = await _suwayomiClient.GetExtensionsAsync(token).ConfigureAwait(false);
-            var sources = await _suwayomiClient.GetSourcesAsync(token).ConfigureAwait(false);
+            var settings = await _settingsService.GetSettingsAsync(token).ConfigureAwait(false);
+            var extensions = _mihon.ListExtensions();
+            var onlinerepos = _mihon.ListOnlineRepositories();
             var storages = await _db.Providers.ToListAsync(token).ConfigureAwait(false);
-            var newProviders = new List<ProviderStorage>();
-            
-            foreach (var extension in extensions)
+            //First pass, reconcile storage sources with installed extensions
+            List<string> packages = storages.Select(a=>a.SourcePackageName).Where(a => a != null).Select(a => a!).ToList();
+            packages.AddRange(extensions.Select(a => a.GetActiveEntry().Extension.Package));
+            packages = packages.Distinct().ToList();
+            bool commit = false;
+            foreach (string package in packages)
             {
-                var provider = await GetOrCreateProviderAsync(sources, storages, extension, token).ConfigureAwait(false);
-                if (!provider.IsDisabled && !extension.Installed)
-                {
-                    await _suwayomiClient.InstallExtensionAsync(extension.PkgName, token).ConfigureAwait(false);
-                    provider = await GetOrCreateProviderAsync(sources, storages, extension, token).ConfigureAwait(false);
-                }
-                await CheckAndScheduleJobsAsync(provider, token).ConfigureAwait(false);
-                newProviders.Add(provider);
+                RepositoryGroup? grp = extensions.FirstOrDefault(a => a.GetActiveEntry().Extension.Package.Equals(package, StringComparison.OrdinalIgnoreCase));
+                commit |= await ReconcileLocalAsync(package, settings.PreferredLanguages, grp, storages, onlinerepos, token).ConfigureAwait(false);
             }
-            
-            _providers = newProviders;
-            await UpdateExtensionJobsAsync(token).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Updates provider cache when an extension is installed/updated
-        /// </summary>
-        public async Task UpdateExtensionAsync(SuwayomiExtension extension, CancellationToken token = default)
-        {
-            await _providersLock.WaitAsync(token).ConfigureAwait(false);
-            try
+            if (commit)
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+            storages = await _db.Providers.ToListAsync(token).ConfigureAwait(false);
+            //Second pass, reconcile storage source with online repositories.
+            commit = false;
+            foreach (ProviderStorageEntity storage in storages)
             {
-                if (_providers == null) _providers = [];
-                
-                var sources = await _suwayomiClient.GetSourcesAsync(token).ConfigureAwait(false);
-                var storages = _providers;
-                var provider = await GetOrCreateProviderAsync(sources, storages, extension, token).ConfigureAwait(false);
-                
-                var existing = _providers.FirstOrDefault(p => p.Name == extension.Name && p.Lang == extension.Lang);
-                if (existing != null)
+                var combo = extensions.FindSource(storage.MihonProviderId);
+                if (combo.Group == null)
                 {
-                    _providers.Remove(existing);
+                    if (storage.IsEnabled)
+                    {
+                        var onlinecombo = onlinerepos.FindSource(storage.MihonProviderId);
+                        if (onlinecombo.Extension == null && !storage.IsDead)
+                        {
+                            storage.IsDead = true;
+                            storage.IsEnabled = false;
+                            commit = true;
+                            await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                        }
+                        else if (onlinecombo.Extension != null)
+                        {
+                            var repoGroup = await _mihon.AddExtensionAsync(onlinecombo.Extension,false, token).ConfigureAwait(false);
+                            if (repoGroup != null)
+                            {
+                                commit |= await ReconcileLocalAsync(storage.SourcePackageName!, settings.PreferredLanguages, repoGroup, storages, onlinerepos, token).ConfigureAwait(false);                               
+                            }
+                            else
+                            {
+                                storage.IsEnabled = false;
+                                storage.IsBroken = true;
+                                commit = true;
+                            }
+
+                        }
+                    }
                 }
-                
-                _providers.Add(provider);
-                await CheckAndScheduleJobsAsync(provider, token).ConfigureAwait(false);
-                _providers = _providers.OrderBy(p => p.Name).ThenBy(p => p.Lang).ToList();
+            }
+            if (commit)
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+            _providers = storages;
+            List<string> languages = storages.Where(a=>a.IsEnabled).Select(a=>a.Language).Distinct().ToList();
+            if (languages.Contains("all"))
+            {
+                languages.Remove("all");
+                foreach (var language in settings.PreferredLanguages)
+                {
+                    if (!languages.Contains(language))
+                        languages.Add(language);
+                }
+            }
+            languages = languages.OrderBy(a => a).ToList();
+            _languages = languages;
+            if (!skipSchedule)
+            {
+                foreach (ProviderStorageEntity p in storages)
+                {
+                    await CheckAndScheduleJobsAsync(p, token).ConfigureAwait(false);
+                }
                 await UpdateExtensionJobsAsync(token).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating extension in cache");
-            }
-            finally
-            {
-                _providersLock.Release();
-            }
         }
 
-        /// <summary>
-        /// Removes provider from cache when extension is uninstalled
-        /// </summary>
-        public async Task RemoveExtensionAsync(SuwayomiExtension extension, CancellationToken token = default)
+        private async Task CheckAndScheduleJobsAsync(ProviderStorageEntity provider, CancellationToken token = default)
         {
-            await _providersLock.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                if (_providers == null) return;
-                
-                var provider = _providers.FirstOrDefault(p => 
-                    p.Name == extension.Name && p.Lang == extension.Lang && p.VersionCode == extension.VersionCode);
-                
-                if (provider != null)
-                {
-                    provider.IsDisabled = true;
-                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                    await UpdateSeriesAndJobsAsync(provider, false, token).ConfigureAwait(false);
-                    await UpdateExtensionJobsAsync(token).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error removing extension from cache");
-            }
-            finally
-            {
-                _providersLock.Release();
-            }
-        }
 
-        /// <summary>
-        /// Updates provider storage settings
-        /// </summary>
-        public async Task UpdateProviderStorageAsync(ProviderStorage provider, CancellationToken token = default)
-        {
-            await _db.SaveChangesAsync(token).ConfigureAwait(false);
-        }
-
-        private async Task<ProviderStorage> GetOrCreateProviderAsync(List<SuwayomiSource> sources,
-            List<ProviderStorage> storages, SuwayomiExtension extension, CancellationToken token = default)
-        {
-            var provider = storages.FirstOrDefault(p =>
-                p.Name == extension.Name && p.Lang == extension.Lang && p.VersionCode == extension.VersionCode);
-                
-            if (provider == null || provider.Mappings.Count == 0)
+            if (provider.SupportLatest)
             {
-                provider = new ProviderStorage
-                {
-                    Name = extension.Name,
-                    Lang = extension.Lang,
-                    ApkName = extension.ApkName,
-                    PkgName = extension.PkgName,
-                    VersionCode = extension.VersionCode,
-                    IsDisabled = !extension.Installed,
-                    IsStorage = true
-                };
-
-                // Handle version updates
-                var existingProvider = storages.FirstOrDefault(p => p.Name == extension.Name && p.Lang == extension.Lang);
-                if (existingProvider != null)
-                {
-                    provider.IsStorage = existingProvider.IsStorage;
-                    _db.Providers.Remove(existingProvider);
-                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                }
-
-                // Get sources for this extension
-                var extensionSources = extension.Lang == "all" 
-                    ? sources.Where(s => s.Name == extension.Name).ToList()
-                    : sources.Where(s => s.Name == extension.Name && s.Lang == extension.Lang).ToList();
-                
-                var mappings = new ConcurrentBag<Mappings>();
-                await Parallel.ForEachAsync(extensionSources,
-                    new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = token },
-                    async (source, ct) =>
-                    {
-                        try
-                        {
-                            var preferences = await _suwayomiClient.GetSourcePreferencesAsync(source.Id, ct)
-                                .ConfigureAwait(false);
-                            RemoveSuffixPreferences(extension.Lang, source.Id, preferences);
-                            if (mappings.All(a => a.Source?.Id != source.Id))
-                            {
-                                mappings.Add(new Mappings
-                                {
-                                    Preferences = preferences,
-                                    Source = source,
-                                });
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Unable to retrieve preferences for source {SourceName}", source.Name);
-                        }
-                    }).ConfigureAwait(false);
-                
-                provider.IsDisabled = false;
-                provider.Mappings = mappings.ToList();
-                _db.Providers.Add(provider);
-                await _db.SaveChangesAsync(token).ConfigureAwait(false);
-            }
-
-            if (provider.IsDisabled != !extension.Installed)
-            {
-                provider.IsDisabled = !extension.Installed;
-                await _db.SaveChangesAsync(token).ConfigureAwait(false);
-            }
-            
-            return provider;
-        }
-
-        private async Task CheckAndScheduleJobsAsync(ProviderStorage provider, CancellationToken token = default)
-        {
-            if (provider.Mappings.Any(m => m.Source?.SupportsLatest ?? false))
-            {
-                var jobStatus = await _jobBusinessService.GetJobStatusAsync(JobType.GetLatest, $"{provider.Name}|{provider.Lang}", token).ConfigureAwait(false);
-                if ((jobStatus == null || !jobStatus.Value) && !provider.IsDisabled)
+                var jobStatus = await _jobBusinessService.GetJobStatusAsync(JobType.GetLatest, provider.MihonProviderId, token).ConfigureAwait(false);
+                if ((jobStatus == null || !jobStatus.Value) && provider.IsEnabled)
                 {
                     await UpdateSeriesAndJobsAsync(provider, true, token).ConfigureAwait(false);
                 }
-                else if (jobStatus.HasValue && jobStatus.Value && provider.IsDisabled)
+                else if (jobStatus.HasValue && jobStatus.Value && !provider.IsEnabled)
                 {
                     await UpdateSeriesAndJobsAsync(provider, false, token).ConfigureAwait(false);
                 }
             }
+
         }
 
-        private async Task UpdateSeriesAndJobsAsync(ProviderStorage provider, bool enable, CancellationToken token = default)
+        private async Task UpdateSeriesAndJobsAsync(ProviderStorageEntity provider, bool enable, CancellationToken token = default)
         {
             var settings = await _settingsService.GetSettingsAsync(token).ConfigureAwait(false);
-            var seriesProviders = await _db.SeriesProviders.Where(sp => sp.Provider == provider.Name).ToListAsync(token).ConfigureAwait(false);
+            var seriesProviders = await _db.SeriesProviders.Where(sp => sp.MihonProviderId == provider.MihonProviderId).ToListAsync(token).ConfigureAwait(false);
             
-            var providersToUpdate = new List<SeriesProvider>();
+            var providersToUpdate = new List<SeriesProviderEntity>();
             foreach (var seriesProvider in seriesProviders)
             {
                 if (seriesProvider.IsUninstalled != !enable)
@@ -315,42 +288,17 @@ namespace KaizokuBackend.Services.Providers
                 await _jobBusinessService.ManageSeriesProviderJobAsync(seriesProvider, true, false, token).ConfigureAwait(false);
             }
 
-            var supportedSources = provider.Mappings
-                .Select(m => m.Source)
-                .Where(s => s != null && settings.PreferredLanguages.Contains(s.Lang))
-                .ToList();
-                
-            foreach (var source in supportedSources)
-            {
-                if (source != null && source.SupportsLatest)
-                {
-                    await _jobBusinessService.ManageSourceJobAsync(source, enable, true, token).ConfigureAwait(false);
-                }
-            }
+            await _jobBusinessService.ManageSourceJobAsync(provider, enable, true, token).ConfigureAwait(false);
         }
 
         private async Task UpdateExtensionJobsAsync(CancellationToken token = default)
         {
             if (_providers == null) return;
             
-            bool hasEnabledProviders = _providers.Any(p => !p.IsDisabled);
+            bool hasEnabledProviders = _providers.Any(p => p.IsEnabled);
             await _jobBusinessService.ManageExtensionUpdatesAsync(hasEnabledProviders, token).ConfigureAwait(false);
         }
 
-        private static void RemoveSuffixPreferences(string extensionLang, string sourceId, List<SuwayomiPreference> preferences)
-        {
-            preferences.ForEach(pref =>
-            {
-                if (extensionLang == "all")
-                {
-                    int lastUnderscore = pref.props.key.LastIndexOf('_');
-                    if (lastUnderscore > 0)
-                    {
-                        pref.props.key = pref.props.key.Substring(0, lastUnderscore);
-                    }
-                }
-                pref.Source = sourceId;
-            });
-        }
+    
     }
 }

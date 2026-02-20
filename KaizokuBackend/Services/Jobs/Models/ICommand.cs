@@ -1,4 +1,4 @@
-﻿using KaizokuBackend.Models;
+﻿using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Jobs.Models;
 

@@ -1,4 +1,7 @@
-﻿using KaizokuBackend.Models;
+﻿using KaizokuBackend.Extensions;
+using KaizokuBackend.Models;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 
 namespace KaizokuBackend.Services.Jobs.Report;
@@ -17,7 +20,7 @@ public class ProgressReporter
             await _report.ReportProgressAsync(state).ConfigureAwait(false);
         });
     }    
-    public void Report(ProgressStatus status, decimal percentage,string? message, object? parameter = null, string? errorMessage = null)
+    public void Report(ProgressStatus status, decimal percentage,string? message, DownloadSummary? download = null, string? errorMessage = null)
     {
         Progress.Report(new ProgressState
         {
@@ -26,8 +29,8 @@ public class ProgressReporter
             ProgressStatus = status,
             Percentage = percentage,
             Message = message ?? "",
-            Parameter = parameter,
-            ErrorMessage = errorMessage
+            ErrorMessage = errorMessage,
+            Download = download?.ToCardInfoDto()
         });
     }
 

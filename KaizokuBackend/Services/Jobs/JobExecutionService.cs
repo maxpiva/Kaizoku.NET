@@ -1,4 +1,4 @@
-using KaizokuBackend.Models;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using System.Reflection;
 
@@ -11,15 +11,16 @@ namespace KaizokuBackend.Services.Jobs
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<JobExecutionService> _logger;
-        private readonly List<Type> _commandTypes;
+        private readonly Dictionary<string, Type> _commandTypeMap;
 
         public JobExecutionService(IServiceScopeFactory scopeFactory, ILogger<JobExecutionService> logger)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
-            _commandTypes = Assembly.GetExecutingAssembly().GetTypes()
+            // Cache command types as a dictionary for O(1) lookup instead of O(n) list scan
+            _commandTypeMap = Assembly.GetExecutingAssembly().GetTypes()
                 .Where(type => typeof(ICommand).IsAssignableFrom(type) && type.IsClass && !type.IsAbstract)
-                .ToList();
+                .ToDictionary(type => type.Name, type => type);
         }
 
         public async Task<JobResult> ExecuteJobAsync(JobInfo jobInfo, CancellationToken token = default)
@@ -35,23 +36,18 @@ namespace KaizokuBackend.Services.Jobs
                     return JobResult.Failed;
                 }
 
-                _logger.LogInformation("Executing job {Key} of type {JobType}", jobInfo.Key, jobInfo.JobType);
-                JobResult result = await command.ExecuteAsync(jobInfo, token).ConfigureAwait(false);
-                
-                _logger.LogInformation("Job {Key} completed with result {Result}", jobInfo.Key, result);
-                return result;
+                return await command.ExecuteAsync(jobInfo, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error executing job {Key} of type {JobType}", jobInfo.Key, jobInfo.JobType);
+                _logger.LogError(ex, "Error executing job {JobType} on {groupKey}", jobInfo.JobType, jobInfo.Key);
                 return JobResult.Failed;
             }
         }
 
         private ICommand? GetCommandInstance(IServiceProvider serviceProvider, JobType jobType)
         {
-            Type? commandType = _commandTypes.FirstOrDefault(t => t.Name == jobType.ToString());
-            if (commandType == null)
+            if (!_commandTypeMap.TryGetValue(jobType.ToString(), out var commandType))
                 return null;
 
             return ActivatorUtilities.CreateInstance(serviceProvider, commandType) as ICommand;

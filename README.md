@@ -30,7 +30,7 @@ This is a **feature-complete** application (not a preview). While it may contain
 
 Kaizoku.NET is a **series manager** that prioritizes simplicity, speed, and reliability, just like the original Kaizoku, but with powerful new features under the hood.
 
-It uses the power of **Suwayomi Server** and **MIHON extensions** to connect with multiple sources.
+It uses the power of  **MIHON extensions** to connect with multiple sources.
 
 ---
 
@@ -69,39 +69,20 @@ It uses the power of **Suwayomi Server** and **MIHON extensions** to connect wit
 Kaizoku.NET is composed of:
 
 - **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/kaizoku/tree/next) (Next.js).
-- **Backend**: A custom .NET engine managing schedules, downloads, and metadata.
-- **Bridge**: [Suwayomi Server](https://github.com/Suwayomi/Suwayomi-Server) (to access Mihon Android extensions).
-
-> ❗ **Note:** Kaizoku.NET does **not** use Suwayomi Server’s built-in download or scheduling logic, only its extension bridge.
-
+- **Backend**: A custom .NET engine that manages schedules, downloads, and metadata, with a Mihon Bridge that enables the use of Mihon Android extensions.
 ---
 
-## ✅ Requirements for the TRAY Application (NOT DOCKER) [PLEASE READ] 
+## ⚙️ Issues
 
-Java Runtime: JRE 21+ (recommended: Adoptium Temurin) — https://adoptium.net/
+- If you encounter any issues, check the `logs` folder. You can review the logs there or upload them to share feedback.
 
-If you have multiple JREs installed, make sure the default is 21+ or Kaizoku.NET may refuse to start.
+## 🤔 Running Android libraries on .NET, is that possible?
 
-## ⚙️ Configuration Notes [PLEASE READ]
+Only the **MIHON** extensions are actively maintained, and they are distributed as Android APKs. So we need to hack around that!
 
-- By default, **Suwayomi Server is embedded** and auto-launched by Kaizoku.NET. 
-- You **can expose Suwayomi’s port** (via Docker, or in your Browser when using the Desktop Tray App).
-- You can also **use your own Suwayomi instance** by editing `appSettings.json` (after install). `appSettings.json` can be found:
-  -  Docker:  in the config mapped folder.
-  -  Windows: `C:\users\{your user}\local\KaizokuNET\`
-  -  Mac/Linux: User Home folder `/.config/KaizokuNET`
-  Change `UseCustomApi` to true, and put your own Suwayomi Url in `CustomEndpoint`
-- If you have issues: `logs` folder, are in the same directory, you can check in there, or upload for feedback.
-  
-> ⚠️ **Warning:** Suwayomi assigns internal IDs for series/chapters which in every instance, most likely are different. 
-> If you change servers, **you must reset Kaizoku.NET** by deleting `kaizoku.db`, and start from scratch, as ID mappings will no longer match.
+By leveraging the Java/Android bridge originally created by the [Suwayomi](https://github.com/Suwayomi/Suwayomi-Server) team, and adapting parts of it to fit our use case, including replacing KCEF with JCEF Maven we can generate a Java 8 Android compatibility layer with all required Java dependencies included.
 
----
-
-## 🤔 Why Suwayomi Server?
-
-Only the **MIHON** extensions are actively maintained and they’re Android-based APKs.  
-Suwayomi provides a working **Java bridge** for those. Other options (e.g., [IKVM](https://github.com/ikvmnet/ikvm)) were avoided due to complexity, Kotlin compatibility issues, and Java version mismatches.
+Then use [IKVM](https://github.com/ikvmnet/ikvm) to run this on .NET.
 
 ---
 
@@ -123,7 +104,6 @@ Suwayomi provides a working **Java bridge** for those. Other options (e.g., [IKV
 | Port  | Service         | Required | Notes                        |
 |-------|------------------|----------|------------------------------|
 | 9833  | Kaizoku.NET UI   | ✅       | Web interface                |
-| 4567  | Suwayomi Server  | ❌       | Optional (if exposing port) |
 
 ---
 
@@ -234,7 +214,7 @@ Documentation coming soon™ (once laziness subsides).
 
 ## ⚠️ Resource Usage
 
-Be aware: **Kaizoku.NET** and **Suwayomi Server** can be **memory-intensive**, especially when managing large libraries or doing parallel searches and downloads.
+Be aware: **Kaizoku.NET** can be **memory-intensive**, especially when managing large libraries or doing parallel searches and downloads.
 
 ---
 

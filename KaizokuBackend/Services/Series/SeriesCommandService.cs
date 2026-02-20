@@ -1,17 +1,24 @@
-using System.Collections.Concurrent;
-using System.Net;
 using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
-using KaizokuBackend.Services.Import;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Settings;
-using KaizokuBackend.Services.Series; // <-- Add this for SeriesExtensions
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Models.Abstractions;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using System.Collections.Concurrent;
+using System.Net;
+using System.Text.Json;
+using ExtensionChapter = Mihon.ExtensionsBridge.Models.Extensions.Chapter;
+using ExtensionManga = Mihon.ExtensionsBridge.Models.Extensions.Manga;
 
 namespace KaizokuBackend.Services.Series
 {
@@ -22,39 +29,37 @@ namespace KaizokuBackend.Services.Series
     {
         private readonly AppDbContext _db;
         private readonly SettingsService _settings;
-        private readonly ArchiveHelperService _archiveHelper;
-        private readonly SeriesProviderService _providerService;
-        private readonly ContextProvider _baseUrl;
-        private readonly ILogger<SeriesCommandService> _logger;
-        private readonly SuwayomiClient _suwayomi;
-        private readonly DownloadCommandService _downloadCommand;
+        private readonly ArchiveHelperService _archiveHelper;        private readonly SeriesProviderService _providerService;
 
+        private readonly ILogger<SeriesCommandService> _logger;
+        private readonly DownloadCommandService _downloadCommand;
+        private readonly MihonBridgeService _mihon;
+        private readonly ThumbCacheService _cache;
 
         public SeriesCommandService(AppDbContext db, SettingsService settings, ArchiveHelperService archiveHelper,
-            SeriesProviderService providerService, ContextProvider baseUrl, ILogger<SeriesCommandService> logger,
-            SuwayomiClient suwayomi, DownloadCommandService downloadCommand)
+            SeriesProviderService providerService, ILogger<SeriesCommandService> logger,
+            DownloadCommandService downloadCommand, MihonBridgeService mihon, ThumbCacheService cache)
         {
             _db = db;
             _settings = settings;
             _archiveHelper = archiveHelper;
             _providerService = providerService;
-            _baseUrl = baseUrl;
             _logger = logger;
-            _suwayomi = suwayomi;
             _downloadCommand = downloadCommand;
-  
+            _mihon = mihon;
+            _cache = cache;
         }
 
         /// <summary>
         /// Adds a new series to the database
         /// </summary>
-        /// <param name="fullSeries">Full series information to add</param>
+        /// <param name="ProviderSeriesDetails">Full series information to add</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>The ID of the created series</returns>
-        public async Task<Guid> AddSeriesAsync(AugmentedResponse fullSeries, CancellationToken token = default)
+        public async Task<Guid> AddSeriesAsync(AugmentedResponseDto ProviderSeriesDetails, CancellationToken token = default)
         {
-            Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
-            if (fullSeries == null || fullSeries.Series.Count == 0)
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            if (ProviderSeriesDetails == null || ProviderSeriesDetails.Series.Count == 0)
             {
                 throw new ArgumentException("No series provided to add");
             }
@@ -64,18 +69,18 @@ namespace KaizokuBackend.Services.Series
             {
                 var paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
                 string? existingThumb = null;
-                List<SeriesProvider> existingProviders = [];
-                Models.Database.Series? dbSeries = null;
+                List<SeriesProviderEntity> existingProviders = [];
+                Models.Database.SeriesEntity? dbSeries = null;
                 
-                if (fullSeries.ExistingSeriesId.HasValue)
+                if (ProviderSeriesDetails.ExistingSeriesId.HasValue)
                 {
-                    dbSeries = await _db.Series.FirstAsync(s => s.Id == fullSeries.ExistingSeriesId, token)
+                    dbSeries = await _db.Series.FirstAsync(s => s.Id == ProviderSeriesDetails.ExistingSeriesId, token)
                         .ConfigureAwait(false);
-                    fullSeries.StorageFolderPath = dbSeries.StoragePath;
+                    ProviderSeriesDetails.StorageFolderPath = dbSeries.StoragePath;
                 }
                 else
                 {
-                    dbSeries = await FindExistingSeriesAsync(fullSeries, settings, paths, token);
+                    dbSeries = await FindExistingSeriesAsync(ProviderSeriesDetails, settings, paths, token);
                     if (dbSeries != null)
                         existingThumb = dbSeries.ThumbnailUrl;
                 }
@@ -86,14 +91,13 @@ namespace KaizokuBackend.Services.Series
                         .ToListAsync(token).ConfigureAwait(false);
                 }
 
-                existingProviders = ProcessSeriesProviders(fullSeries, existingProviders);
+                existingProviders = await ProcessSeriesProvidersAsync(ProviderSeriesDetails, existingProviders, token).ConfigureAwait(false);
 
                 dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, existingProviders,
-                    fullSeries.StorageFolderPath, fullSeries.DisableJobs, token).ConfigureAwait(false);
+                    ProviderSeriesDetails.StorageFolderPath, ProviderSeriesDetails.DisableJobs, ProviderSeriesDetails.StartChapter, token).ConfigureAwait(false);
                 
                 existingProviders.ForEach(a => a.SeriesId = dbSeries.Id);
-                existingProviders.CalculateContinueAfterChapter();
-                
+                existingProviders.CalculateContinueAfterChapter(ProviderSeriesDetails.StartChapter);
                 await _providerService.CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(
                     existingProviders, [], token).ConfigureAwait(false);
                 
@@ -103,7 +107,7 @@ namespace KaizokuBackend.Services.Series
                 await _providerService.RescheduleIfNeededAsync(existingProviders, true, dbSeries.PauseDownloads, token)
                     .ConfigureAwait(false);
                 
-                await dbSeries.SaveKaizokuInfoToDirectoryAsync(
+                await dbSeries.SaveImportSeriesSnapshotToDirectoryAsync(
                     Path.Combine(settings.StorageFolder, dbSeries.StoragePath), _logger, token);
                 
                 if (existingThumb != dbSeries.ThumbnailUrl)
@@ -126,33 +130,33 @@ namespace KaizokuBackend.Services.Series
         /// <param name="series">Series information to update</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>Updated series extended information</returns>
-        public async Task<SeriesExtendedInfo> UpdateSeriesAsync(SeriesExtendedInfo series, CancellationToken token = default)
+        public async Task<SeriesExtendedDto> UpdateSeriesAsync(SeriesExtendedDto series, CancellationToken token = default)
         {
             if (series == null || series.Id == Guid.Empty)
             {
                 throw new ArgumentException("Invalid series data provided for update");
             }
 
-            Models.Database.Series? dbSeries = await _db.Series.Include(s => s.Sources)
+            Models.Database.SeriesEntity? dbSeries = await _db.Series.Include(s => s.Sources)
                 .FirstOrDefaultAsync(s => s.Id == series.Id, token).ConfigureAwait(false);
             if (dbSeries == null)
             {
                 throw new KeyNotFoundException($"Series with ID {series.Id} not found");
             }
 
-            Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             string existingThumb = dbSeries.ThumbnailUrl;
 
             // Update provider settings
             UpdateProviderSettings(series, dbSeries);
 
-            List<int> deletedSources = await _providerService.DeleteSourcesIfNeededAsync(series, dbSeries, token)
+            List<string> deletedSources = await _providerService.DeleteSourcesIfNeededAsync(series, dbSeries, token)
                 .ConfigureAwait(false);
             
             dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, dbSeries.Sources.ToList(),
-                dbSeries.StoragePath, dbSeries.PauseDownloads, token);
+                dbSeries.StoragePath, dbSeries.PauseDownloads, series.StartFromChapter, token);
             
-            dbSeries.Sources.CalculateContinueAfterChapter();
+            dbSeries.Sources.CalculateContinueAfterChapter(series.StartFromChapter);
             dbSeries.PauseDownloads = series.PausedDownloads;
             
             _db.Series.Update(dbSeries);
@@ -165,7 +169,7 @@ namespace KaizokuBackend.Services.Series
             await _providerService.RescheduleIfNeededAsync(dbSeries.Sources, true, series.PausedDownloads, token)
                 .ConfigureAwait(false);
             
-            await dbSeries.SaveKaizokuInfoToDirectoryAsync(
+            await dbSeries.SaveImportSeriesSnapshotToDirectoryAsync(
                 Path.Combine(settings.StorageFolder, dbSeries.StoragePath), _logger, token);
             
             if (existingThumb != dbSeries.ThumbnailUrl)
@@ -173,7 +177,7 @@ namespace KaizokuBackend.Services.Series
                 await _archiveHelper.WriteComicThumbnailAsync(dbSeries, token).ConfigureAwait(false);
             }
 
-            return dbSeries.ToSeriesExtendedInfo(_baseUrl, settings);
+            return dbSeries.ToSeriesExtendedInfo(settings);
         }
 
         /// <summary>
@@ -184,25 +188,28 @@ namespace KaizokuBackend.Services.Series
         /// <param name="token">Cancellation token</param>
         public async Task DeleteSeriesAsync(Guid id, bool alsoPhysical, CancellationToken token = default)
         {
-            Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             if (id == Guid.Empty)
             {
                 throw new ArgumentException("Invalid Series Guid provided for delete");
             }
 
-            Models.Database.Series? dbSeries = await _db.Series.Include(s => s.Sources)
+            Models.Database.SeriesEntity? dbSeries = await _db.Series.Include(s => s.Sources)
                 .FirstOrDefaultAsync(s => s.Id == id, token).ConfigureAwait(false);
             if (dbSeries == null)
             {
                 throw new KeyNotFoundException($"Series with ID {id} not found");
             }
 
-            List<int> deletedSeries = dbSeries.Sources.Select(a => a.SuwayomiId).ToList();
+            List<string> deletedSeries = dbSeries.Sources
+                .Select(a => a.MihonId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToList();
             
             if (alsoPhysical)
                 dbSeries.DeletePhysicalSeries(settings, _logger);
             
-            foreach (SeriesProvider p in dbSeries.Sources)
+            foreach (SeriesProviderEntity p in dbSeries.Sources)
             {
                 await _providerService.RescheduleIfNeededAsync([p], false, true, token).ConfigureAwait(false);
             }
@@ -217,71 +224,79 @@ namespace KaizokuBackend.Services.Series
 
         
 
+
         /// <summary>
         /// Updates a source with latest series information (moved from SeriesUpdateService)
         /// </summary>
-        public async Task<JobResult> UpdateSourceAsync(SuwayomiSource source, CancellationToken token)
+        public async Task<JobResult> UpdateSourceAsync(string mihonProviderId, CancellationToken token)
         {
             try
             {
-                Dictionary<int, (DateTime, SuwayomiChapter?)> latestDates = await _db.LatestSeries.Where(a => a.SuwayomiSourceId == source.Id).ToDictionaryAsync(a => a.SuwayomiId, a => (a.FetchDate, a.Chapters.OrderByDescending(b => b.Index).FirstOrDefault()), token).ConfigureAwait(false);
-                ConcurrentDictionary<int, ComboSeries> newChaps = [];
+                Dictionary<string, (DateTime, Manga?, ParsedChapter?)> latestDates = await _db.LatestSeries.Where(a => a.MihonProviderId == mihonProviderId).ToDictionaryAsync(a => a.MihonId, a => (a.FetchDate, a.ToManga(), a.Chapters.OrderByDescending(b => b.Index).FirstOrDefault()), token).ConfigureAwait(false);
+                ConcurrentDictionary<string, ComboSeries> newChaps = [];
                 int page = 1;
                 bool upToDate = false;
                 bool neverDone = latestDates.Count == 0;
-
+                ISourceInterop src;
+                try
+                {
+                    src = await _mihon.SourceFromProviderIdAsync(mihonProviderId, token).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Unable to get Latest Series from {mihonProviderId}", mihonProviderId);
+                    return JobResult.Failed;
+                }
+                string provider = src.Name + " (" + src.Language + ")";
+                _logger.LogInformation("Updating Latest Series from Provider {provider}...", provider);
                 do
                 {
-                    SuwayomiGraphQLSeriesResult? res = await _suwayomi.GetLatestAsync(source.Id, page, token);
-                    if (res == null)
-                    {
-                        _logger.LogError("Unable to get Latest Series from {Name}:{Lang}", source.Name, source.Lang);
+                    MangaList? res;
+                    res = await _mihon.MihonErrorWrapperAsync(
+                        () => src.GetLatestAsync(page, token),
+                        "Unable to get Latest Series from {provider}", provider).ConfigureAwait(false);
+                    if (res==null)
                         return JobResult.Failed;
-                    }
 
-                    Models.Settings s = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+                    SettingsDto s = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
                     await Parallel.ForEachAsync(res.Mangas, new ParallelOptions
-                        {
-                            CancellationToken = token,
-                            MaxDegreeOfParallelism = s.NumberOfSimultaneousDownloadsPerProvider
-                        },
+                    {
+                        CancellationToken = token,
+                        MaxDegreeOfParallelism = s.NumberOfSimultaneousDownloadsPerProvider
+                    },
                         async (ss, b) =>
                         {
                             if (upToDate)
                                 return;
                             ComboSeries s = new ComboSeries();
-                            s.Id = ss.Id;
-                            if (!latestDates.TryGetValue(ss.Id, out (DateTime, SuwayomiChapter?) value) ||
+                            string mihonId = mihonProviderId + "|" + ss.Url;
+                            s.MihonId= mihonId;
+                            if (!latestDates.TryGetValue(mihonId, out (DateTime, Manga?, ParsedChapter?) value) ||
                                 (value.Item1.AddDays(7) < DateTime.UtcNow))
                             {
-                                s.Series = await _suwayomi.GetFullSeriesDataAsync(ss.Id, true, token)
-                                    .ConfigureAwait(false);
+                                s.Series = await _mihon.MihonErrorWrapperAsync(
+                                    () => src.GetDetailsAsync(ss, token),
+                                    "Unable to get Series {Title} from {provider}", ss.Title, provider).ConfigureAwait(false);
                                 if (s.Series == null)
-                                {
-                                    _logger.LogWarning("Unable to get Series {Title} from {Name}:{Lang}", ss.Title,
-                                        source.Name, source.Lang);
                                     return;
-                                }
-
-                                newChaps[s.Id] = s;
+                                newChaps[mihonId] = s;
                             }
 
-                            List<SuwayomiChapter>? chaps =
-                                await _suwayomi.GetChaptersAsync(ss.Id, true, token).ConfigureAwait(false);
+                            List<ParsedChapter>? chaps = await _mihon.MihonErrorWrapperAsync(
+                                () => src.GetChaptersAsync(ss, token),
+                                "Unable to get Series {Title} Chapters from {provider}", ss.Title, provider).ConfigureAwait(false);
                             if (chaps == null)
                             {
-                                _logger.LogWarning("Unable to get Series {Title} Chapters from {Name}:{Lang}", ss.Title,
-                                    source.Name, source.Lang);
-                                newChaps.Remove(ss.Id, out _);
+                                newChaps.Remove(mihonId, out _);
                                 return;
                             }
 
                             s.Chapters = chaps;
-                            SuwayomiChapter? latest_online = chaps.OrderByDescending(a => a.Index).FirstOrDefault();
-                            if (latest_online != null && latestDates.TryGetValue(s.Id, out (DateTime, SuwayomiChapter?) value2) && value2.Item2 != null)
+                            ParsedChapter? latest_online = chaps.OrderByDescending(a => a.Index).FirstOrDefault();
+                            if (latest_online != null && latestDates.TryGetValue(mihonId, out (DateTime, Manga?, ParsedChapter?) value2) && value2.Item2 != null && value2.Item3!=null)
                             {
-                                if ((latestDates[s.Id].Item2!.Index >= latest_online.Index) &&
-                                    (latestDates[s.Id].Item2!.UploadDate >= latest_online.UploadDate))
+                                if ((latestDates[mihonId].Item3!.Index >= latest_online.Index) &&
+                                    (latestDates[mihonId].Item3!.DateUpload >= latest_online.DateUpload))
                                 {
                                     upToDate = true;
                                 }
@@ -292,34 +307,38 @@ namespace KaizokuBackend.Services.Series
                     page++;
                 } while (!upToDate && !neverDone);
 
-                List<int> ids = newChaps.Keys.ToList();
-                List<LatestSerie> toUpdate = await _db.LatestSeries.Where(a => ids.Contains(a.SuwayomiId)).ToListAsync(token).ConfigureAwait(false);
-                List<(LatestSerie, SeriesProvider)> toCheck = [];
-                
+                List<string> ids = newChaps.Keys.ToList();
+                List<LatestSerieEntity> toUpdate = await _db.LatestSeries.Where(a => ids.Contains(a.MihonId)).ToListAsync(token).ConfigureAwait(false);
+                List<(LatestSerieEntity, SeriesProviderEntity)> toCheck = [];
+
                 foreach (ComboSeries c in newChaps.Values)
                 {
-                    LatestSerie? s = toUpdate.FirstOrDefault(a => a.SuwayomiId == c.Id);
+                    LatestSerieEntity? s = toUpdate.FirstOrDefault(a => a.MihonId == c.MihonId);
                     if (s == null)
                     {
-                        s = new LatestSerie();
+                        s = new LatestSerieEntity();
+                        s.MihonId = c.MihonId;
+                        s.MihonProviderId = mihonProviderId;
                         _db.LatestSeries.Add(s);
                     }
                     if (c.Series != null)
-                        s.PopulateSeries(source, c.Series);
+                    {
+                        await s.PopulateSeriesAsync(src, c.Series, _cache).ConfigureAwait(false);
+                    }
                     s.Chapters = c.Chapters;
-                    SuwayomiChapter? latest_online = s.Chapters.OrderByDescending(a => a.Index).FirstOrDefault();
-                    DateTime latestUTC = DateTimeOffset.FromUnixTimeMilliseconds(latest_online?.UploadDate ?? 0).DateTime;
+                    ParsedChapter? latest_online = s.Chapters.OrderByDescending(a => a.Index).FirstOrDefault();
+                    DateTime latestUTC = (latest_online?.DateUpload ?? DateTime.MinValue).DateTime;
 
                     if (latestUTC > DateTime.UtcNow || latestUTC.AddMonths(1) < DateTime.UtcNow)
                     {
                         latestUTC = DateTime.UtcNow;
                     }
                     s.FetchDate = latestUTC;
-                    s.LatestChapter = latest_online?.ChapterNumber;
+                    s.LatestChapter = latest_online?.ParsedNumber ?? -1.0m;
                     s.ChapterCount = s.Chapters.Count;
                     s.LatestChapterTitle = latest_online?.Name ?? "";
-                    SeriesProvider? serie = await _db.SeriesProviders
-                        .Where(a => a.SuwayomiId == s.SuwayomiId).AsNoTracking()
+                    SeriesProviderEntity? serie = await _db.SeriesProviders
+                        .Where(a => a.MihonId == s.MihonId).AsNoTracking()
                         .FirstOrDefaultAsync(token).ConfigureAwait(false);
                     s.InLibrary = InLibraryStatus.NotInLibrary;
                     if (serie != null)
@@ -338,7 +357,7 @@ namespace KaizokuBackend.Services.Series
 
                 foreach (var u in toCheck)
                 {
-                    Models.Database.Series series = await _db.Series.Include(a => a.Sources)
+                    Models.Database.SeriesEntity series = await _db.Series.Include(a => a.Sources)
                         .Where(a => a.Id == u.Item2.SeriesId).AsNoTracking().FirstAsync(token).ConfigureAwait(false);
                     if (!series.PauseDownloads)
                     {
@@ -349,6 +368,7 @@ namespace KaizokuBackend.Services.Series
                         }
                     }
                 }
+                _logger.LogInformation("Latest Series update from Provider {provider} complete.", provider);
 
                 return JobResult.Success;
             }
@@ -359,12 +379,13 @@ namespace KaizokuBackend.Services.Series
             }
         }
 
+
         /// <summary>
         /// Downloads/updates a specific series provider (moved from SeriesUpdateService)
         /// </summary>
-        public async Task<JobResult> DownloadSeriesAsync(Guid seriesProvider, CancellationToken token = default)
+        public async Task<JobResult> GetChaptersAsync(Guid seriesProvider, CancellationToken token = default)
         {
-            SeriesProvider? serie = await _db.SeriesProviders.Where(s => s.Id == seriesProvider).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
+            SeriesProviderEntity? serie = await _db.SeriesProviders.Where(s => s.Id == seriesProvider).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
             if (serie == null)
             {
                 _logger.LogWarning("Series Provider {SeriesProvider} no longer exists", seriesProvider);
@@ -375,24 +396,53 @@ namespace KaizokuBackend.Services.Series
                 _logger.LogWarning("Series Provider {SeriesProvider} is disabled or uninstalled", seriesProvider);
                 return JobResult.Failed;
             }
+            if (string.IsNullOrEmpty(serie.MihonProviderId))
+            {
+                _logger.LogWarning("Series Provider {SeriesProvider} has no longer valid Mihon Id", seriesProvider);
+                return JobResult.Failed;
+            }
             var series = await _db.Series.Include(a => a.Sources).Where(s => s.Id == serie.SeriesId).AsNoTracking().FirstAsync(token).ConfigureAwait(false);
-            var chapterData = await _suwayomi.GetChaptersAsync(serie.SuwayomiId, true, token).ConfigureAwait(false);
+            List<ParsedChapter>? chapterData;
+
+            ISourceInterop src;
+            try
+            {
+                src = await _mihon.SourceFromProviderIdAsync(serie.MihonProviderId!, token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Unable to get Chapter from {mihonProviderId}", serie.MihonProviderId);
+                return JobResult.Failed;
+            }
+            
+            string provider = src.Name + " (" + src.Language + ")";
+            _logger.LogInformation("Getting chapters from Series {series} Provider {provider}", serie.Title, provider);
+            chapterData = await _mihon.MihonErrorWrapperAsync(
+                     () => src.GetChaptersAsync(serie.ToManga()!, token),
+                     "Unable to get Chapters from {series} from {provider}", serie.Title, provider).ConfigureAwait(false);
+            if (chapterData == null)
+                return JobResult.Failed;
+            if (chapterData.Count == 0)
+            {
+                _logger.LogWarning("Series {series} from Provider {provider} has no chapters.", serie.Title, provider);
+                return JobResult.Failed;
+            }
             List<ChapterDownload> chaps = series.GenerateDownloadsFromChapterData(serie, chapterData);
             return await _downloadCommand.QueueChapterDownloadsAsync(serie, chaps, token).ConfigureAwait(false);
-        }
 
-        // Private helper methods
-        private async Task<Models.Database.Series?> FindExistingSeriesAsync(AugmentedResponse fullSeries, 
-            Models.Settings settings, Dictionary<string, Guid> paths, CancellationToken token)
+        }
+       // Private helper methods
+        private async Task<Models.Database.SeriesEntity?> FindExistingSeriesAsync(AugmentedResponseDto ProviderSeriesDetails,
+            SettingsDto settings, Dictionary<string, Guid> paths, CancellationToken token)
         {
-            if (fullSeries.StorageFolderPath.StartsWith(settings.StorageFolder))
-                fullSeries.StorageFolderPath = fullSeries.StorageFolderPath[settings.StorageFolder.Length..]
+            if (ProviderSeriesDetails.StorageFolderPath.StartsWith(settings.StorageFolder))
+                ProviderSeriesDetails.StorageFolderPath = ProviderSeriesDetails.StorageFolderPath[settings.StorageFolder.Length..]
                     .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            fullSeries.StorageFolderPath = settings.StorageFolder.GetActualDirectoryPathCaseInsensitive(
-                fullSeries.StorageFolderPath);
+            ProviderSeriesDetails.StorageFolderPath = settings.StorageFolder.GetActualDirectoryPathCaseInsensitive(
+                ProviderSeriesDetails.StorageFolderPath);
 
-            if (paths.TryGetValue(fullSeries.StorageFolderPath, out Guid id))
+            if (paths.TryGetValue(ProviderSeriesDetails.StorageFolderPath, out Guid id))
             {
                 return await _db.Series.FirstOrDefaultAsync(s => s.Id == id, token).ConfigureAwait(false);
             }
@@ -403,7 +453,7 @@ namespace KaizokuBackend.Services.Series
             
             foreach (var n in allProvs)
             {
-                foreach (var ser in fullSeries.Series)
+                foreach (var ser in ProviderSeriesDetails.Series)
                 {
                     if (n.Title.AreStringSimilar(ser.Title, 0))
                     {
@@ -416,13 +466,13 @@ namespace KaizokuBackend.Services.Series
             return null;
         }
 
-        private List<SeriesProvider> ProcessSeriesProviders(AugmentedResponse fullSeries, List<SeriesProvider> existingProviders)
+        private async Task<List<SeriesProviderEntity>> ProcessSeriesProvidersAsync(AugmentedResponseDto ProviderSeriesDetails, List<SeriesProviderEntity> existingProviders, CancellationToken token = default)
         {
-            List<ProviderInfo> pInfos = fullSeries.LocalInfo?.Providers ?? [];
+            List<ImportProviderSnapshot> pInfos = ProviderSeriesDetails.LocalInfo?.Providers ?? [];
 
-            foreach (var fs in fullSeries.Series)
+            foreach (var fs in ProviderSeriesDetails.Series)
             {
-                ProviderInfo? pInfo = FindMatchingProviderInfo(pInfos, fs);
+                ImportProviderSnapshot? pInfo = FindMatchingImportProviderSnapshot(pInfos, fs);
                 if (pInfo != null)
                     pInfos.Remove(pInfo);
 
@@ -436,11 +486,11 @@ namespace KaizokuBackend.Services.Series
                     _logger.LogInformation("Found existing Provider for '{Title}': {Lang}/{provider}.",
                         fs.Title, fs.Lang, provider);
                     
-                    InternalCreateOrUpdateProviderFromFullSeries(fs, existingProvider);
+                    await InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(fs, existingProvider, token).ConfigureAwait(false);
                 }
                 else
                 {
-                    existingProvider = InternalCreateOrUpdateProviderFromFullSeries(fs);
+                    existingProvider = await InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(fs,null, token).ConfigureAwait(false);
                     _db.SeriesProviders.Add(existingProvider);
                     existingProviders.Add(existingProvider);
                 }
@@ -453,7 +503,7 @@ namespace KaizokuBackend.Services.Series
             }
 
             // Add remaining provider infos
-            foreach (ProviderInfo p in pInfos)
+            foreach (ImportProviderSnapshot p in pInfos)
             {
                 var nProvider = p.ToSeriesProvider();
                 InternalAssignArchives(nProvider, p.Archives);
@@ -464,9 +514,9 @@ namespace KaizokuBackend.Services.Series
             return existingProviders;
         }
 
-        private static ProviderInfo? FindMatchingProviderInfo(List<ProviderInfo> pInfos, FullSeries fs)
+        private static ImportProviderSnapshot? FindMatchingImportProviderSnapshot(List<ImportProviderSnapshot> pInfos, ProviderSeriesDetails fs)
         {
-            foreach (ProviderInfo p in pInfos)
+            foreach (ImportProviderSnapshot p in pInfos)
             {
                 if (string.IsNullOrEmpty(p.Scanlator))
                 {
@@ -490,11 +540,11 @@ namespace KaizokuBackend.Services.Series
             return null;
         }
 
-        private static void UpdateProviderSettings(SeriesExtendedInfo series, Models.Database.Series dbSeries)
+        private static void UpdateProviderSettings(SeriesExtendedDto series, Models.Database.SeriesEntity dbSeries)
         {
-            foreach (ProviderExtendedInfo p in series.Providers)
+            foreach (ProviderExtendedDto p in series.Providers)
             {
-                SeriesProvider? n = dbSeries.Sources.FirstOrDefault(a => a.Id == p.Id);
+                SeriesProviderEntity? n = dbSeries.Sources.FirstOrDefault(a => a.Id == p.Id);
                 if (n == null)
                     continue;
                 
@@ -502,50 +552,50 @@ namespace KaizokuBackend.Services.Series
                 n.IsStorage = p.IsStorage;
                 n.IsTitle = p.UseTitle;
                 n.IsCover = p.UseCover;
+                n.IsLocal = p.IsLocal;
                 n.ContinueAfterChapter = p.ContinueAfterChapter;
             }
         }
 
-        private void InternalAssignArchives(SeriesProvider provider, List<ArchiveInfo>? archives)
+        private void InternalAssignArchives(SeriesProviderEntity provider, List<ProviderArchiveSnapshot>? archives)
         {
             provider.AssignArchives(archives);
             _db.Touch(provider, e => e.Chapters);
         }
 
-        private SeriesProvider InternalCreateOrUpdateProviderFromFullSeries(FullSeries fs, SeriesProvider? provider = null)
+        private async Task<SeriesProviderEntity> InternalCreateOrUpdateProviderFromProviderSeriesDetailsAsync(ProviderSeriesDetails fs, SeriesProviderEntity? provider = null, CancellationToken token = default)
         {
-            provider = fs.CreateOrUpdate(provider);
+            provider = await fs.CreateOrUpdateAsync(_cache, provider, token).ConfigureAwait(false);
             _db.Touch(provider, e => e.Chapters);
             return provider;
         }
 
-        private async Task<Models.Database.Series> ConsolidateDBSeriesFromProvidersAsync(Models.Database.Series? dbSeries,
-            List<SeriesProvider> providers, string path, bool startDisabled, CancellationToken token = default)
+        private async Task<Models.Database.SeriesEntity> ConsolidateDBSeriesFromProvidersAsync(Models.Database.SeriesEntity? dbSeries,
+            List<SeriesProviderEntity> providers, string path, bool startDisabled, decimal? startFromChapter, CancellationToken token = default)
         {
-            var consolidatedSeries = providers.ToFullSeries();
+            var consolidatedSeries = providers.ToProviderSeriesDetails();
             
             if (dbSeries != null)
             {
-                dbSeries.FillSeriesFromFullSeries(consolidatedSeries);
+                dbSeries.FillSeriesFromProviderSeriesDetails(consolidatedSeries, startFromChapter);
             }
             else
             {
                 dbSeries = consolidatedSeries.ToSeries(path);
                 dbSeries.PauseDownloads = startDisabled;
+                dbSeries.StartFromChapter = startFromChapter;
                 await _db.Series.AddAsync(dbSeries, token).ConfigureAwait(false);
             }
 
             return dbSeries;
         }
-
-        /// <summary>
-        /// Internal class for managing series and chapter combinations during updates (moved from SeriesUpdateService)
-        /// </summary>
         private class ComboSeries
         {
-            public int Id { get; set; }
-            public SuwayomiSeries? Series { get; set; }
-            public List<SuwayomiChapter> Chapters { get; set; } = [];
+            public string MihonId { get; set; }
+            public ParsedManga? Series { get; set; }
+            public List<ParsedChapter> Chapters { get; set; } = [];
         }
+
     }
 }
+

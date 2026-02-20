@@ -1,4 +1,6 @@
-﻿using System.Text.Json.Serialization;
+﻿using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using System.Text.Json.Serialization;
 
 namespace KaizokuBackend.Models;
 
@@ -10,9 +12,8 @@ public class ProgressState
     [JsonPropertyName("jobType")]
     public JobType JobType { get; set; }
 
-    [JsonPropertyName("parameter")]
-    public object? Parameter { get; set; } = null;
-
+    [JsonPropertyName("download")]
+    public DownloadCardInfoDto? Download { get; set; }
 
     [JsonPropertyName("progressStatus")]
     public ProgressStatus ProgressStatus { get; set; }

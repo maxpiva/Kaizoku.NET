@@ -1,5 +1,4 @@
 using KaizokuBackend.Data;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Services.Jobs.Settings;
@@ -7,6 +6,8 @@ using KaizokuBackend.Services.Jobs.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 using System.Text.Json;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Downloads
 {
@@ -32,10 +33,10 @@ namespace KaizokuBackend.Services.Downloads
         /// <param name="seriesId">Series identifier</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of download information for the series</returns>
-        public async Task<List<DownloadInfo>> GetDownloadsForSeriesAsync(Guid seriesId, CancellationToken token = default)
+        public async Task<List<DownloadInfoDto>> GetDownloadsForSeriesAsync(Guid seriesId, CancellationToken token = default)
         {
             string extraKey = seriesId.ToString();
-            List<Enqueue> result = await _db.Queues.Where(a => a.JobType == JobType.Download && a.ExtraKey == extraKey).ToListAsync(token);
+            List<EnqueueEntity> result = await _db.Queues.Where(a => a.JobType == JobType.Download && a.ExtraKey == extraKey).ToListAsync(token);
             return result.Select(a=>a.ToDownloadInfo()).Where(a => a != null).OrderBy(a => a!.ScheduledDateUTC).ToList()!;
         }
 
@@ -44,9 +45,9 @@ namespace KaizokuBackend.Services.Downloads
         /// </summary>
         /// <param name="token">Cancellation token</param>
         /// <returns>Download metrics</returns>
-        public async Task<DownloadsMetrics> GetDownloadsMetricsAsync(CancellationToken token = default)
+        public async Task<DownloadsMetricsDto> GetDownloadsMetricsAsync(CancellationToken token = default)
         {
-            DownloadsMetrics dm = new DownloadsMetrics();
+            DownloadsMetricsDto dm = new DownloadsMetricsDto();
             dm.Downloads = await _db.Queues.CountAsync(a => a.JobType == JobType.Download && a.Status == QueueStatus.Running, token).ConfigureAwait(false);
             dm.Queued = await _db.Queues.CountAsync(a => a.JobType == JobType.Download && a.Status == QueueStatus.Waiting, token).ConfigureAwait(false);
             dm.Failed = await _db.Queues.CountAsync(a => a.JobType == JobType.Download && a.Status == QueueStatus.Failed, token).ConfigureAwait(false);
@@ -74,14 +75,14 @@ namespace KaizokuBackend.Services.Downloads
         /// <param name="maxCount">Maximum number of downloads to return</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of downloads with the specified status</returns>
-        public async Task<DownloadInfoList> GetDownloadsAsync(QueueStatus status, int maxCount, string? keyword, CancellationToken token = default)
+        public async Task<DownloadInfoListDto> GetDownloadsAsync(QueueStatus status, int maxCount, string? keyword, CancellationToken token = default)
         {
-            DownloadInfoList ls = new DownloadInfoList();
-            Expression<Func<Enqueue, bool>> where = a => a.JobType == JobType.Download && a.Status == status;
+            DownloadInfoListDto ls = new DownloadInfoListDto();
+            Expression<Func<EnqueueEntity, bool>> where = a => a.JobType == JobType.Download && a.Status == status;
             if (keyword != null)
                 where = a => a.JobType == JobType.Download && a.Status == status && a.JobParameters!.Contains(keyword);
             ls.TotalCount = await _db.Queues.CountAsync(where, token);
-            List<Enqueue> result = [];
+            List<EnqueueEntity> result = [];
             
             switch (status)
             {
@@ -94,7 +95,7 @@ namespace KaizokuBackend.Services.Downloads
                     break;
                 case QueueStatus.Waiting:
                     DateTime now = DateTime.UtcNow;
-                    Expression<Func<Enqueue, bool>> where2 = CombineAnd(where, a => a.ScheduledDate <= now);
+                    Expression<Func<EnqueueEntity, bool>> where2 = CombineAnd(where, a => a.ScheduledDate <= now);
                     result = await GetEnqueueForAsync(where2, maxCount, token);
                     if (result.Count < maxCount)
                     {
@@ -102,7 +103,7 @@ namespace KaizokuBackend.Services.Downloads
                         // If we have less than maxCount, we can add more from the waiting queue
                         where2 = CombineAnd(where, a => a.ScheduledDate > now);
                         int remaining = maxCount - result.Count;
-                        List<Enqueue> additional = await GetEnqueueForAsync(where2, remaining, token);
+                        List<EnqueueEntity> additional = await GetEnqueueForAsync(where2, remaining, token);
                         result.AddRange(additional);
                     }
                     break;
@@ -121,7 +122,7 @@ namespace KaizokuBackend.Services.Downloads
         /// <param name="maxCount">Maximum count to return</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>List of enqueued jobs</returns>
-        private async Task<List<Enqueue>> GetEnqueueForAsync(Expression<Func<Enqueue, bool>> where, int maxCount, CancellationToken token = default)
+        private async Task<List<EnqueueEntity>> GetEnqueueForAsync(Expression<Func<EnqueueEntity, bool>> where, int maxCount, CancellationToken token = default)
         {
             QueueSettings queueEntry = _jobSettings.GetQueueSettings().First(a => a.Name == JobQueues.Downloads);
             var maxGroupLimit = queueEntry.MaxPerGroup;
@@ -132,13 +133,13 @@ namespace KaizokuBackend.Services.Downloads
                 .Where(where)
                 .OrderByDescending(j => j.Priority).ThenBy(a => a.ScheduledDate).ToListAsync(token).ConfigureAwait(false);
             
-            Dictionary<Priority, List<Enqueue>> jobsByPriority = jobs
+            Dictionary<Priority, List<EnqueueEntity>> jobsByPriority = jobs
                 .GroupBy(j => j.Priority)
                 .ToDictionary(g => g.Key, g => g.ToList());
             
             foreach (Priority p in jobsByPriority.Keys)
             {
-                Dictionary<string, List<Enqueue>> prin = jobsByPriority[p]
+                Dictionary<string, List<EnqueueEntity>> prin = jobsByPriority[p]
                     .GroupBy(a => a.GroupKey)
                     .ToDictionary(g => g.Key, g => g.Take(counts.GetLocalGroupMax(g.Key, 500)).ToList());
                 jobsByPriority[p] = prin.SelectMany(a => a.Value).FairShareOrderBy(a => a.GroupKey).ToList();

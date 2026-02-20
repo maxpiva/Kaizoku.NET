@@ -1,5 +1,6 @@
-﻿using KaizokuBackend.Models;
+using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -19,13 +20,13 @@ namespace KaizokuBackend.Extensions
         };
 
         /// <summary>
-        /// Loads KaizokuInfo from a directory's kaizoku.json file
+        /// Loads ImportSeriesSnapshot from a directory's kaizoku.json file
         /// </summary>
         /// <param name="seriesFolder">Path to the series folder</param>
         /// <param name="logger">Optional logger for error reporting</param>
         /// <param name="token">Cancellation token</param>
-        /// <returns>KaizokuInfo object or null if not found/invalid</returns>
-        public static async Task<KaizokuInfo?> LoadKaizokuInfoFromDirectoryAsync(this string seriesFolder, ILogger? logger = null, CancellationToken token = default)
+        /// <returns>ImportSeriesSnapshot object or null if not found/invalid</returns>
+        public static async Task<ImportSeriesSnapshot?> LoadImportSeriesSnapshotFromDirectoryAsync(this string seriesFolder, ILogger? logger = null, CancellationToken token = default)
         {
             var kaizokuJsonPath = Path.Combine(seriesFolder, "kaizoku.json");
             if (!File.Exists(kaizokuJsonPath))
@@ -36,7 +37,7 @@ namespace KaizokuBackend.Extensions
             try
             {
                 var jsonContent = await File.ReadAllTextAsync(kaizokuJsonPath, token).ConfigureAwait(false);
-                return JsonSerializer.Deserialize<KaizokuInfo>(jsonContent);
+                return JsonSerializer.Deserialize<ImportSeriesSnapshot>(jsonContent);
             }
             catch (Exception ex)
             {
@@ -46,17 +47,19 @@ namespace KaizokuBackend.Extensions
         }
 
         /// <summary>
-        /// Saves KaizokuInfo to a directory's kaizoku.json file
+        /// Saves ImportSeriesSnapshot to a directory's kaizoku.json file
         /// </summary>
-        /// <param name="info">KaizokuInfo object to save</param>
+        /// <param name="info">ImportSeriesSnapshot object to save</param>
         /// <param name="seriesFolder">Path to the series folder</param>
         /// <param name="logger">Optional logger for error reporting</param>
         /// <param name="token">Cancellation token</param>
-        public static async Task SaveKaizokuInfoToDirectoryAsync(this KaizokuInfo info, string seriesFolder, ILogger? logger = null, CancellationToken token = default)
+        public static async Task SaveImportSeriesSnapshotToDirectoryAsync(this ImportSeriesSnapshot info, string seriesFolder, ILogger? logger = null, CancellationToken token = default)
         {
-            var kaizokuJsonPath = Path.Combine(seriesFolder, "kaizoku.json");
             try
             {
+                if (!Directory.Exists(seriesFolder))
+                    Directory.CreateDirectory(seriesFolder);
+                var kaizokuJsonPath = Path.Combine(seriesFolder, "kaizoku.json");
                 var jsonContent = JsonSerializer.Serialize(info, JsonOptions);
                 await File.WriteAllTextAsync(kaizokuJsonPath, jsonContent, token).ConfigureAwait(false);
             }
@@ -67,27 +70,27 @@ namespace KaizokuBackend.Extensions
         }
 
         /// <summary>
-        /// Saves KaizokuInfo to a series directory
+        /// Saves ImportSeriesSnapshot to a series directory
         /// </summary>
         /// <param name="series">The Series entity</param>
         /// <param name="seriesFolder">Path to the series folder</param>
         /// <param name="logger">Optional logger</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>Task</returns>
-        public static Task SaveKaizokuInfoToDirectoryAsync(this Series series, string seriesFolder, ILogger? logger = null, CancellationToken token = default)
+        public static Task SaveImportSeriesSnapshotToDirectoryAsync(this SeriesEntity series, string seriesFolder, ILogger? logger = null, CancellationToken token = default)
         {
-            return series.ToKaizokuInfo().SaveKaizokuInfoToDirectoryAsync(seriesFolder, logger, token);
+            return series.ToImportSeriesSnapshot().SaveImportSeriesSnapshotToDirectoryAsync(seriesFolder, logger, token);
         }
         /// <summary>
         /// Gets an embedded resource stream
         /// </summary>
         /// <param name="resourceName">Name of the embedded resource</param>
         /// <returns>Stream of the resource or null if not found</returns>
-        public static Stream? StreamEmbeddedResource(string resourceName)
+        public static Stream StreamEmbeddedResource(string resourceName)
         {
             var assembly = Assembly.GetExecutingAssembly();
             string resourcePath = $"KaizokuBackend.Resources.{resourceName}";
-            return assembly.GetManifestResourceStream(resourcePath);
+            return assembly.GetManifestResourceStream(resourcePath)!;
         }
         /// <summary>
         /// Builds a storage path for a series based on settings, type, and title
@@ -95,7 +98,7 @@ namespace KaizokuBackend.Extensions
         /// <param name="title">Series title</param>
         /// <param name="type">Series type (optional)</param>
         /// <returns>Full storage path</returns>
-        public static string BuildStoragePath(this string title, string? type, Settings settings)
+        public static string BuildStoragePath(this string title, string? type, SettingsDto settings)
         {
             var baseStorageFolder = settings.StorageFolder;
 
@@ -119,20 +122,6 @@ namespace KaizokuBackend.Extensions
             return path;
         }
 
-        /// <summary>
-        /// Rewrites a SuwayomiSeries thumbnail URL to a Kaizoku path
-        /// </summary>
-        /// <param name="series">The SuwayomiSeries</param>
-        /// <returns>Rewritten path</returns>
-        public static string RewriteToKaizokuPath(this SuwayomiSeries series)
-        {
-            if (series.ThumbnailUrl == null)
-                return "serie/thumb/unknown";
-
-            string thumb = series.ThumbnailUrl[(series.ThumbnailUrl.IndexOf("/manga/", StringComparison.InvariantCulture) + 6)..];
-            thumb = thumb[..thumb.LastIndexOf('/')];
-            return $"serie/thumb{thumb}!{series.ThumbnailUrlLastFetched}";
-        }
 
 
         /// <summary>
@@ -216,11 +205,11 @@ namespace KaizokuBackend.Extensions
             var ret = path;
             foreach (var kvp in ReversePathCharacterMap)
                 ret = ret.Replace(kvp.Key, kvp.Value);
-            ret = ret.Replace("\u2026", "..."); // … → ...
+            ret = ret.Replace("\u2026", "..."); // � ? ...
             return ret.Trim();
         }
 
-        public static void DeletePhysicalSeries(this Series dbSeries, Settings settings, ILogger? logger)
+        public static void DeletePhysicalSeries(this SeriesEntity dbSeries, SettingsDto settings, ILogger? logger)
         {
             if (string.IsNullOrEmpty(dbSeries.StoragePath))
                 return;

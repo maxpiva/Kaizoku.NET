@@ -1,35 +1,37 @@
 ﻿using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
-using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
+using KaizokuBackend.Migration;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Scaffolding;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using Mihon.ExtensionsBridge.Core.Utilities;
+using Mihon.ExtensionsBridge.Models.Abstractions;
+using System.ComponentModel;
 
 namespace KaizokuBackend.Services.Background
 {
     public class StartupHostedService : IHostedService, IDisposable
     {
+        private readonly NouisanceFixer20ExtraLarge _fixes;
         private readonly ILogger<StartupHostedService> _logger;
-        private readonly string _runtimeDir;
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly SuwayomiHostedService _service;
+        private readonly List<Task> _workerTasks = new();
+        private CancellationTokenSource? _workerCts;
         private bool _disposed = false;
-        private bool _do_not_spawn_suwayomi = false;
 
         public StartupHostedService(ILogger<StartupHostedService> logger, 
             IServiceScopeFactory scopeFactory,
-            IConfiguration config, SuwayomiHostedService suwayomi)
+            NouisanceFixer20ExtraLarge fixes,
+            IConfiguration config)
         {
             _logger = logger;
-            _service = suwayomi;
             _scopeFactory = scopeFactory;
-            _runtimeDir = config["runtimeDirectory"] ?? "";
-            _do_not_spawn_suwayomi = config.GetValue<bool>("Suwayomi:UseCustomApi", false);
+            _fixes = fixes;
         }
 
         public void Dispose()
@@ -51,10 +53,10 @@ namespace KaizokuBackend.Services.Background
             }
         }
 
-        public async Task<bool> CheckStorageStatusAsync(AppDbContext db, Models.Settings settings, IHostApplicationLifetime lifetime, CancellationToken token = default)
+        public async Task<bool> CheckStorageStatusAsync(AppDbContext db, SettingsDto settings, IHostApplicationLifetime lifetime, CancellationToken token = default)
         {
 
-            Models.Database.Series? series = await db.Series.AsNoTracking().OrderBy(a=>a.Id).FirstOrDefaultAsync(token).ConfigureAwait(false);
+            Models.Database.SeriesEntity? series = await db.Series.AsNoTracking().OrderBy(a=>a.Id).FirstOrDefaultAsync(token).ConfigureAwait(false);
 
             bool hasArchiveFiles = ArchiveHelperService.ContainsArchiveFilesRecursive(settings.StorageFolder);
             if (!hasArchiveFiles && series!=null)
@@ -85,21 +87,31 @@ namespace KaizokuBackend.Services.Background
             try
             {
 
-                // Start Suwayomi service
-                if (!_do_not_spawn_suwayomi)
-                    await _service.StartAsync(_runtimeDir, cancellationToken).ConfigureAwait(false);
-                
-                // Initialize other services
                 using var scope = _scopeFactory.CreateScope();
+                //Initialize Mihon Bridge
+                var mihon = scope.ServiceProvider.GetRequiredService<IBridgeManager>();
+                await mihon.InitializeAsync(cancellationToken);
+
+
+              
+
+                //Run migration if needed
+                var migration = scope.ServiceProvider.GetRequiredService<MigrationService>();
+                await migration.RunAsync(cancellationToken).ConfigureAwait(false);
+
+
+                // Initialize other services
                 var settingsService = scope.ServiceProvider.GetRequiredService<SettingsService>();
                 var providerCacheService = scope.ServiceProvider.GetRequiredService<ProviderCacheService>();
                 
                 // Load settings
-                Models.Settings settings = await settingsService.GetSettingsAsync(cancellationToken).ConfigureAwait(false);
+                SettingsDto settings = await settingsService.GetSettingsAsync(cancellationToken).ConfigureAwait(false);
                 settingsService.SetThreadSettings(settings);
                 await settingsService.SetTimesSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
                 AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
+                await _fixes.FixThumbnailsOfSeriesWithMissingThumbnailsAsync(cancellationToken).ConfigureAwait(false);
+
                 IHostApplicationLifetime lifetime = scope.ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
                 JobManagementService jobManagement = scope.ServiceProvider.GetRequiredService<JobManagementService>();
                 _logger.LogInformation("Checking Storage folder Status...");
@@ -107,13 +119,17 @@ namespace KaizokuBackend.Services.Background
                 if (save)
                     await settingsService.SaveSettingsAsync(settings, true, cancellationToken).ConfigureAwait(false);
                 // Cache providers
-                _logger.LogInformation("Syncing Mihon Extensions Preferences, this could take a little...");
-                await providerCacheService.RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Syncing Mihon Extensions Preferences.");
+                await providerCacheService.RefreshCacheAsync(false, cancellationToken).ConfigureAwait(false);
                 var jobs = await jobManagement.GetRecurringJobsByTypeAsync(JobType.DailyUpdate, cancellationToken).ConfigureAwait(false);
                 if (jobs.Count == 0)
                 {
                     await jobManagement.ScheduleRecurringJobAsync(JobType.DailyUpdate, (string?)null,null, null,false, TimeSpan.FromDays(1),Priority.Normal, cancellationToken).ConfigureAwait(false);
                 }
+                _workerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var workerToken = _workerCts.Token;
+                _workerTasks.Add(StartWorker<JobQueueHostedService>(workerToken));
+                _workerTasks.Add(StartWorker<JobScheduledHostedService>(workerToken));
             }
             catch (Exception ex)
             {
@@ -122,19 +138,48 @@ namespace KaizokuBackend.Services.Background
             }
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken)
+        private Task StartWorker<TWorker>(CancellationToken workerToken) where TWorker : IWorkerService
         {
-            try
+            var task = Task.Run(async () =>
             {
-                
-                // Stop Suwayomi service gracefully
-                await _service.StopAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
+                using var scope = _scopeFactory.CreateScope();
+                var worker = scope.ServiceProvider.GetRequiredService<TWorker>();
+                try
+                {
+                    await worker.ExecuteAsync(workerToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Worker crashed");
+                }
+            });
+            return task;
+        }
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            if (_workerCts == null)
+                return Task.CompletedTask;
+
+            _workerCts.Cancel();
+
+            return Task.Run(async () =>
             {
-                _logger.LogError(ex, "Error stopping Startup Hosted Service");
-                throw;
-            }
+                try
+                {
+                    await Task.WhenAll(_workerTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // host is shutting down, swallow cancellation
+                }
+                finally
+                {
+                    _workerCts.Dispose();
+                    _workerCts = null;
+                    _workerTasks.Clear();
+                }
+            }, CancellationToken.None);
         }
     }
 }

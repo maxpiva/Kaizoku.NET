@@ -1,7 +1,9 @@
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Settings;
+using System.Text.Json;
 
 namespace KaizokuBackend.Services.Jobs
 {
@@ -24,7 +26,7 @@ namespace KaizokuBackend.Services.Jobs
 
         #region Series Provider Job Management
 
-        public async Task ManageSeriesProviderJobAsync(SeriesProvider provider, bool runNow = false, 
+        public async Task ManageSeriesProviderJobAsync(SeriesProviderEntity provider, bool runNow = false, 
             bool forceDisable = false, CancellationToken token = default)
         {
             string groupKey = BuildProviderGroupKey(provider);
@@ -42,7 +44,7 @@ namespace KaizokuBackend.Services.Jobs
             }
         }
 
-        public async Task DeleteSeriesProviderJobAsync(SeriesProvider provider, CancellationToken token = default)
+        public async Task DeleteSeriesProviderJobAsync(SeriesProviderEntity provider, CancellationToken token = default)
         {
             await _jobManagement.DeleteRecurringJobAsync(JobType.GetChapters, provider.Id.ToString(), token)
                 .ConfigureAwait(false);
@@ -54,7 +56,7 @@ namespace KaizokuBackend.Services.Jobs
 
         public async Task ManageExtensionUpdatesAsync(bool enable, CancellationToken token = default)
         {
-            KaizokuBackend.Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             string groupKey = nameof(JobType.UpdateExtensions);
             
             if (!enable)
@@ -74,20 +76,21 @@ namespace KaizokuBackend.Services.Jobs
 
         #region Source Management
 
-        public async Task ManageSourceJobAsync(SuwayomiSource source, bool enable, bool runNow = false, 
+        public async Task ManageSourceJobAsync(ProviderStorageEntity provider, bool enable, bool runNow = false, 
             CancellationToken token = default)
         {
-            string groupKey = BuildSourceGroupKey(source);
-            
+            string groupKey = BuildSourceGroupKey(provider);
+            string mihonProviderId = provider.MihonProviderId;
+
             if (enable)
             {
-                await _jobManagement.ScheduleRecurringJobAsync(JobType.GetLatest, source, groupKey, 
+                await _jobManagement.ScheduleRecurringJobAsync(JobType.GetLatest, JsonSerializer.Serialize(mihonProviderId), mihonProviderId,
                     groupKey, runNow, priority: Priority.Low, token: token)
                     .ConfigureAwait(false);
             }
             else
             {
-                await _jobManagement.DisableRecurringJobAsync(JobType.GetLatest, groupKey, token)
+                await _jobManagement.DisableRecurringJobAsync(JobType.GetLatest, mihonProviderId, token)
                     .ConfigureAwait(false);
             }
         }
@@ -105,14 +108,14 @@ namespace KaizokuBackend.Services.Jobs
 
         #region Helper Methods
 
-        private static string BuildProviderGroupKey(SeriesProvider provider)
+        private static string BuildProviderGroupKey(SeriesProviderEntity provider)
         {
             return $"{provider.Provider}|{provider.Language}|{provider.Scanlator ?? ""}";
         }
 
-        private static string BuildSourceGroupKey(SuwayomiSource source)
+        private static string BuildSourceGroupKey(ProviderStorageEntity provider)
         {
-            return $"{source.Name}|{source.Lang}";
+            return $"{provider.Name}|{provider.Language}";
         }
 
         #endregion

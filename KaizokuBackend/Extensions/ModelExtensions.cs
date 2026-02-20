@@ -1,8 +1,15 @@
 using KaizokuBackend.Models;
+using KaizokuBackend.Models.Abstractions;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Utils;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models;
+using Mihon.ExtensionsBridge.Models.Abstractions;
+using Mihon.ExtensionsBridge.Models.Extensions;
 using System.Runtime;
 using System.Text.Json;
 
@@ -13,38 +20,17 @@ namespace KaizokuBackend.Extensions
     /// </summary>
     public static class ModelExtensions
     {
-        /// <summary>
-        /// Converts an Enqueue entity to a QueueState object
-        /// </summary>
-        /// <param name="enqueue">The Enqueue entity</param>
-        /// <returns>QueueState object</returns>
-        public static QueueState ToJobState(this Enqueue enqueue)
+
+        public static LatestSeriesDto ToSeriesInfo(this LatestSerieEntity serie)
         {
-            return new QueueState
+            return new LatestSeriesDto
             {
-                Id = enqueue.Id.ToString(),
-                Key = enqueue.Key,
-                Parameters = enqueue.JobParameters,
-                JobType = enqueue.JobType,
-                Status = enqueue.Status,
-                EnqueuedDate = enqueue.EnqueuedDate,
-                FinishedDate = enqueue.FinishedDate,
-                ScheduledDate = enqueue.ScheduledDate,
-                StartedDate = enqueue.StartedDate,
-                Queue = enqueue.Queue,
-                RetryCount = enqueue.RetryCount,
-                Priority = enqueue.Priority
-            };
-        }
-        public static LatestSeriesInfo ToSeriesInfo(this LatestSerie serie, ContextProvider provider)
-        {
-            return new LatestSeriesInfo
-            {
-                Id = serie.SuwayomiId.ToString(),
+                MihonId = serie.MihonId,
+                MihonProviderId = serie.MihonProviderId,
                 Provider = serie.Provider,
                 Status = serie.Status,
                 Title = serie.Title,
-                ThumbnailUrl = $"{provider.BaseUrl}{serie.ThumbnailUrl}",
+                ThumbnailUrl =serie.ThumbnailUrl,
                 Language = serie.Language,
                 ChapterCount = serie.ChapterCount,
                 FetchDate = serie.FetchDate,
@@ -55,34 +41,31 @@ namespace KaizokuBackend.Extensions
                 Genre = serie.Genre,
                 LatestChapter = serie.LatestChapter,
                 LatestChapterTitle = serie.LatestChapterTitle,
-                SuwayomiSourceId = serie.SuwayomiSourceId,
                 InLibrary = serie.InLibrary,
                 SeriesId = serie.SeriesId
             };
         }
-        public static DownloadInfo? ToDownloadInfo(this Enqueue e)
+        public static DownloadSummary? ToDownloadSummary(this EnqueueEntity e)
         {
             if (string.IsNullOrEmpty(e.JobParameters))
                 return null;
+
             ChapterDownload? ch = JsonSerializer.Deserialize<ChapterDownload>(e.JobParameters);
             if (ch == null)
                 return null;
-            return new DownloadInfo
-            {
-                Id = e.Id,
-                Chapter = ch.Chapter.ChapterNumber,
-                ChapterTitle = ch.Chapter.Name,
-                Scanlator = ch.Scanlator,
-                Provider = ch.ProviderName,
-                Status = e.Status,
-                DownloadDateUTC = e.FinishedDate,
-                ScheduledDateUTC = e.ScheduledDate,
-                Language = ch.Language,
-                Retries = e.RetryCount,
-                Title = ch.Title,
-                Url = ch.Url,
-                ThumbnailUrl = ch.ThumbnailUrl,
-            };
+
+            DownloadSummary summary = ch.ToDownloadSummary();
+            summary.Id = e.Id;
+            summary.Status = e.Status;
+            summary.DownloadDateUTC = e.FinishedDate;
+            summary.ScheduledDateUTC = e.ScheduledDate;
+            summary.Retries = e.RetryCount;
+            return summary;
+        }
+
+        public static DownloadInfoDto? ToDownloadInfo(this EnqueueEntity e)
+        {
+            return e.ToDownloadSummary()?.ToInfoDto();
         }
         public static int GetLocalGroupMax(this Dictionary<string, int> counts, string group, int max)
         {
@@ -93,10 +76,10 @@ namespace KaizokuBackend.Extensions
                 return 0;
             return count;
         }
-        public static KaizokuInfo ToKaizokuInfo(this Series series)
+        public static ImportSeriesSnapshot ToImportSeriesSnapshot(this SeriesEntity series)
         {
             ArgumentNullException.ThrowIfNull(series);
-            var info = new KaizokuInfo
+            var info = new ImportSeriesSnapshot
             {
                 Title = series.Title,
                 Status = series.Status,
@@ -112,7 +95,7 @@ namespace KaizokuBackend.Extensions
             if (series.Sources != null && series.Sources.Count != 0)
             {
                 info.Providers = series.Sources
-                    .Select(sp => new ProviderInfo
+                    .Select(sp => new ImportProviderSnapshot
                     {
                         Provider = sp.Provider,
                         Language = sp.Language,
@@ -134,7 +117,7 @@ namespace KaizokuBackend.Extensions
                             }).ToList(),
                         Archives = sp.Chapters
                             .Where(c => !c.IsDeleted)
-                            .Select(a => new ArchiveInfo
+                            .Select(a => new ProviderArchiveSnapshot
                             {
                                 ArchiveName = a.Filename ?? "",
                                 ChapterNumber = a.Number,
@@ -146,38 +129,140 @@ namespace KaizokuBackend.Extensions
             }
             else
             {
-                info.Providers = new List<ProviderInfo>();
+                info.Providers = new List<ImportProviderSnapshot>();
             }
             info.LastUpdatedUTC = series.Sources?.Max(a => a.FetchDate);
             return info;
         }
-        public static Chapter ToChapter(this SuwayomiChapter chapter)
+        public static Models.Chapter ToChapter(this ParsedChapter chapter)
         {
-            return new Chapter
+            return new Models.Chapter
             {
-                Name = chapter.Name,
-                Number = chapter.ChapterNumber,
-                ProviderUploadDate = DateTimeOffset.FromUnixTimeMilliseconds(chapter.UploadDate).UtcDateTime,
+                Name = chapter.ParsedName,
+                Number = chapter.ParsedNumber,
+                ProviderUploadDate = chapter.DateUpload.DateTime,
                 Url = chapter.RealUrl,
-                ProviderIndex = chapter.Index,
-                PageCount = chapter.PageCount,
+                ProviderIndex = chapter.Index
             };
         }
-       
-        public static SeriesExtendedInfo ToSeriesExtendedInfo(this Series s, ContextProvider cp, Settings settings)
+        public static ExtensionSourceDto ToExtensionSource(this TachiyomiSource source)
         {
-            var info = new SeriesExtendedInfo
+            return new ExtensionSourceDto
+            {
+                Name = source.Name,
+                Language = source.Language,
+            };
+        }
+        public static ExtensionEntryDto ToExtensionEntry(this RepositoryEntry e, string repoName, string repoId)
+        {
+            return new ExtensionEntryDto
+            {
+                Name = e.Name,
+                OnlineRepositoryName = repoName,
+                OnlineRepositoryId = repoId,
+                IsLocal = e.IsLocal,
+                Package = e.Extension.Package,
+                Version = e.Extension.Version,
+                DownloadUTC = e.DownloadUTC,
+                Id = e.Id.ToString(),
+                Nsfw = e.Extension.Nsfw == 1,
+                Sources = e.Extension.Sources.Select(s => s.ToExtensionSource()).ToList()
+            };
+        }
+        public static ExtensionEntryDto ToExtensionEntry(this TachiyomiExtension e, string repoName, string repoId)
+        {
+            return new ExtensionEntryDto
+            {
+                Name = e.Name,
+                OnlineRepositoryName = repoName,
+                OnlineRepositoryId = repoId,
+                IsLocal = false,
+                Package = e.Package,
+                Version = e.Version,
+                Nsfw = e.Nsfw == 1,
+                Sources = e.Sources.Select(s => s.ToExtensionSource()).ToList()
+            };
+        }
+        /*
+        public static Models.ExtensionView ToExtensionInfo(this ProviderWithExtension p)
+        {
+            return new Models.ExtensionView
+            {
+                Package = p.Provider.SourcePackageName,
+                Name = p.Provider.Name,
+                ThumbnailUrl = p.Provider.ThumbnailUrl,
+                IsStorage = p.Provider.IsStorage,
+                IsEnabled = p.Provider.IsEnabled,
+                IsBroken = p.Provider.IsBroken,
+                IsDead = p.Provider.IsDead,
+                IsInstaled = true,
+                ActiveEntry = p.RepoGroup?.ActiveEntry ?? 0,
+                AutoUpdate = p.RepoGroup?.AutoUpdate ?? true,
+                Entries = p.RepoGroup?.Entries.Select(e => e.ToExtensionEntry(p.Provider.RepositoryName)).ToList() ?? [],
+            };
+        }*/
+        public static ExtensionDto ToExtensionInfo(this TachiyomiExtension ext)
+        {
+            return new ExtensionDto
+            {
+                Package = ext.Package,
+                Name = ext.ParsedName(),
+                IsStorage = true,
+                IsEnabled = false,
+                IsBroken = false,
+                IsDead = false,
+                IsInstaled = false,
+                ActiveEntry = 0,
+                AutoUpdate = false,
+            }; 
+        }
+        public static void FillProviderStorage(this ProviderStorageEntity storage, RepositoryEntry entry, TachiyomiExtension extension, TachiyomiSource source, ISourceInterop? interop, string repoName, string repoId)
+        {
+            storage.Name = source.Name;
+            storage.Language = source.Language;
+            storage.SourceRepositoryId = repoId;
+            storage.SourceRepositoryName = repoName;
+            storage.SourcePackageName = extension.Package;
+            storage.SourceSourceId = source.Id;
+            storage.ThumbnailUrl = "ext://" + Path.Combine(entry.GetRelativeVersionFolder(), entry.Icon.FileName);
+            storage.SupportLatest = interop?.SupportsLatest ?? false;
+            storage.IsNSFW = extension.Nsfw == 1;
+            storage.IsDead = false;
+            storage.IsEnabled = true;
+            storage.IsBroken = false;
+        }
+        public static Manga? ToManga(this IBridgeItemInfo info)
+        {
+            if (string.IsNullOrEmpty(info.BridgeItemInfo))
+                return null;
+            return JsonSerializer.Deserialize<Manga>(info.BridgeItemInfo);
+        }
+        public static void FillBridgeItemInfo(this Manga manga, IBridgeItemInfo item)
+        {
+            if (manga == null)
+                return;
+            item.BridgeItemInfo = JsonSerializer.Serialize<Manga>(manga);
+        }
+
+        public static List<string> GetGenres(this Manga m)
+        {
+            return m.Genre?.Split(',').Select(a => a.Trim()).Where(a => !string.IsNullOrWhiteSpace(a)).ToList() ?? [];
+        }
+        public static SeriesExtendedDto ToSeriesExtendedInfo(this SeriesEntity s, SettingsDto settings)
+        {
+            var info = new SeriesExtendedDto
             {
                 Id = s.Id,
                 Title = s.Title,
                 Description = s.Description,
-                ThumbnailUrl = cp.BaseUrl + s.ThumbnailUrl,
+                ThumbnailUrl = s.ThumbnailUrl,
                 Artist = s.Artist,
                 PausedDownloads = s.PauseDownloads,
                 Author = s.Author,
                 Genre = s.Genre?.ToDistinctPascalCase() ?? new List<string>(),
                 Status = s.Status,
                 Type = s.Type,
+                StartFromChapter =  s.StartFromChapter,
                 Path = EnvironmentSetup.IsDocker ? s.StoragePath : Path.Combine(settings.StorageFolder, s.StoragePath),
                 IsActive = s.Sources.Any(a => !a.IsDisabled && !a.IsUninstalled),
                 HasUnknown = s.Sources.Any(a=>!a.IsUnknown),
@@ -188,16 +273,16 @@ namespace KaizokuBackend.Extensions
                     .Where(c => !c.IsDeleted && !string.IsNullOrEmpty(c.Filename))
                     .Select(c => c.Number).Distinct()
                     .FormatDecimalRanges(),
-                Providers = new List<ProviderExtendedInfo>()
+                Providers = new List<ProviderExtendedDto>()
             };
-            SmallProviderInfo? lastChangeProvider = null;
+            SmallProviderDto? lastChangeProvider = null;
             DateTime dt = DateTime.MinValue;
 
             if (s.Sources != null && s.Sources.Count > 0)
             {
                 foreach (var provider in s.Sources)
                 {
-                    var providerInfo = new ProviderExtendedInfo
+                    var providerDto = new ProviderExtendedDto
                     {
                         Id = provider.Id,
                         Provider = provider.Provider,
@@ -205,7 +290,7 @@ namespace KaizokuBackend.Extensions
                         Lang = provider.Language,
                         Title = provider.Title,
                         Url = provider.Url,
-                        ThumbnailUrl = cp.BaseUrl + (string.IsNullOrEmpty(provider.ThumbnailUrl) ? "serie/thumb/unknown" : provider.ThumbnailUrl),
+                        ThumbnailUrl = provider.ThumbnailUrl,
                         Artist = provider.Artist ?? "",
                         Author = provider.Author ?? "",
                         Description = provider.Description ?? "",
@@ -225,16 +310,11 @@ namespace KaizokuBackend.Extensions
                         ChapterList = provider.Chapters.Select(c => c.Number).FormatDecimalRanges() ?? "",
                     };
                     //Previously matched, but search failed.
-                    if (provider.SuwayomiId == 0)
-                        providerInfo.IsUnknown = true;
-                    info.Providers.Add(providerInfo);
+                    if (string.IsNullOrWhiteSpace(provider.BridgeItemInfo))
+                        providerDto.IsUnknown = true;
+                    info.Providers.Add(providerDto);
 
-                    SmallProviderInfo sm = new SmallProviderInfo();
-                    sm.Provider = provider.Provider;
-                    sm.Scanlator = provider.Scanlator;
-                    sm.Language = provider.Language;
-                    sm.IsStorage = provider.IsStorage;
-                    sm.Url = provider.Url;
+                    SmallProviderDto sm = provider.ToSmallProviderDto();
                     DateTime? lastm = provider.Chapters.Where(a => !string.IsNullOrEmpty(a.Filename))
                         .MaxNull(c => c.DownloadDate);
                     if (lastm != null && lastm > dt)
@@ -244,7 +324,7 @@ namespace KaizokuBackend.Extensions
                     }
 
                 }
-                info.LastChapter = s.Sources.Max((SeriesProvider a) => a.Chapters.Max((Chapter c) => c.Number));
+                info.LastChapter = s.Sources.Max((SeriesProviderEntity a) => a.Chapters.Max((Models.Chapter c) => c.Number));
                 if (lastChangeProvider != null)
                 {
                     info.LastChangeProvider = lastChangeProvider;
@@ -252,7 +332,7 @@ namespace KaizokuBackend.Extensions
                 }
                 else
                 {
-                    info.LastChangeProvider = new SmallProviderInfo();
+                    info.LastChangeProvider = new SmallProviderDto();
                     info.LastChangeUTC = DateTime.MinValue;
                 }
             }
@@ -263,3 +343,4 @@ namespace KaizokuBackend.Extensions
 
 
 }
+

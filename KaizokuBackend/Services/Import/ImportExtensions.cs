@@ -1,68 +1,79 @@
-﻿using KaizokuBackend.Extensions;
+using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Import.Models;
 using KaizokuBackend.Services.Helpers;
 using System.Collections.Generic;
 using System.Linq;
-using Action = KaizokuBackend.Models.Database.Action;
+using Action = KaizokuBackend.Models.Action;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Abstractions;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Import;
 
 public static class ImportExtensions
 {
-    public static List<LinkedSeries> FindAndLinkSimilarSeries(this List<SuwayomiSeries> series, ContextProvider cp, double threshold = 0.1)
+    public static List<LinkedSeriesDto> FindAndLinkSimilarSeries(this List<(ParsedManga Manga, string MihonProviderId, string Language)> series, double threshold = 0.1)
     {
         // ...moved logic from ModelExtensions...
         if (series == null || series.Count == 0)
         {
-            return new List<LinkedSeries>();
+            return new List<LinkedSeriesDto>();
         }
-        var seriesGroups = new Dictionary<string, List<SuwayomiSeries>>();
+        var seriesGroups = new Dictionary<string, List<(ParsedManga Manga, string MihonProviderId, string Language)>>();
         foreach (var s in series)
         {
-            if (string.IsNullOrWhiteSpace(s.Title))
+            if (string.IsNullOrWhiteSpace(s.Manga.Title))
             {
                 continue;
             }
-            var normalizedTitle = s.Title.NormalizeTitle();
-            if (seriesGroups.TryGetValue(normalizedTitle, out List<SuwayomiSeries>? value))
+            var normalizedTitle = s.Manga.Title.NormalizeTitle();
+            if (seriesGroups.TryGetValue(normalizedTitle, out List<(ParsedManga Manga, string MihonProviderId, string Language)>? value))
             {
                 value.Add(s);
             }
             else
             {
-                seriesGroups[normalizedTitle] = new List<SuwayomiSeries> { s };
+                seriesGroups[normalizedTitle] = new List<(ParsedManga Manga, string MihonProviderId, string Language)> { s };
             }
         }
-        var linkedSeries = new List<LinkedSeries>();
+        var linkedSeries = new List<LinkedSeriesDto>();
         foreach (var group in seriesGroups.Values)
         {
             if (group.Count == 1)
             {
                 var seris = group[0];
-                linkedSeries.Add(new LinkedSeries
+                string id = seris.MihonProviderId + "|" + seris.Manga.Url;
+                LinkedSeriesDto ls = new LinkedSeriesDto
                 {
-                    Id = seris.Id.ToString(),
-                    ProviderId = seris.SourceId,
-                    Title = seris.Title,
-                    ThumbnailUrl = cp.RewriteSeriesThumbnail(seris),
-                    LinkedIds = new List<string> { seris.Id.ToString() }
-                });
+                    MihonId = id,
+                    MihonProviderId = seris.MihonProviderId,
+                    Lang = seris.Language == "all" ? string.Empty : seris.Language,
+                    Title = seris.Manga.Title,
+                    ThumbnailUrl = seris.Manga.ThumbnailUrl,
+                    LinkedIds = new List<string> { id }
+                };
+                seris.Manga.FillBridgeItemInfo(ls);
+                linkedSeries.Add(ls);
             }
             else
             {
-                var allIds = group.Select(s => s.Id.ToString()).ToList();
+                var allIds = group.Select(s => s.MihonProviderId + "|"+s.Manga.Url).ToList();
                 foreach (var s in group)
                 {
-                    linkedSeries.Add(new LinkedSeries
+                    string id = s.MihonProviderId + "|" + s.Manga.Url;
+                    LinkedSeriesDto ls = new LinkedSeriesDto
                     {
-                        Id = s.Id.ToString(),
-                        ProviderId = s.SourceId,
-                        Title = s.Title,
-                        ThumbnailUrl = cp.RewriteSeriesThumbnail(s),
+                        MihonId = id,
+                        MihonProviderId = s.MihonProviderId,
+                        Lang = s.Language == "all" ? string.Empty : s.Language,
+                        Title = s.Manga.Title,
+                        ThumbnailUrl = s.Manga.ThumbnailUrl,
                         LinkedIds = allIds
-                    });
+                    };
+                    s.Manga.FillBridgeItemInfo(ls);
+                    linkedSeries.Add(ls);
                 }
             }
         }
@@ -70,7 +81,8 @@ public static class ImportExtensions
         return linkedSeries;
     }
 
-    public static void MergeSimilarSeries(this List<LinkedSeries> linkedSeries, double threshold = 0.1)
+
+    public static void MergeSimilarSeries(this List<LinkedSeriesDto> linkedSeries, double threshold = 0.1)
     {
         if (linkedSeries.Count <= 1)
         {
@@ -89,8 +101,8 @@ public static class ImportExtensions
                 }
                 if (series1.Title.AreStringSimilar(series2.Title, threshold))
                 {
-                    string id1 = series1.Id.ToString();
-                    string id2 = series2.Id.ToString();
+                    string id1 = series1.MihonId!;
+                    string id2 = series2.MihonId!;
                     if (!similarityGroups.TryGetValue(id1, out var group1))
                     {
                         group1 = new HashSet<string>(series1.LinkedIds);
@@ -114,13 +126,13 @@ public static class ImportExtensions
         }
         foreach (var series in linkedSeries)
         {
-            string seriesId = series.Id.ToString();
+            string seriesId = series.MihonId!;
             if (similarityGroups.TryGetValue(seriesId, out var group))
             {
                 series.LinkedIds = group.ToList();
             }
         }
-        var idToSeriesMap = linkedSeries.ToDictionary(s => s.Id.ToString(), s => s);
+        var idToSeriesMap = linkedSeries.ToDictionary(s => s.MihonId!, s => s);
         foreach (var series in linkedSeries)
         {
             var consolidatedLinks = new HashSet<string>(series.LinkedIds);
@@ -135,7 +147,7 @@ public static class ImportExtensions
                 }
             }
             series.LinkedIds = consolidatedLinks.ToList();
-            series.LinkedIds.Remove(series.Id.ToString());
+            series.LinkedIds.Remove(series.MihonId!);
         }
     }
 
@@ -205,7 +217,73 @@ public static class ImportExtensions
             }
         }
     }
-    public static KaizokuInfo? ToKaizokuInfo(this List<NewDetectedChapter> chapters)
+    public static void FillMissingChapterNumbers(this IEnumerable<ParsedChapter> chapters)
+    {
+        if (chapters == null || !chapters.Any())
+            return;
+        var ordered = chapters.OrderBy(c => c.Index).ToList();
+        if (ordered.All(c => c.ParsedNumber == -1m))
+        {
+            foreach (var c in ordered)
+                c.ParsedNumber = c.Index + 1;
+            return;
+        }
+        int n = ordered.Count;
+        int i = 0;
+        while (i < n)
+        {
+            if (ordered[i].ParsedNumber != -1m)
+            {
+                i++;
+                continue;
+            }
+            int prev = i - 1;
+            while (prev >= 0 && ordered[prev].ParsedNumber == -1m)
+                prev--;
+            int next = i + 1;
+            while (next < n && ordered[next].ParsedNumber == -1m)
+                next++;
+            if (prev >= 0 && next < n)
+            {
+                var prevNum = ordered[prev].ParsedNumber;
+                var nextNum = ordered[next].ParsedNumber;
+                int prevIdx = ordered[prev].Index;
+                int nextIdx = ordered[next].Index;
+                int gap = nextIdx - prevIdx;
+                decimal step = (nextNum - prevNum) / gap;
+                for (int j = prev + 1; j < next; j++)
+                {
+                    ordered[j].ParsedNumber = prevNum + step * (ordered[j].Index - prevIdx);
+                }
+                i = next;
+            }
+            else if (prev >= 0)
+            {
+                var prevNum = ordered[prev].ParsedNumber;
+                int prevIdx = ordered[prev].Index;
+                for (int j = prev + 1; j < n && ordered[j].ParsedNumber == -1m; j++)
+                {
+                    ordered[j].ParsedNumber = prevNum + (ordered[j].Index - prevIdx);
+                }
+                break;
+            }
+            else if (next < n)
+            {
+                var nextNum = ordered[next].ParsedNumber;
+                int nextIdx = ordered[next].Index;
+                for (int j = next - 1; j >= 0 && ordered[j].ParsedNumber == -1m; j--)
+                {
+                    ordered[j].ParsedNumber = nextNum - (nextIdx - ordered[j].Index);
+                }
+                i = next + 1;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+    public static ImportSeriesSnapshot? ToImportSeriesSnapshot(this List<NewDetectedChapter> chapters)
     {
         if (chapters.Count == 0)
         {
@@ -219,7 +297,7 @@ public static class ImportExtensions
             .ToList();
 
         string title = titleGroups.Count != 0 ? titleGroups.First().Key : "Unknown";
-        var result = new KaizokuInfo
+        var result = new ImportSeriesSnapshot
         {
             Title = title,
             Providers = [],
@@ -238,7 +316,7 @@ public static class ImportExtensions
         foreach ((string prov, string lan) p in providers.Keys)
         {
             List<NewDetectedChapter> chaps = providers[p];
-            ProviderInfo pinfo = new ProviderInfo();
+            ImportProviderSnapshot pinfo = new ImportProviderSnapshot();
             pinfo.Title = chaps.FirstOrDefault(a => !string.IsNullOrEmpty(a.Title))?.Title ?? "";
             pinfo.Provider = p.prov;
             pinfo.Language = p.lan;
@@ -248,7 +326,7 @@ public static class ImportExtensions
             List<(decimal from, decimal to)> res = cnumbs.DecimalRanges();
             pinfo.ChapterList = res.Select(a => new StartStop { Start = a.from, End = a.to }).ToList();
 
-            List<ArchiveInfo> archives = chaps.Select(a => new ArchiveInfo
+            List<ProviderArchiveSnapshot> archives = chaps.Select(a => new ProviderArchiveSnapshot
             {
                 ArchiveName = Path.GetFileName(a.Filename),
                 ChapterNumber = a.Chapter,
@@ -271,41 +349,10 @@ public static class ImportExtensions
 
         return result;
     }
-    public static (bool change, KaizokuInfo kz) Merge(this KaizokuInfo original, KaizokuInfo scanned)
+    public static (bool change, ImportSeriesSnapshot kz) Merge(this ImportSeriesSnapshot original, ImportSeriesSnapshot scanned)
     {
-        bool ch = false;
-        List<ProviderInfo> newProvs = new List<ProviderInfo>();
-        List<ProviderInfo> accepted = new List<ProviderInfo>();
-
-        foreach (ProviderInfo p in scanned.Providers)
-        {
-            ProviderInfo? org = original.Providers.FirstOrDefault(a => a.Provider.Equals(p.Provider, StringComparison.InvariantCultureIgnoreCase) && a.Language.Equals(p.Language, StringComparison.InvariantCultureIgnoreCase) && a.Scanlator.Equals(p.Scanlator, StringComparison.InvariantCultureIgnoreCase));
-            if (org==null)
-                org = original.Providers.FirstOrDefault(a => a.Provider.Equals(p.Provider, StringComparison.InvariantCultureIgnoreCase) && a.Language.Equals(p.Language, StringComparison.InvariantCultureIgnoreCase));
-            if (org == null)
-                org = original.Providers.FirstOrDefault(a => a.Provider.Equals(p.Provider, StringComparison.InvariantCultureIgnoreCase));
-
-            if (org == null)
-            {
-                newProvs.Add(p);
-                ch = true;
-            }
-            else
-            {
-                org.ChapterList=p.ChapterList;
-                org.ChapterCount = p.ChapterCount;
-                org.Archives = p.Archives;
-                org.IsDisabled = p.IsDisabled;
-                org.Language = p.Language;
-                org.Provider = p.Provider;
-                org.Scanlator = p.Scanlator;
-                org.Title = !string.IsNullOrEmpty(p.Title) ? p.Title : org.Title;
-                org.Scanlator = !string.IsNullOrEmpty(p.Scanlator) ? p.Scanlator : org.Scanlator;
-                ch = true;
-            }
-        }
-
-        original.Providers.AddRange(newProvs);
-        return (ch, original);
+        bool changed = original.Series.MergeProvidersFrom(scanned.Series);
+        return (changed, original);
     }
 }
+

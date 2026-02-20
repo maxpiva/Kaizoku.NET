@@ -310,3 +310,8 @@ next-env.d.ts
 KaizokuBackend/runtime/kaizoku.schedule.db-wal
 /KaizokuBackend/wwwroot.sha256
 /KaizokuBackend/wwwroot.zip
+/Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/AndroidCompat/lib
+/Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/.gradle
+/Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/build/reports/problems
+/uploads
+/.claude/

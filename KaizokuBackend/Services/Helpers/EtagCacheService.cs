@@ -12,14 +12,12 @@ namespace KaizokuBackend.Services.Helpers
     /// <summary>
     /// Service to handle ETag cache operations for resource change detection
     /// </summary>
-    public class EtagCacheService
+    public class AEtagCacheService
     {
         private readonly AppDbContext _db;
         private readonly ILogger _logger;
         private readonly ContextProvider _context;
-        public EtagCacheService(ILogger<EtagCacheService> logger,
-            AppDbContext db, 
-            ContextProvider context)
+        public AEtagCacheService(ILogger<EtagCacheService> logger, AppDbContext db, ContextProvider context)
         {
             _db = db;
             _logger = logger;

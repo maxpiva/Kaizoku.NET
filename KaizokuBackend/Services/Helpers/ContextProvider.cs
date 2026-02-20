@@ -71,15 +71,5 @@ namespace KaizokuBackend.Services.Helpers
             }
         }
 
-        public string RewriteExtensionIcon(SuwayomiExtension suwayomiExtension)
-        {
-            string iconPath = suwayomiExtension.IconUrl.Substring(suwayomiExtension.IconUrl.IndexOf("/icon/"));
-            return $"{BaseUrl}provider{iconPath}!{suwayomiExtension.VersionName}";
-        }
-        public string RewriteSeriesThumbnail(SuwayomiSeries a)
-        {
-            return $"{BaseUrl}{a.RewriteToKaizokuPath()}";
-        }
-
     }
 }

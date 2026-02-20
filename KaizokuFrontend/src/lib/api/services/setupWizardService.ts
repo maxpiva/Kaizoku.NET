@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import type { ImportInfo, LinkedSeries, SetupOperationResponse, ImportResponse, ImportTotals } from '../types';
+import type { ImportInfo, LinkedSeries, SetupOperationResponse, ImportTotals } from '../types';
 
 export const setupWizardService = {
   /**
@@ -33,8 +33,8 @@ export const setupWizardService = {
   /**
    * Import series from the provided list
    */
-  async importSeries(imports: ImportInfo[]): Promise<ImportResponse> {
-    return await apiClient.post<ImportResponse>('/api/setup/import', imports);
+  async importSeries(disableDownloads: boolean = false): Promise<SetupOperationResponse> {
+    return await apiClient.post<SetupOperationResponse>(`/api/setup/import?disableDownloads=${disableDownloads}`);
   },
 
   /**
@@ -47,8 +47,8 @@ export const setupWizardService = {
   /**
    * Import series with disable downloads option
    */
-  async importSeriesWithOptions(disableDownloads: boolean): Promise<ImportResponse> {
-    return await apiClient.post<ImportResponse>(`/api/setup/import?disableDownloads=${disableDownloads}`, {});
+  async importSeriesWithOptions(disableDownloads: boolean): Promise<SetupOperationResponse> {
+    return await apiClient.post<SetupOperationResponse>(`/api/setup/import?disableDownloads=${disableDownloads}`);
   },
 
   /**

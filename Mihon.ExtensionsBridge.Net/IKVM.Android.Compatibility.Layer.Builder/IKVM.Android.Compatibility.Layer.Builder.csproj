@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="IKVM.MSBuild" Version="8.15.0" />
+    <PackageReference Include="IKVM" Version="8.15.0" />
+  </ItemGroup>
+
+
+<ItemGroup>
+   <IkvmReference Include="..\Android.Compatibility.Layer\AndroidCompat\build\libs\AndroidCompat-1.0-all.jar">
+      <AssemblyName>Android.Compat</AssemblyName>
+      <AssemblyVersion>1.0.0.0</AssemblyVersion>
+      <AssemblyFileVersion>1.0.0.0</AssemblyFileVersion>
+      <DisableAutoAssemblyName>true</DisableAutoAssemblyName>
+      <DisableAutoAssemblyVersion>true</DisableAutoAssemblyVersion>
+      <Compile>..\Android.Compatibility.Layer\AndroidCompat\build\libs\AndroidCompat-1.0-all.jar</Compile>
+      <Debug>portable</Debug>
+   </IkvmReference>
+</ItemGroup>
+</Project>

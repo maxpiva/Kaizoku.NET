@@ -1,23 +1,32 @@
 ﻿using KaizokuBackend.Extensions;
+using KaizokuBackend.Models.Abstractions;
+using KaizokuBackend.Models.Dto;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using System.Text.Json.Serialization;
 
 namespace KaizokuBackend.Models;
 
-public class ChapterDownload
+public class ChapterDownload : DownloadSummaryBase, IBridgeItemInfo
 {
     public Guid Id { get; set; }
     public Guid SeriesId { get; set; }
     public Guid SeriesProviderId { get; set; }
-    public int SuwayomiId { get; set; }
-    public int SuwayomiIndex { get; set; }
+    public string BridgeItemInfo { get; set; }
+    public string MihonId { get; set; }
+    public string MihonProviderId { get; set; }
+    public int Index { get; set; }
     public int PageCount { get; set; }
-    public string ProviderId { get; set; } = string.Empty;
-    public string ProviderName { get; set; } = string.Empty;
+    public long? SourceId { get; set; }
+    public string? MangaUrl { get; set; }
+    public string? ChapterUrl { get; set; }
+    [JsonIgnore]
+    public string ProviderName
+    {
+        get => Provider;
+        set => Provider = value;
+    }
     public string ChapterName { get; set; } = string.Empty;
-    public string? Scanlator { get; set; }
-    public string Title { get; set; } = "";
     public string SeriesTitle { get; set; } = "";
-    public string Language { get; set; } = "";
-    public string? ThumbnailUrl { get; set; } = null;
 
     public string? Url { get; set; } = null;
     public int Retries { get; set; }
@@ -28,14 +37,14 @@ public class ChapterDownload
         get => _storagePath.SanitizeDirectory();
         set => _storagePath=value;
     }
-    public SuwayomiChapter Chapter { get; set; } = new SuwayomiChapter();
+    public ParsedChapter Chapter { get; set; } = new ParsedChapter();
     public List<string> Tags { get; set; } = [];
     public long? ChapterCount { get; set; }
     public string? Author { get; set; }
     public string? Artist { get; set; }
     public DateTime? ComicUploadDateUTC { get; set; }
     public string? Type { get; set; }
-    public bool ChapterLoaded { get; set; } = false;
 
+    public List<Page> Pages { get; set; }= [];
     public bool IsUpdate { get; set; } = false;
 }

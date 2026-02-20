@@ -1,6 +1,7 @@
-using Microsoft.AspNetCore.Mvc;
-using KaizokuBackend.Models;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Providers;
+using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
 {
@@ -9,24 +10,21 @@ namespace KaizokuBackend.Controllers
     [Produces("application/json")]
     public class ProviderController : ControllerBase
     {
-        private readonly ProviderQueryService _queryService;
-        private readonly ProviderInstallationService _installationService;
+        private readonly ProviderManagerService _managerService;
         private readonly ProviderPreferencesService _preferencesService;
-        private readonly ProviderResourceService _resourceService;
+        private readonly ThumbCacheService _thumbs;
         private readonly ILogger _logger;
 
         public ProviderController(
-            ILogger<ProviderController> logger, 
-            ProviderQueryService queryService,
-            ProviderInstallationService installationService,
-            ProviderPreferencesService preferencesService,
-            ProviderResourceService resourceService)
+            ILogger<ProviderController> logger,
+            ThumbCacheService thumbs,
+            ProviderManagerService installationService,
+            ProviderPreferencesService preferencesService)
         {
             _logger = logger;
-            _queryService = queryService;
-            _installationService = installationService;
+            _thumbs = thumbs;
+            _managerService = installationService;
             _preferencesService = preferencesService;
-            _resourceService = resourceService;
         }
 
         /// <summary>
@@ -37,13 +35,14 @@ namespace KaizokuBackend.Controllers
         /// <response code="200">Returns the list of extensions</response>
         /// <response code="500">If an error occurs while retrieving extensions</response>
         [HttpGet("list")]
-        [ProducesResponseType(typeof(List<SuwayomiExtension>), 200)]
+        [ProducesResponseType(typeof(List<ExtensionDto>), 200)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<ActionResult<List<SuwayomiExtension>>> GetProvidersAsync(CancellationToken token = default)
+        public async Task<ActionResult<List<ExtensionDto>>> GetProvidersAsync(CancellationToken token = default)
         {
             try
             {
-                var extensions = await _queryService.GetProvidersAsync(token).ConfigureAwait(false);
+                var extensions = await _managerService.GetProvidersAsync(token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(extensions, "/api/image/", token).ConfigureAwait(false);
                 return Ok(extensions);
             }
             catch (Exception ex)
@@ -66,11 +65,11 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(typeof(object), 400)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<IActionResult> InstallProvider([FromRoute] string pkgName, CancellationToken token = default)
+        public async Task<IActionResult> InstallProvider([FromRoute] string pkgName, [FromQuery] string? repoName = null, [FromQuery] bool force = false, CancellationToken token = default)
         {
             try
             {
-                var success = await _installationService.InstallProviderAsync(pkgName, token).ConfigureAwait(false);
+                var success = await _managerService.InstallProviderAsync(pkgName, repoName, force, token).ConfigureAwait(false);
                 if (success)
                 {
                     return Ok(new { message = "Extension installed successfully" });
@@ -96,10 +95,10 @@ namespace KaizokuBackend.Controllers
         /// <response code="400">Provider not found</response>
         /// <response code="500">If an error occurs while retrieving preferences</response>
         [HttpGet("preferences/{pkgName}")]
-        [ProducesResponseType(typeof(ProviderPreferences), 200)]
+        [ProducesResponseType(typeof(ProviderPreferencesDto), 200)]
         [ProducesResponseType(typeof(object), 400)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<ActionResult<ProviderPreferences>> GetPreferencesAsync([FromRoute] string pkgName, CancellationToken token = default)
+        public async Task<ActionResult<ProviderPreferencesDto>> GetPreferencesAsync([FromRoute] string pkgName, CancellationToken token = default)
         {
             try
             {
@@ -128,7 +127,7 @@ namespace KaizokuBackend.Controllers
         [HttpPost("preferences")]
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<IActionResult> SetPreferencesAsync([FromBody] ProviderPreferences prefs, CancellationToken token = default)
+        public async Task<IActionResult> SetPreferencesAsync([FromBody] ProviderPreferencesDto prefs, CancellationToken token = default)
         {
             try
             {
@@ -137,13 +136,13 @@ namespace KaizokuBackend.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting preferences for {ApkName}", prefs.ApkName);
+                _logger.LogError(ex, "Error setting preferences for {PkgName}", prefs.PkgName);
                 return StatusCode(500, new { error = ex.Message });
             }
         }
 
         /// <summary>
-        /// Uninstalls an extension by package name
+        /// Disables an extension by package name
         /// </summary>
         /// <param name="pkgName">Package name of the extension</param>
         /// <param name="token">Cancellation token.</param>
@@ -155,47 +154,24 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(typeof(object), 400)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<IActionResult> UninstallProviderAsync([FromRoute] string pkgName, CancellationToken token = default)
+        public async Task<IActionResult> DisableProviderAsync([FromRoute] string pkgName, CancellationToken token = default)
         {
             try
             {
-                var success = await _installationService.UninstallProviderAsync(pkgName, token).ConfigureAwait(false);
+                var success = await _managerService.DisableProviderAsync(pkgName, token).ConfigureAwait(false);
                 if (success)
                 {
-                    return Ok(new { message = "Extension uninstalled successfully" });
+                    return Ok(new { message = "Extension disabled successfully" });
                 }
-                return BadRequest(new { error = "Failed to uninstall extension" });
+                return BadRequest(new { error = "Failed to disabled extension" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error uninstalling extension {pkgName}", pkgName);
+                _logger.LogError(ex, "Error disabling extension {pkgName}", pkgName);
                 return StatusCode(500, new { error = ex.Message });
             }
         }
 
-        /// <summary>
-        /// Gets the icon for an extension
-        /// </summary>
-        /// <param name="apkName">APK name of the extension</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>Extension icon</returns>
-        /// <response code="200">Returns the extension icon</response>
-        /// <response code="500">If an error occurs while retrieving the icon</response>
-        [HttpGet("icon/{apkName}")]
-        [ProducesResponseType(typeof(FileResult), 200)]
-        [ProducesResponseType(typeof(object), 500)]
-        public async Task<IActionResult> GetExtensionIcon([FromRoute] string apkName, CancellationToken token = default)
-        {
-            try
-            {
-                return await _resourceService.GetProviderIconAsync(apkName, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting icon for {apkName}", apkName);
-                return StatusCode(500, new { error = ex.Message });
-            }
-        }
         /// <summary>
         /// Installs an extension from an uploaded file
         /// </summary>
@@ -209,7 +185,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(typeof(object), 400)]
         [ProducesResponseType(typeof(object), 500)]
-        public async Task<ActionResult<string>> InstallProviderFromFileAsync([FromForm] IFormFile file, CancellationToken token = default)
+        public async Task<ActionResult<string>> InstallProviderFromFileAsync([FromForm] IFormFile file, [FromQuery] bool force = false, CancellationToken token = default)
         {
             if (file == null || file.Length == 0)
             {
@@ -221,9 +197,9 @@ namespace KaizokuBackend.Controllers
                 using var ms = new MemoryStream();
                 await file.CopyToAsync(ms, token).ConfigureAwait(false);
                 var content = ms.ToArray();
-                string? apkName = await _installationService.InstallProviderFromFileAsync(content, file.FileName, token).ConfigureAwait(false);
-                if (apkName!=null)
-                    return Ok(apkName);
+                string? pkgName = await _managerService.InstallProviderFromFileAsync(content, force, token).ConfigureAwait(false);
+                if (pkgName != null)
+                    return Ok(pkgName);
                 return BadRequest(new { error = "Failed to install extension" });
             }
             catch (Exception ex)

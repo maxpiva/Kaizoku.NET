@@ -6,7 +6,7 @@ import { Settings } from "lucide-react";
 import { ProviderPreferencesRequester } from "./provider-preferences-requester";
 
 interface ProviderSettingsButtonProps {
-  apkName: string;
+  pkgName: string;
   providerName?: string;
   variant?: "default" | "outline" | "secondary" | "ghost" | "link" | "destructive";
   size?: "default" | "sm" | "lg" | "icon";
@@ -14,7 +14,7 @@ interface ProviderSettingsButtonProps {
 }
 
 export function ProviderSettingsButton({
-  apkName,
+  pkgName,
   providerName,
   variant = "outline",
   size = "sm",
@@ -31,13 +31,13 @@ export function ProviderSettingsButton({
         onClick={() => setPreferencesOpen(true)}
       >
         <Settings className="h-4 w-4" />
-        {size !== "icon" && <span className="ml-1">Settings</span>}
+        {size !== "icon" && <span className="ml-1 hidden md:inline">Settings</span>}
       </Button>
 
       <ProviderPreferencesRequester
         open={preferencesOpen}
         onOpenChange={setPreferencesOpen}
-        apkName={apkName}
+        pkgName={pkgName}
         providerName={providerName}
       />
     </>

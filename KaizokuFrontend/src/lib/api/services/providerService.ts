@@ -12,18 +12,26 @@ export const providerService = {
   /**
    * Installs a provider by package name
    */
-  async installProvider(pkgName: string): Promise<{ message: string }> {
-    return apiClient.post<{ message: string }>(`/api/provider/install/${pkgName}`, null);
+  async installProvider(pkgName: string, options?: { repoName?: string; force?: boolean }): Promise<{ message: string }> {
+    const params = new URLSearchParams();
+    if (options?.repoName) params.append('repoName', options.repoName);
+    if (options?.force !== undefined) params.append('force', String(options.force));
+    const query = params.toString();
+    return apiClient.post<{ message: string }>(`/api/provider/install/${pkgName}${query ? `?${query}` : ''}`, null);
   },
 
   /**
    * Installs a provider from an uploaded file
    */
-  async installProviderFromFile(file: File): Promise<string> {
+  async installProviderFromFile(file: File, options?: { force?: boolean }): Promise<string> {
     const formData = new FormData();
     formData.append('file', file);
-    
-    return apiClient.post<string>('/api/provider/install/file', formData);
+
+    const params = new URLSearchParams();
+    if (options?.force !== undefined) params.append('force', String(options.force));
+    const query = params.toString();
+
+    return apiClient.post<string>(`/api/provider/install/file${query ? `?${query}` : ''}`, formData);
   },
 
   /**
@@ -45,12 +53,5 @@ export const providerService = {
    */
   async setProviderPreferences(preferences: ProviderPreferences): Promise<void> {
     return apiClient.post<void>('/api/provider/preferences', preferences);
-  },
-
-  /**
-   * Gets the icon for a provider
-   */
-  getProviderIconUrl(apkName: string): string {
-    return `/api/provider/icon/${apkName}`;
   },
 };

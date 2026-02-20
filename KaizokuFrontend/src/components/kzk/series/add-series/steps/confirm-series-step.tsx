@@ -14,6 +14,7 @@ import Image from "next/image";
 import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 
 // Dynamic tags component that shows tags based on available width
 export function DynamicTags({ genres }: { genres: string[] }) {
@@ -81,6 +82,8 @@ export function DynamicTags({ genres }: { genres: string[] }) {
   );
 }
 
+const getSeriesId = (series: FullSeries): string => series.mihonId ?? series.providerId ?? series.title;
+
 // Memoized SeriesCard component to prevent unnecessary re-renders
 const SeriesCard = React.memo(({
   series,
@@ -99,7 +102,7 @@ const SeriesCard = React.memo(({
   onCoverChange: (seriesKey: string, checked: boolean) => void;
   onTitleChange: (seriesKey: string, checked: boolean) => void;
 }) => {
-  const seriesKey = `${series.id}-${series.provider}-${series.lang}-${series.scanlator}`;
+  const seriesKey = `${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`;
   const handleCardClick = React.useCallback(() => {
     // Don't allow selection if the series is unselectable
     if (!series.isUnselectable) {
@@ -145,7 +148,7 @@ const SeriesCard = React.memo(({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Image
-                  src={series.thumbnailUrl ?? '/placeholder.jpg'}
+                  src={formatThumbnailUrl(series.thumbnailUrl)}
                   alt={series.title}
                   fill
                   sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"
@@ -155,7 +158,7 @@ const SeriesCard = React.memo(({
               <TooltipContent side="right" className="p-0 bg-transparent border-none shadow-none">
                 <div className="relative w-64 aspect-[3/4]">
                   <Image
-                    src={series.thumbnailUrl ?? '/placeholder.jpg'}
+                    src={formatThumbnailUrl(series.thumbnailUrl)}
                     alt={series.title}
                     fill
                     sizes="256px"
@@ -304,8 +307,7 @@ function isValidFullSeries(obj: unknown): obj is FullSeries {
   const series = obj as Record<string, unknown>;
 
   return (
-    typeof series.id === 'string' &&
-    typeof series.providerId === 'string' &&
+    (typeof series.mihonId === 'string' || typeof series.providerId === 'string') &&
     typeof series.provider === 'string' &&
     typeof series.scanlator === 'string' &&
     typeof series.lang === 'string' &&
@@ -315,7 +317,7 @@ function isValidFullSeries(obj: unknown): obj is FullSeries {
     typeof series.description === 'string' &&
     Array.isArray(series.genre) &&
     typeof series.chapterCount === 'number' &&
-    typeof series.url === 'string' &&
+    (typeof series.url === 'string' || typeof series.url === 'undefined') &&
     typeof series.useCover === 'boolean' &&
     typeof series.isStorage === 'boolean' &&
     typeof series.useTitle === 'boolean'
@@ -325,6 +327,7 @@ function isValidFullSeries(obj: unknown): obj is FullSeries {
 // Function to check if a FullSeries matches an ExistingSource
 function isExistingSeries(series: FullSeries, existingSources: ExistingSource[]): boolean {
   return existingSources.some(existing =>
+    existing.mihonProviderId === series.mihonProviderId &&
     existing.provider === series.provider &&
     existing.scanlator === series.scanlator &&
     existing.lang === series.lang
@@ -380,7 +383,7 @@ export function ConfirmSeriesStep({
           // Find the first selectable series and mark it as selected
           const isFirstSelectable = !series.isUnselectable &&
             selectableSeries[0] &&
-            series.id === selectableSeries[0].id &&
+            getSeriesId(series) === getSeriesId(selectableSeries[0]) &&
             series.provider === selectableSeries[0].provider &&
             series.lang === selectableSeries[0].lang &&
             series.scanlator === selectableSeries[0].scanlator;
@@ -399,7 +402,7 @@ export function ConfirmSeriesStep({
   }, [validFullSeries.length, setFormState]); const handleToggleSelection = React.useCallback((seriesKey: string) => {
     setFormState((prev: AddSeriesState) => {
       const updatedSeries = prev.fullSeries.map((series: FullSeries) => {
-        const currentKey = `${series.id}-${series.provider}-${series.lang}-${series.scanlator}`;
+        const currentKey = `${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`;
         // Only toggle selection if series is not unselectable
         return currentKey === seriesKey && !series.isUnselectable
           ? { ...series, isSelected: !series.isSelected }
@@ -414,7 +417,7 @@ export function ConfirmSeriesStep({
     (seriesKey: string, checked: boolean): void => {
       setFormState((prev: AddSeriesState): AddSeriesState => {
         const updatedSeries: FullSeries[] = prev.fullSeries.map((series: FullSeries): FullSeries => {
-          const currentKey = `${series.id}-${series.provider}-${series.lang}-${series.scanlator}`;
+          const currentKey = `${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`;
           return currentKey === seriesKey
             ? { ...series, isStorage: checked }
             : series;
@@ -430,7 +433,7 @@ export function ConfirmSeriesStep({
     (seriesKey: string, checked: boolean): void => {
       setFormState((prev: AddSeriesState): AddSeriesState => {
         const updatedSeries: FullSeries[] = prev.fullSeries.map((series: FullSeries): FullSeries => {
-          const currentKey = `${series.id}-${series.provider}-${series.lang}-${series.scanlator}`;
+          const currentKey = `${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`;
           return {
             ...series,
             useCover: currentKey === seriesKey
@@ -451,7 +454,7 @@ export function ConfirmSeriesStep({
     (seriesKey: string, checked: boolean): void => {
       setFormState((prev: AddSeriesState): AddSeriesState => {
         const updatedSeries: FullSeries[] = prev.fullSeries.map((series: FullSeries): FullSeries => {
-          const currentKey = `${series.id}-${series.provider}-${series.lang}-${series.scanlator}`;
+          const currentKey = `${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`;
           return {
             ...series,
             useTitle: currentKey === seriesKey
@@ -472,6 +475,9 @@ export function ConfirmSeriesStep({
   // State for selected category (optional)
   const [selectedCategory, setSelectedCategory] = React.useState<string>("");  // State for editable storage path
   const [editableStoragePath, setEditableStoragePath] = React.useState<string>("");
+  
+  // Ref to track if category was manually changed by user
+  const categoryManuallyChanged = React.useRef<boolean>(false);
 
   // Handler for storage path changes that updates both local state and form state
   const handleStoragePathChange = React.useCallback((newPath: string) => {
@@ -480,25 +486,50 @@ export function ConfirmSeriesStep({
       ...prev,
       storagePath: newPath
     }));
-  }, [setFormState]);// State to track if scrollbar is visible
+  }, [setFormState]);
+  
+  // Handler for category changes
+  const handleCategoryChange = React.useCallback((newCategory: string) => {
+    categoryManuallyChanged.current = true;
+    setSelectedCategory(newCategory);
+  }, []);// State to track if scrollbar is visible
   const [hasScrollbar, setHasScrollbar] = React.useState<boolean>(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Get the series that has useTitle=true
   const titleSeries = React.useMemo(() => {
     return validFullSeries.find(series => series.useTitle);
-  }, [validFullSeries]);  // Set initial category when titleSeries changes
+  }, [validFullSeries]);
+
+  const availableCategories = React.useMemo(() => {
+    return formState.originalAugmentedResponse?.categories ?? [];
+  }, [formState.originalAugmentedResponse]);
+
+  const useCategoriesForPath = formState.originalAugmentedResponse?.useCategoriesForPath ?? false;
+  const baseStoragePath = formState.originalAugmentedResponse?.storageFolderPath;
+  
+  // Track the ID of the title series to detect when it actually changes
+  const titleSeriesIdRef = React.useRef<string | null>(null);
+
+  // Set initial category when titleSeries ID actually changes (not just reference)
   React.useEffect(() => {
-    if (titleSeries && titleSeries.categories && titleSeries.categories.length > 0) {
-      // Use series.type if available and exists in categories, otherwise use first category
-      const initialCategory = titleSeries.type && titleSeries.categories.includes(titleSeries.type)
-        ? titleSeries.type
-        : titleSeries.categories[0];
-      setSelectedCategory(initialCategory ?? "");
-    } else {
-      setSelectedCategory("");
+    const currentTitleSeriesId = titleSeries ? `${getSeriesId(titleSeries)}-${titleSeries.provider}` : null;
+    
+    // Only reset category if the series ID changed or if category wasn't manually set
+    if (currentTitleSeriesId !== titleSeriesIdRef.current && !categoryManuallyChanged.current) {
+      titleSeriesIdRef.current = currentTitleSeriesId;
+      
+      if (availableCategories.length > 0) {
+        // Use series.type if available and exists in categories, otherwise use first category
+        const initialCategory = titleSeries?.type && availableCategories.includes(titleSeries.type)
+          ? titleSeries.type
+          : availableCategories[0];
+        setSelectedCategory(initialCategory ?? "");
+      } else {
+        setSelectedCategory("");
+      }
     }
-  }, [titleSeries]);  // Compute storage path and update editable path when dependencies change
+  }, [titleSeries, availableCategories]);  // Compute storage path and update editable path when dependencies change
   React.useEffect(() => {
     // If form state already has a storage path and we haven't set the editable path yet, use it
     if (formState.storagePath && !editableStoragePath) {
@@ -507,27 +538,27 @@ export function ConfirmSeriesStep({
     }
 
     // Don't compute if we don't have the required data
-    if (!titleSeries || !titleSeries.storageFolderPath) {
+    if (!titleSeries || !baseStoragePath) {
       return;
     }
 
     // Determine path separator from storageFolderPath
-    const separator = titleSeries.storageFolderPath.includes('\\') ? '\\' : '/';
+    const separator = baseStoragePath.includes('\\') ? '\\' : '/';
 
     let computedPath: string;
-    if (titleSeries.categories && titleSeries.categories.length > 0 && titleSeries.useCategoriesForPath && selectedCategory) {
+    if (availableCategories.length > 0 && useCategoriesForPath && selectedCategory) {
       // With category: storageFolderPath + separator + selectedCategory + separator + suggestedFilename
-      computedPath = `${titleSeries.storageFolderPath}${separator}${selectedCategory}${separator}${titleSeries.suggestedFilename}`;
+      computedPath = `${baseStoragePath}${separator}${selectedCategory}${separator}${titleSeries.suggestedFilename}`;
     } else {
       // Without category: storageFolderPath + separator + suggestedFilename
-      computedPath = `${titleSeries.storageFolderPath}${separator}${titleSeries.suggestedFilename}`;
+      computedPath = `${baseStoragePath}${separator}${titleSeries.suggestedFilename}`;
     }
     
     // Only update if the computed path is different from current path
     if (computedPath !== editableStoragePath) {
       handleStoragePathChange(computedPath);
     }
-  }, [titleSeries, selectedCategory, formState.storagePath, editableStoragePath]);
+  }, [titleSeries, baseStoragePath, availableCategories, useCategoriesForPath, selectedCategory, formState.storagePath, editableStoragePath]);
 
   // Check for scrollbar visibility
   React.useEffect(() => {
@@ -576,17 +607,17 @@ export function ConfirmSeriesStep({
               placeholder="Enter storage path..."
               className="mt-1 bg-card mb-2"
             />
-          </div>            {titleSeries.categories && titleSeries.categories.length > 0 && (
+          </div>            {availableCategories.length > 0 && (
             <div className="w-48 ">
               <Label htmlFor="category-select" className="text-sm font-medium">
                 Category
               </Label>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <Select value={selectedCategory} onValueChange={handleCategoryChange}>
                 <SelectTrigger id="category-select" className="mt-1 bg-card mb-2">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent className="" >
-                  {titleSeries.categories.map((category) => (
+                  {availableCategories.map((category: string) => (
                     <SelectItem key={category} value={category}>
                       {category}
                     </SelectItem>
@@ -600,7 +631,7 @@ export function ConfirmSeriesStep({
           ref={scrollContainerRef}
           className={`h-[60dvh] overflow-y-auto space-y-4 ${hasScrollbar ? 'pr-2' : ''}`}      >        {validFullSeries.map((series: FullSeries) => (
             <SeriesCard
-              key={`${series.id}-${series.provider}-${series.lang}-${series.scanlator}`}
+              key={`${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`}
               series={series}
               isSelected={series.isSelected || false}
               isDesktop={isDesktop}

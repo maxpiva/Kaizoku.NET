@@ -1,0 +1,56 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11426.168 d18.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge.Models", "Mihon.ExtensionsBridge.Models\Mihon.ExtensionsBridge.Models.csproj", "{DF2E9312-AA49-E322-8607-23CEC27EDB61}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge.Core", "Mihon.ExtensionsBridge.Core\Mihon.ExtensionsBridge.Core.csproj", "{6D58C0F6-AC1B-81D8-25A9-1A74B6C61129}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Internal.Tests", "Internal.Tests", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge", "Internal.Tests\ExtensionBridge.Test\Mihon.ExtensionsBridge.csproj", "{DC713AAB-E247-D759-C203-429D0D7B2964}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge.IKVMCompiler", "Internal.Tests\Mihon.ExtensionsBridge.IKVMCompiler\Mihon.ExtensionsBridge.IKVMCompiler.csproj", "{13D0C10B-0427-43A4-B26B-8D620ED6083F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge.Tests", "Internal.Tests\Tachiyomi.ExtensionsBridge.Tests\Mihon.ExtensionsBridge.Tests.csproj", "{E554F0F9-0B14-D039-7CD7-B65FC48C3631}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DF2E9312-AA49-E322-8607-23CEC27EDB61}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DF2E9312-AA49-E322-8607-23CEC27EDB61}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DF2E9312-AA49-E322-8607-23CEC27EDB61}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DF2E9312-AA49-E322-8607-23CEC27EDB61}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D58C0F6-AC1B-81D8-25A9-1A74B6C61129}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D58C0F6-AC1B-81D8-25A9-1A74B6C61129}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D58C0F6-AC1B-81D8-25A9-1A74B6C61129}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D58C0F6-AC1B-81D8-25A9-1A74B6C61129}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DC713AAB-E247-D759-C203-429D0D7B2964}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DC713AAB-E247-D759-C203-429D0D7B2964}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DC713AAB-E247-D759-C203-429D0D7B2964}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DC713AAB-E247-D759-C203-429D0D7B2964}.Release|Any CPU.Build.0 = Release|Any CPU
+		{13D0C10B-0427-43A4-B26B-8D620ED6083F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{13D0C10B-0427-43A4-B26B-8D620ED6083F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{13D0C10B-0427-43A4-B26B-8D620ED6083F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{13D0C10B-0427-43A4-B26B-8D620ED6083F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E554F0F9-0B14-D039-7CD7-B65FC48C3631}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E554F0F9-0B14-D039-7CD7-B65FC48C3631}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E554F0F9-0B14-D039-7CD7-B65FC48C3631}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E554F0F9-0B14-D039-7CD7-B65FC48C3631}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{DC713AAB-E247-D759-C203-429D0D7B2964} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{13D0C10B-0427-43A4-B26B-8D620ED6083F} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{E554F0F9-0B14-D039-7CD7-B65FC48C3631} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5EE76A1A-D81B-4DD3-8F2E-E499A69B80A0}
+	EndGlobalSection
+EndGlobal

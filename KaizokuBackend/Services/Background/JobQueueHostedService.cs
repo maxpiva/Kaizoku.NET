@@ -1,5 +1,4 @@
 using KaizokuBackend.Data;
-using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
 using KaizokuBackend.Services.Jobs;
 using Microsoft.EntityFrameworkCore;
@@ -9,15 +8,21 @@ using System.Reflection;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Jobs.Settings;
+using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Services.Background
 {
-    public class JobQueueHostedService : BackgroundService
+    public interface IWorkerService
+    {
+        Task ExecuteAsync(CancellationToken stoppingToken);
+    }
+    public class JobQueueHostedService : IWorkerService
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<JobQueueHostedService> _logger;
         private readonly JobsSettings _settings;
-        private readonly ConcurrentDictionary<JobQueues, HashSet<string>> _runningJobs = new();
+        private readonly ConcurrentDictionary<JobQueues, ConcurrentDictionary<string, byte>> _runningJobs = new();
+        private readonly object _slotLock = new object();
 
         public JobQueueHostedService(IServiceScopeFactory scopeFactory, ILogger<JobQueueHostedService> logger,
             JobsSettings settings)
@@ -25,15 +30,15 @@ namespace KaizokuBackend.Services.Background
             _scopeFactory = scopeFactory;
             _logger = logger;
             _settings = settings;
-            
+
             // Initialize running jobs tracking
             foreach (var queue in _settings.GetQueueSettings())
             {
-                _runningJobs[queue.Name] = new HashSet<string>();
+                _runningJobs[queue.Name] = new ConcurrentDictionary<string, byte>();
             }
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        public async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Job Queue Service is starting");
             
@@ -78,8 +83,9 @@ namespace KaizokuBackend.Services.Background
             CancellationToken stoppingToken)
         {
             var queueName = queueSettings.Name;
-            var runningJobsInQueue = _runningJobs.GetValueOrDefault(queueName, new HashSet<string>());
-            
+            var runningJobsInQueue = _runningJobs.GetOrAdd(queueName, _ => new ConcurrentDictionary<string, byte>());
+
+            // Check available slots outside lock first (quick exit optimization)
             if (runningJobsInQueue.Count >= queueSettings.MaxThreads)
                 return;
 
@@ -96,8 +102,16 @@ namespace KaizokuBackend.Services.Background
                 if (stoppingToken.IsCancellationRequested)
                     break;
 
-                runningJobsInQueue.Add(job.Id.ToString());
-                
+                // Atomic slot allocation: check and reserve under lock
+                lock (_slotLock)
+                {
+                    if (runningJobsInQueue.Count >= queueSettings.MaxThreads)
+                        break;
+
+                    if (!runningJobsInQueue.TryAdd(job.Id.ToString(), 0))
+                        continue; // Job already running, skip
+                }
+
                 // Update job status to running
                 job.Status = QueueStatus.Running;
                 job.StartedDate = DateTime.UtcNow;
@@ -111,7 +125,7 @@ namespace KaizokuBackend.Services.Background
             }
         }
 
-        private async Task<List<Enqueue>> GetJobsToProcessAsync(JobManagementService jobManagement, JobQueues queueName,
+        private async Task<List<EnqueueEntity>> GetJobsToProcessAsync(JobManagementService jobManagement, JobQueues queueName,
             QueueSettings queueSettings, int availableSlots, CancellationToken stoppingToken)
         {
             // Get running job counts by group
@@ -143,7 +157,7 @@ namespace KaizokuBackend.Services.Background
             return jobsByPriority.SelectMany(a => a.Value).Take(availableSlots).ToList();
         }
 
-        private async Task UpdateJobStatusAsync(Enqueue job, CancellationToken stoppingToken)
+        private async Task UpdateJobStatusAsync(EnqueueEntity job, CancellationToken stoppingToken)
         {
             // Update job status through database context
             using var scope = _scopeFactory.CreateScope();
@@ -154,7 +168,7 @@ namespace KaizokuBackend.Services.Background
                     .SetProperty(j => j.StartedDate, DateTime.UtcNow), stoppingToken);
         }
 
-        private async Task ExecuteJobAsync(Enqueue job, JobQueues queueName, QueueSettings queueSettings,
+        private async Task ExecuteJobAsync(EnqueueEntity job, JobQueues queueName, QueueSettings queueSettings,
             CancellationToken stoppingToken)
         {
             var jobId = job.Id.ToString();
@@ -164,9 +178,9 @@ namespace KaizokuBackend.Services.Background
             
             try
             {
-                _logger.LogInformation("Starting job {Key} in queue {queueName}", job.Key, queueName);
+                //_logger.LogInformation("Starting job {Key} in queue {queueName}", job.Key, queueName);
                 
-                JobInfo jobInfo = new JobInfo(job.Id, job.JobType, job.Key, job.JobParameters);
+                JobInfo jobInfo = new JobInfo(job.Id, job.JobType, job.Key, job.GroupKey, job.JobParameters);
                 JobResult result = await jobExecution.ExecuteJobAsync(jobInfo, stoppingToken).ConfigureAwait(false);
                 
                 await HandleJobResultAsync(job, result, queueName, stoppingToken).ConfigureAwait(false);
@@ -181,12 +195,12 @@ namespace KaizokuBackend.Services.Background
                 // Remove job from running list
                 if (_runningJobs.TryGetValue(queueName, out var runningJobs))
                 {
-                    runningJobs.Remove(jobId);
+                    runningJobs.TryRemove(jobId, out _);
                 }
             }
         }
 
-        private async Task HandleJobResultAsync(Enqueue job, JobResult result, JobQueues queueName,
+        private async Task HandleJobResultAsync(EnqueueEntity job, JobResult result, JobQueues queueName,
             CancellationToken stoppingToken)
         {
             using var scope = _scopeFactory.CreateScope();
@@ -199,7 +213,7 @@ namespace KaizokuBackend.Services.Background
                 {
                     updatedJob.Status = result == JobResult.Success ? QueueStatus.Completed : QueueStatus.Failed;
                     updatedJob.FinishedDate = DateTime.UtcNow;
-                    
+                    /*
                     if (result == JobResult.Success)
                     {
                         _logger.LogInformation("Completed job {Key} in queue {queueName}", job.Key, queueName);
@@ -208,7 +222,7 @@ namespace KaizokuBackend.Services.Background
                     {
                         _logger.LogWarning("Failed job {Key} in queue {queueName}", job.Key, queueName);
                     }
-                    
+                    */
                     await management.QueuedJobs.Where(j => j.Id == job.Id)
                         .ExecuteUpdateAsync(updates => updates.SetProperty(j => j.Status, updatedJob.Status)
                             .SetProperty(j => j.FinishedDate, updatedJob.FinishedDate), stoppingToken);
@@ -221,11 +235,11 @@ namespace KaizokuBackend.Services.Background
             }
             else
             {
-                _logger.LogWarning("Rescheduled job {Key} in queue {queueName}", job.Key, queueName);
+                _logger.LogWarning("Rescheduled job {jobType} {GroupKey} in queue {queueName}", job.JobType, job.GroupKey ?? job.Key, queueName);
             }
         }
 
-        private async Task HandleJobFailureAsync(Enqueue job, QueueSettings queueSettings, CancellationToken stoppingToken)
+        private async Task HandleJobFailureAsync(EnqueueEntity job, QueueSettings queueSettings, CancellationToken stoppingToken)
         {
             using var scope = _scopeFactory.CreateScope();
             var management = scope.ServiceProvider.GetRequiredService<JobManagementService>();

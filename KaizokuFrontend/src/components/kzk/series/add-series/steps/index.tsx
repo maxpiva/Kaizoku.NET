@@ -120,7 +120,7 @@ export function AddSeriesSteps({
         // Type-safe filtering
         const allLinkedSeries = formState.allLinkedSeries;
         const selectedLinked: LinkedSeries[] = allLinkedSeries.filter((series: LinkedSeries) => 
-          formState.selectedLinkedSeries.includes(String(series.id))
+          formState.selectedLinkedSeries.includes(series.mihonId ?? series.providerId)
         );        const augmentedResponse = await augmentSeries.mutateAsync(selectedLinked);
         
         // For Add Sources mode, override the existing series properties
@@ -154,9 +154,6 @@ export function AddSeriesSteps({
           isStorage: isAddSourcesMode ? false : index === preferredIndex,
           useCover: isAddSourcesMode ? false : index === preferredIndex,
           useTitle: isAddSourcesMode ? false : index === preferredIndex,
-          storageFolderPath: augmentedResponse.storageFolderPath,
-          categories: augmentedResponse.categories,
-          useCategoriesForPath: augmentedResponse.useCategoriesForPath,
         }));        setFormState((prev: AddSeriesState): AddSeriesState => {
           const nextState = { 
             ...prev, 

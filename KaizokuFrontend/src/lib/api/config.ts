@@ -31,7 +31,7 @@ export function getApiConfig(): ApiConfig {
   if (isDevelopment) {
     // In development, always use localhost:5001
     return {
-      baseUrl: 'http://localhost:5001',
+      baseUrl: 'http://127.0.0.1:9833',
       isAbsolute: true
     };
   } else if (backendUrl && backendUrl.trim() !== '') {

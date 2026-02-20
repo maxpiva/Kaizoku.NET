@@ -2,7 +2,10 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Extensions;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
-using KaizokuBackend.Services.Helpers;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Bridge;
+using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Models;
@@ -12,10 +15,12 @@ using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Series;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using static System.Net.Mime.MediaTypeNames;
-using Action = KaizokuBackend.Models.Database.Action;
+using Action = KaizokuBackend.Models.Action;
 
 namespace KaizokuBackend.Services.Import;
 
@@ -23,56 +28,53 @@ public class ImportCommandService
 {
     private readonly ILogger _logger;
     private readonly AppDbContext _db;
-    private readonly SuwayomiClient _sc;
     private readonly JobHubReportService _reportingService;
     private readonly JobManagementService _jobManagementService;
     private readonly SearchQueryService _searchQuery;
     private readonly SearchCommandService _searchCommand;
     private readonly SeriesCommandService _seriesCommand;
     private readonly SeriesProviderService _seriesProvider;
-    private readonly ContextProvider _baseUrl;
     private readonly ProviderCacheService _providerCache;
-    private readonly ProviderInstallationService _providerInstallationService;
-    private readonly ProviderQueryService _providerQueryService;
+    private readonly ProviderManagerService _providerManagerService;
+    private readonly MihonBridgeService _mihon;
     private readonly SettingsService _settings;
     private readonly SeriesScanner _scanner;
-
+    private readonly ThumbCacheService _thumb;
     public ImportCommandService(
         ILogger<ImportCommandService> logger,
-        SuwayomiClient sc,
         SearchQueryService searchQuery,
         SearchCommandService searchCommand,
+        SettingsService settings,
         AppDbContext db,
         JobHubReportService reportingService,
         JobManagementService jobManagementService,
-        ContextProvider baseUrl,
-        SettingsService settings,
+        MihonBridgeService mihon,
         SeriesCommandService seriesCommand,
         SeriesProviderService seriesProvider,
         ProviderCacheService providerCache,
-        ProviderInstallationService providerInstallationService,
-        ProviderQueryService providerQueryService,
+        ProviderManagerService provicerManagerService,
+        ThumbCacheService thumb,
         SeriesScanner scanner)
     {
         _logger = logger;
         _settings = settings;
-        _sc = sc;
         _db = db;
-        _providerInstallationService = providerInstallationService;
-        _providerQueryService = providerQueryService;
+        _providerManagerService = provicerManagerService;
         _searchQuery = searchQuery;
         _searchCommand = searchCommand;
         _reportingService = reportingService;
         _jobManagementService = jobManagementService;
-        _baseUrl = baseUrl;
         _providerCache = providerCache;
         _seriesCommand = seriesCommand;
         _seriesProvider = seriesProvider;
+        _mihon = mihon;
         _scanner = scanner;
+        _thumb = thumb;
     }
 
     public async Task<JobResult> ScanAsync(string directoryPath, JobInfo jobInfo, CancellationToken token = default)
     {
+        _logger.LogInformation("Starting directory scan job for path: {directoryPath}", directoryPath);
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)) 
             || (await _jobManagementService.IsJobTypeRunningAsync(JobType.InstallAdditionalExtensions, token).ConfigureAwait(false)))
@@ -81,26 +83,46 @@ public class ImportCommandService
             return JobResult.Success;
         }            
   
-        List<KaizokuBackend.Models.Database.Series> allseries = await _db.Series.Include(a => a.Sources).ToListAsync(token).ConfigureAwait(false);
-        List<SuwayomiExtension> exts = await _sc.GetExtensionsAsync(token).ConfigureAwait(false);
+        List<KaizokuBackend.Models.Database.SeriesEntity> allseries = await _db.Series.Include(a => a.Sources).ToListAsync(token).ConfigureAwait(false);
+        List<TachiyomiRepository> repos = _mihon.ListOnlineRepositories();
         if (!Directory.Exists(directoryPath))
         {
             _logger.LogError("Directory not found: {directoryPath}", directoryPath);
             return JobResult.Failed;
         }
         progress.Report(ProgressStatus.Started, 0, "Scanning Directories...");
-        var seriesDict = new List<KaizokuInfo>();
-        await _scanner.RecurseDirectoryAsync(allseries, exts, seriesDict, directoryPath, directoryPath, progress, token).ConfigureAwait(false);
+        var seriesDict = new List<ImportSeriesSnapshot>();
+        await _scanner.RecurseDirectoryAsync(allseries, repos, seriesDict, directoryPath, directoryPath, progress, token).ConfigureAwait(false);
         HashSet<string> folders = seriesDict.Select(a => a.Path).ToHashSet();
         await SaveImportsAsync(folders, seriesDict, token).ConfigureAwait(false);
         progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
+        _logger.LogInformation("Directory scan job completed successfully for path: {directoryPath}", directoryPath);
         return JobResult.Success;
     }
 
-    private async Task SaveImportsAsync(HashSet<string> existingFolders, List<KaizokuInfo> newSeries, CancellationToken token = default)
+    private async Task ReconcileLanguagesFromImportAsync(List<KaizokuBackend.Models.Database.ImportEntity> imports)
+    {
+        string[] languages = imports
+            .SelectMany(a => a.Info.Series.Providers.Select(b => b.Language))
+            .Where(a => !string.IsNullOrEmpty(a))
+            .Distinct()
+            .ToArray();
+        string[] avail = await _settings.GetAvailableLanguagesAsync().ConfigureAwait(false);
+        languages = languages.Where(a => avail.Contains(a)).ToArray();
+        SettingsDto settings = await _settings.GetSettingsAsync().ConfigureAwait(false);
+        int cnt = settings.PreferredLanguages.Length;
+        languages = settings.PreferredLanguages.Concat(languages.Where(a => !settings.PreferredLanguages.Contains(a))).ToArray();
+        if (languages.Length != cnt)
+        {
+            settings.PreferredLanguages = languages;
+            await _settings.SaveSettingsAsync(settings, true).ConfigureAwait(false);
+        }
+    }
+
+    private async Task SaveImportsAsync(HashSet<string> existingFolders, List<ImportSeriesSnapshot> newSeries, CancellationToken token = default)
     {
         var imports = await _db.Imports.ToListAsync(token).ConfigureAwait(false);
-        foreach (KaizokuBackend.Models.Database.Import a in imports)
+        foreach (KaizokuBackend.Models.Database.ImportEntity a in imports)
         {
             if (!existingFolders.Contains(a.Path, StringComparer.InvariantCultureIgnoreCase) && a.Status != ImportStatus.DoNotChange)
             {
@@ -108,9 +130,9 @@ public class ImportCommandService
             }
         }
         Dictionary<string, Guid> paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
-        foreach (KaizokuInfo k in newSeries)
+        foreach (ImportSeriesSnapshot k in newSeries)
         {
-            KaizokuBackend.Models.Database.Series? s = null;
+            KaizokuBackend.Models.Database.SeriesEntity? s = null;
             if (!string.IsNullOrEmpty(k.Path) && paths.TryGetValue(k.Path, out Guid id))
             {
                 s = await _db.Series.Include(a => a.Sources)
@@ -122,9 +144,12 @@ public class ImportCommandService
             if (s != null)
             {
                 exists = true;
-                Dictionary<Chapter, SeriesProvider> chapters = s.Sources.SelectMany(a => a.Chapters, (p, c) => new { Provider = p, Chapter = c }).Where(a=>!string.IsNullOrEmpty(a.Chapter.Filename)).ToDictionary(x => x.Chapter, x => x.Provider);
-                Dictionary<ArchiveInfo, ProviderInfo> archives = k.Providers.SelectMany(a => a.Archives, (p, c) => new { Provider = p, Chapter = c }).Where(a => !string.IsNullOrEmpty(a.Chapter.ArchiveName)).ToDictionary(a => a.Chapter, a => a.Provider);
-                foreach (ArchiveInfo archive in archives.Keys)
+                Dictionary<Chapter, SeriesProviderEntity> chapters = s.Sources.SelectMany(a => a.Chapters, (p, c) => new { Provider = p, Chapter = c }).Where(a=>!string.IsNullOrEmpty(a.Chapter.Filename)).ToDictionary(x => x.Chapter, x => x.Provider);
+                Dictionary<ProviderArchiveSnapshot, ImportProviderSnapshot> archives = k.Series.Providers
+                    .SelectMany(a => a.Archives, (p, c) => new { Provider = p, Chapter = c })
+                    .Where(a => !string.IsNullOrEmpty(a.Chapter.ArchiveName))
+                    .ToDictionary(a => a.Chapter, a => a.Provider);
+                foreach (ProviderArchiveSnapshot archive in archives.Keys)
                 {
                     Chapter? c = chapters.Keys.FirstOrDefault(a => a.Filename!.Equals(archive.ArchiveName!, StringComparison.InvariantCultureIgnoreCase));
                     if (c != null)
@@ -146,7 +171,7 @@ public class ImportCommandService
                     await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 }
             }
-            KaizokuBackend.Models.Database.Import? import = imports.FirstOrDefault(a => a.Path.Equals(k.Path, StringComparison.InvariantCultureIgnoreCase));
+            KaizokuBackend.Models.Database.ImportEntity? import = imports.FirstOrDefault(a => a.Path.Equals(k.Path, StringComparison.InvariantCultureIgnoreCase));
             if (import != null)
             {
                 bool change = false;
@@ -166,7 +191,7 @@ public class ImportCommandService
             }
             else
             {
-                KaizokuBackend.Models.Database.Import imp = new KaizokuBackend.Models.Database.Import
+                KaizokuBackend.Models.Database.ImportEntity imp = new KaizokuBackend.Models.Database.ImportEntity
                 {
                     Title = k.Title,
                     Path = k.Path,
@@ -184,6 +209,7 @@ public class ImportCommandService
     {
         try
         {
+            _logger.LogInformation("Starting extension installation job...");
             ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
             if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)))
             {
@@ -191,21 +217,23 @@ public class ImportCommandService
                 return JobResult.Success;
             }
             progress.Report(ProgressStatus.InProgress, startPercentage, null);
-            List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports.Where(a => a.Status == ImportStatus.Import).ToListAsync(token).ConfigureAwait(false);
-            List<ProviderInfo> providerInfos = imports.SelectMany(i => i.Info.Providers).ToList();
-            List<SuwayomiExtension> requiredExtensions = await _providerQueryService.GetRequiredExtensionsAsync(providerInfos, token).ConfigureAwait(false);
+            List<KaizokuBackend.Models.Database.ImportEntity> imports = await _db.Imports.Where(a => a.Status == ImportStatus.Import).ToListAsync(token).ConfigureAwait(false);
+            await ReconcileLanguagesFromImportAsync(imports).ConfigureAwait(false);
+        List<ImportProviderSnapshot> importProviderSnapshots = imports.SelectMany(i => i.Info.Series.Providers).ToList();
+            Dictionary<TachiyomiExtension, TachiyomiRepository> requiredExtensions = await _providerManagerService.GetRequiredExtensionsAsync(importProviderSnapshots, token).ConfigureAwait(false);
             if (requiredExtensions.Count > 0)
             {
                 float step = (maxPercentage - startPercentage) / (float)requiredExtensions.Count;
                 float acum = startPercentage;
-                foreach (SuwayomiExtension ext in requiredExtensions)
+                foreach ((TachiyomiExtension text, TachiyomiRepository trepo) in requiredExtensions)
                 {
-                    progress.Report(ProgressStatus.InProgress, (decimal)acum, ext.Name + " v" + ext.VersionCode);
-                    await _providerInstallationService.InstallProviderAsync(ext.PkgName, token).ConfigureAwait(false);
+                    progress.Report(ProgressStatus.InProgress, (decimal)acum, text.ParsedName() + " " + text.Version);
+                    await _providerManagerService.InstallProviderAsync(text.Package, trepo.Name, false, token).ConfigureAwait(false);
                     acum += step;
                 }
             }
             progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+            _logger.LogInformation("Extension installation job completed successfully.");
             return JobResult.Success;
         }
         catch (Exception e)
@@ -215,31 +243,50 @@ public class ImportCommandService
         }
     }
 
-    private SuwayomiSource? GetSource(ProviderInfo info, IEnumerable<SuwayomiSource> sources)
+    private ProviderStorageEntity? GetSource(ImportProviderSnapshot info, IEnumerable<ProviderStorageEntity> sources)
     {
         if (info.Provider == "Unknown")
             return null;
-        return sources.FirstOrDefault(a => a.Name.Equals(info.Provider,  StringComparison.InvariantCultureIgnoreCase) && a.Lang.Equals(info.Language, StringComparison.InvariantCultureIgnoreCase));
+        if (string.IsNullOrEmpty(info.Language))
+        {
+            List<ProviderStorageEntity> filtered2 = sources.Where(a => a.Name.Equals(info.Provider, StringComparison.InvariantCultureIgnoreCase)).ToList();
+            if (filtered2.Count>0)
+            {
+                ProviderStorageEntity? ps = filtered2.FirstOrDefault(a => a.Language.Equals("all", StringComparison.InvariantCultureIgnoreCase));
+                if (ps==null)
+                    ps = filtered2.First();
+            }
+            return null;
+        }
+        List<ProviderStorageEntity> filtered = sources.Where(a => a.Name.Equals(info.Provider, StringComparison.InvariantCultureIgnoreCase) && a.Language.Equals(info.Language, StringComparison.InvariantCultureIgnoreCase)).ToList();
+        if (filtered.Count == 0)
+        {
+            filtered = sources.Where(a => a.Name.Equals(info.Provider, StringComparison.InvariantCultureIgnoreCase) && a.Language.Equals("all", StringComparison.InvariantCultureIgnoreCase)).ToList();
+        }
+        if (filtered.Count > 0)
+            return filtered.First();
+        return null;
     }
 
 
-    public async Task UpdateImportInfoAsync(ImportInfo info, CancellationToken token = default)
+    public async Task UpdateImportSeriesEntryAsync(ImportSeriesEntry info, CancellationToken token = default)
     {
-        KaizokuBackend.Models.Database.Import? import = await _db.Imports.FirstOrDefaultAsync(a => a.Path == info.Path, token).ConfigureAwait(false);
+        KaizokuBackend.Models.Database.ImportEntity? import = await _db.Imports.FirstOrDefaultAsync(a => a.Path == info.Path, token).ConfigureAwait(false);
         if (import == null)
             return;
-        import.ApplyImportInfo(info);
+        import.ApplyImportSeriesEntry(info);
         _db.Touch(import, e => e.Series);
         await _db.SaveChangesAsync(token).ConfigureAwait(false);
     }
 
     public async Task<JobResult> SearchSeriesAsync(JobInfo jobInfo, CancellationToken token = default)
     {
+        _logger.LogInformation("Starting series search job...");
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         progress.Report(ProgressStatus.Started, 0, "Starting series search...");
         try
         {
-            List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports
+            List<KaizokuBackend.Models.Database.ImportEntity> imports = await _db.Imports
                 .Where(a => a.Status == ImportStatus.Import)
                 .ToListAsync(token).ConfigureAwait(false); ;
             if (imports.Count == 0)
@@ -251,15 +298,16 @@ public class ImportCommandService
             float acum = 0F;
             Dictionary<string, Guid> paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
             var appSettings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
-            foreach (KaizokuBackend.Models.Database.Import import in imports)
+            List<RepositoryGroup> local_repo = _mihon.ListExtensions();
+            foreach (KaizokuBackend.Models.Database.ImportEntity import in imports)
             {
                 try
                 {
-                    List<string> langs = import.Info.Providers.Select(a => a.Language).Distinct().ToList();
+                    List<string> langs = import.Info.Series.Providers.Select(a => a.Language).Distinct().ToList();
                     if (langs.Count == 0)
                         langs = ["en"];
                     var filteredSources = await _providerCache.GetSourcesForLanguagesAsync(langs, token).ConfigureAwait(false);
-                    KaizokuBackend.Models.Database.Series? s = null;
+                    KaizokuBackend.Models.Database.SeriesEntity? s = null;
                     if (!string.IsNullOrEmpty(import.Info.Path) && paths.TryGetValue(import.Info.Path, out Guid id))
                     {
                         s = await _db.Series.Include(a => a.Sources)
@@ -269,25 +317,25 @@ public class ImportCommandService
                     if (s != null)
                     {
                         _logger.LogInformation("Assigning '{Title}' to existing Series", import.Info.Title);
-                        Dictionary<Chapter, SeriesProvider> chapters = s.Sources
+                        Dictionary<Chapter, SeriesProviderEntity> chapters = s.Sources
                             .SelectMany(a => a.Chapters, (p, c) => new { Provider = p, Chapter = c })
                             .Where(a => !string.IsNullOrEmpty(a.Chapter.Filename))
                             .ToDictionary(x => x.Chapter, x => x.Provider);
-                        Dictionary<ArchiveInfo, ProviderInfo> archives = import.Info.Providers
+                        Dictionary<ProviderArchiveSnapshot, ImportProviderSnapshot> archives = import.Info.Series.Providers
                             .SelectMany(a => a.Archives, (p, c) => new { Provider = p, Chapter = c })
                             .Where(a => !string.IsNullOrEmpty(a.Chapter.ArchiveName))
                             .ToDictionary(a => a.Chapter, a => a.Provider);
                         foreach (Chapter c in chapters.Keys)
                         {
-                            ArchiveInfo? info = archives.Keys.FirstOrDefault(a =>
+                            ProviderArchiveSnapshot? info = archives.Keys.FirstOrDefault(a =>
                                 string.Equals(a.ArchiveName, c.Filename, StringComparison.InvariantCultureIgnoreCase));
                             if (info != null)
                                 archives.Remove(info);
                         }
-                        Dictionary<ProviderInfo, List<ArchiveInfo>> left = archives
+                        Dictionary<ImportProviderSnapshot, List<ProviderArchiveSnapshot>> left = archives
                             .GroupBy(a => a.Value).ToDictionary(a => a.Key,
                                 g => g.Select(b => b.Key).ToList());
-                        foreach (ProviderInfo p in left.Keys.ToList())
+                        foreach (ImportProviderSnapshot p in left.Keys.ToList())
                         {
                             if (p.Provider != "Unknown")
                             {
@@ -299,7 +347,7 @@ public class ImportCommandService
                                 if (!string.IsNullOrEmpty(p.Language))
                                     baseQuery = baseQuery.Where(a =>
                                         a.Language.Equals(p.Language, StringComparison.InvariantCultureIgnoreCase));
-                                SeriesProvider? existing = baseQuery.FirstOrDefault();
+                                SeriesProviderEntity? existing = baseQuery.FirstOrDefault();
                                 if (existing != null)
                                 {
                                     existing.AssignArchives(left[p]);
@@ -307,31 +355,17 @@ public class ImportCommandService
                                 }
                                 else
                                 {
-                                    Dictionary<SuwayomiSource, ProviderStorage> n = new();
-                                    KeyValuePair<SuwayomiSource, ProviderStorage>? k = null;
-                                    if (!string.IsNullOrEmpty(p.Language))
-                                    {
-                                        k = filteredSources.FirstOrDefault(a =>
-                                            a.Key.Name.Equals(p.Provider,
-                                                StringComparison.InvariantCultureIgnoreCase) &&
-                                            a.Key.Lang.Equals(p.Language, StringComparison.InvariantCultureIgnoreCase));
-                                    }
-                                    else
-                                    {
-                                        k = filteredSources.FirstOrDefault(a =>
-                                            a.Key.Name.Equals(p.Provider, StringComparison.InvariantCultureIgnoreCase));
-                                    }
+                                    ProviderStorageEntity k = filteredSources.BestMatch(local_repo, p.Provider, p.Language);
                                     if (k != null)
                                     {
-                                        n.Add(k.Value.Key, k.Value.Value);
-                                        List<LinkedSeries> linked2 = await _searchQuery
-                                            .SearchSeriesAsync(p.Title, n, appSettings, 0, token).ConfigureAwait(false);
+                                        List<LinkedSeriesDto> linked2 = await _searchQuery
+                                            .SearchSeriesAsync(p.Title, new List<ProviderStorageEntity> { k }, appSettings, 0, token).ConfigureAwait(false);
                                         if (linked2.Count > 0)
                                         {
-                                            AugmentedResponse augmented = await _searchCommand
+                                            AugmentedResponseDto augmented = await _searchCommand
                                                 .AugmentSeriesAsync(linked2, token)
                                                 .ConfigureAwait(false);
-                                            List<FullSeries> series = augmented.Series;
+                                            List<ProviderSeriesDetails> series = augmented.Series;
                                             if (series.Count > 0)
                                             {
                                                 if (!string.IsNullOrEmpty(p.Scanlator))
@@ -339,12 +373,12 @@ public class ImportCommandService
                                                         StringComparison.InvariantCultureIgnoreCase)).ToList();
                                                 if (series.Count > 0)
                                                 {
-                                                    foreach (FullSeries f in series)
+                                                    foreach (ProviderSeriesDetails f in series)
                                                     {
                                                         List<decimal?> chaps = f.Chapters.Select(a => a.Number)
                                                             .Distinct().ToList();
-                                                        List<ArchiveInfo> workToDo = [];
-                                                        foreach (ArchiveInfo i in left[p].ToList())
+                                                        List<ProviderArchiveSnapshot> workToDo = [];
+                                                        foreach (ProviderArchiveSnapshot i in left[p].ToList())
                                                         {
                                                             if (chaps.Contains(i.ChapterNumber))
                                                             {
@@ -354,7 +388,7 @@ public class ImportCommandService
                                                         }
                                                         if (workToDo.Count > 0)
                                                         {
-                                                            SeriesProvider prov = f.CreateOrUpdate();
+                                                            SeriesProviderEntity prov = await f.CreateOrUpdateAsync(_thumb,null, token).ConfigureAwait(false);
                                                             prov.SeriesId = s.Id;
                                                             _db.SeriesProviders.Add(prov);
                                                             s.Sources.Add(prov);
@@ -372,10 +406,10 @@ public class ImportCommandService
                         }
                         if (left.Count > 0)
                         {
-                            SeriesProvider? p = s.Sources.FirstOrDefault(a => a.IsUnknown);
+                            SeriesProviderEntity? p = s.Sources.FirstOrDefault(a => a.IsUnknown);
                             if (p == null)
                             {
-                                ProviderInfo? pinfo = left.Keys.FirstOrDefault(a => a.Provider == "Unknown");
+                                ImportProviderSnapshot? pinfo = left.Keys.FirstOrDefault(a => a.Provider == "Unknown");
                                 if (pinfo == null)
                                 {
                                     pinfo = left.Keys.First();
@@ -386,12 +420,12 @@ public class ImportCommandService
                                 p.SeriesId = s.Id;
                                 _db.SeriesProviders.Add(p);
                                 s.Sources.Add(p);
-                                List<ArchiveInfo> arcs2 = left.SelectMany(a => a.Value).ToList();
+                                List<ProviderArchiveSnapshot> arcs2 = left.SelectMany(a => a.Value).ToList();
                                 p.AssignArchives(arcs2);
                             }
                         }
-                        s.FillSeriesFromFullSeries(s.Sources.ToFullSeries());
-                        s.Sources.CalculateContinueAfterChapter();
+                        s.FillSeriesFromProviderSeriesDetails(s.Sources.ToProviderSeriesDetails(),null);
+                        s.Sources.CalculateContinueAfterChapter(null);
                         import.Status = ImportStatus.DoNotChange;
                         await _db.SaveChangesAsync(token).ConfigureAwait(false);
                         await _seriesProvider.CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(s.Sources, [], token)
@@ -403,45 +437,45 @@ public class ImportCommandService
                     {
 
 
-                        List<(ProviderInfo, SuwayomiSource, ProviderStorage)> existing = new List<(ProviderInfo, SuwayomiSource, ProviderStorage)>();
-                        foreach (ProviderInfo i in import.Info.Providers)
+                        List<(ImportProviderSnapshot pinfo, ProviderStorageEntity ps)> existing = new List<(ImportProviderSnapshot, ProviderStorageEntity)>();
+                        foreach (ImportProviderSnapshot i in import.Info.Series.Providers)
                         {
-                            SuwayomiSource? source = GetSource(i, filteredSources.Keys);
-                            if (source != null)
+                            ProviderStorageEntity? ps = GetSource(i, filteredSources);
+                            if (ps!=null)
                             {
-                                existing.Add((i, source, filteredSources[source]));
+                                existing.Add((i, ps));
                             }
                         }
                         string langstr = langs.Count == 0 ? "all" : string.Join(",", langs);
-                        List<ProviderInfo> fnd = existing.Select(a => a.Item1).Distinct().ToList();
-                        List<ProviderInfo> left = import.Info.Providers.Where(a => !fnd.Contains(a)).ToList();
-                        List<LinkedSeries> linked = new List<LinkedSeries>();
+                        List<ImportProviderSnapshot> fnd = existing.Select(a => a.Item1).Distinct().ToList();
+                        List<ImportProviderSnapshot> left = import.Info.Series.Providers.Where(a => !fnd.Contains(a)).ToList();
+                        List<LinkedSeriesDto> linked = new List<LinkedSeriesDto>();
                         if (existing.Count > 0)
                         {
                             _logger.LogInformation("Searching for '{Title}' across {Count} matched providers in languages: {langstr}", import.Info.Title, existing.Count, langstr);
-                            List<LinkedSeries> list = [];
-                            List<(string, SuwayomiSource, ProviderStorage)> searchlist = new List<(string, SuwayomiSource, ProviderStorage)>();
+                            List<LinkedSeriesDto> list = [];
+                            List<(string keyword, ProviderStorageEntity pstorage)> searchlist = new List<(string keyword, ProviderStorageEntity pstorage)>();
                             foreach (var n in existing)
                             {
-                                if (searchlist.Any(a => a.Item1 == n.Item1.Title && a.Item2.Id == n.Item2.Id))
+                                if (searchlist.Any(a => a.keyword == n.pinfo.Title && a.pstorage.MihonProviderId == n.ps.MihonProviderId))
                                     continue; // Avoid duplicates
-                                searchlist.Add((n.Item1.Title, n.Item2, n.Item3));
+                                searchlist.Add((n.pinfo.Title, n.ps));
                             }
                             list = await _searchQuery.SearchSeriesAsync(searchlist, appSettings!, 0, token).ConfigureAwait(false);
                             Dictionary<string, List<string>> sourceTitles = new Dictionary<string, List<string>>();
                             foreach (var n in existing)
                             {
-                                if (!sourceTitles.ContainsKey(n.Item2.Id))
-                                    sourceTitles.Add(n.Item2.Id, new List<string>());
-                                if (!sourceTitles[n.Item2.Id].Contains(n.Item1.Title))
-                                    sourceTitles[n.Item2.Id].Add(n.Item1.Title);
+                                if (!sourceTitles.ContainsKey(n.ps.MihonProviderId))
+                                    sourceTitles.Add(n.ps.MihonProviderId, new List<string>());
+                                if (!sourceTitles[n.ps.MihonProviderId].Contains(n.pinfo.Title))
+                                    sourceTitles[n.ps.MihonProviderId].Add(n.pinfo.Title);
                             }
                             if (list.Count==0)
                                 left.AddRange(existing.Select(a=>a.Item1));
                 
-                            foreach (LinkedSeries l in list)
+                            foreach (LinkedSeriesDto l in list)
                             {
-                                List<string> lss = sourceTitles[l.ProviderId];
+                                List<string> lss = sourceTitles[l.MihonProviderId];
                                 foreach (string n in lss)
                                 {
                                     if (l.Title.AreStringSimilar(n))
@@ -455,12 +489,12 @@ public class ImportCommandService
                         }
                         if (left.Count > 0)
                         {
-                            List<SuwayomiSource> srcs = existing.Select(a => a.Item2).Distinct().ToList();
-                            Dictionary<SuwayomiSource, ProviderStorage> lefts = filteredSources.Where(a => !srcs.Contains(a.Key))
-                                .ToDictionary(a => a.Key, a => a.Value);
+                            List<string> srcs = existing.Select(a => a.ps.MihonProviderId).Distinct().ToList();
+                            List<ProviderStorageEntity> lefts = filteredSources.Where(a => !srcs.Contains(a.MihonProviderId))
+                                .ToList();
                             _logger.LogInformation("Searching for '{Title}' across {Count} providers in languages: {langstr}",
                                 import.Info.Title, lefts.Count, langstr);
-                            List<LinkedSeries> list = await _searchQuery
+                            List<LinkedSeriesDto> list = await _searchQuery
                                 .SearchSeriesAsync(import.Info.Title, lefts, appSettings, 0, token)
                                 .ConfigureAwait(false);
                             List<string> titles = new List<string> { import.Info.Title };
@@ -483,7 +517,7 @@ public class ImportCommandService
                                     }
                                 }
                             }
-                            foreach (LinkedSeries l in list)
+                            foreach (LinkedSeriesDto l in list)
                             {
                                 foreach (string title in titles)
                                 {
@@ -498,17 +532,17 @@ public class ImportCommandService
                         bool success = false;
                         if (linked.Count > 0)
                         {
-                            AugmentedResponse augmented =
+                            AugmentedResponseDto augmented =
                                 await _searchCommand.AugmentSeriesAsync(linked, token).ConfigureAwait(false);
-                            List<FullSeries> series = augmented.Series;
+                            List<ProviderSeriesDetails> series = augmented.Series;
                             if (series.Count > 0)
                             {
                                 import.Series = series;
-                                ImportInfo inf = import.ToImportInfo(_baseUrl.BaseUrl);
+                                ImportSeriesEntry inf = import.ToImportSeriesEntry();
                                 import.Action = inf.Action;
                                 import.Status = inf.Status;
                                 import.ContinueAfterChapter = inf.ContinueAfterChapter;
-                                import.ApplyImportInfo(inf);
+                                import.ApplyImportSeriesEntry(inf);
                                 acum += step;
                                 progress.Report(ProgressStatus.InProgress, (int)acum,
                                     $"{import.Info.Title} found in {string.Join(",", series.Select(a => a.Provider).Distinct())}.");
@@ -533,6 +567,7 @@ public class ImportCommandService
                 }
             }
             progress.Report(ProgressStatus.Completed, 100, $"Search completed for {imports.Count} series");
+            _logger.LogInformation("Series search job completed successfully for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)
@@ -546,8 +581,9 @@ public class ImportCommandService
     public async Task<JobResult> ImportSeriesAsync(JobInfo jobInfo, bool disableJob, CancellationToken token = default)
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
+        _logger.LogInformation("Starting series import job...");
         progress.Report(ProgressStatus.Started, 0, "Starting series import...");
-        List<KaizokuBackend.Models.Database.Import> imports = await _db.Imports
+        List<KaizokuBackend.Models.Database.ImportEntity> imports = await _db.Imports
             .Where(a => a.Status != ImportStatus.DoNotChange)
             .AsNoTracking()
             .ToListAsync(token).ConfigureAwait(false);
@@ -555,36 +591,37 @@ public class ImportCommandService
         float acum = 0F;
         try
         {
-            foreach (KaizokuBackend.Models.Database.Import import in imports)
+            foreach (KaizokuBackend.Models.Database.ImportEntity import in imports)
             {
                 if (import.Series != null && import.Series.Count > 0 && import.Action == Action.Add)
                 {
-                    AugmentedResponse augmented = new AugmentedResponse();
+                    AugmentedResponseDto augmented = new AugmentedResponseDto();
                     augmented.DisableJobs = disableJob;
                     augmented.StorageFolderPath = import.Path;
-                    ImportInfo info = import.ToImportInfo(_baseUrl.BaseUrl);
-                    import.ApplyImportInfo(info);
+                    ImportSeriesEntry info = import.ToImportSeriesEntry();
+                    import.ApplyImportSeriesEntry(info);
                     augmented.Series = import.Series.Where(a => a.IsSelected).ToList();
                     augmented.LocalInfo = import.Info;
                     augmented.Action = import.Action;
                     augmented.Status = import.Status;
                     Guid seriesid = await _seriesCommand.AddSeriesAsync(augmented, token).ConfigureAwait(false);
-                    KaizokuBackend.Models.Database.Series? serie = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesid).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
+                    KaizokuBackend.Models.Database.SeriesEntity? serie = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesid).AsNoTracking().FirstOrDefaultAsync(token).ConfigureAwait(false);
                     if (serie != null)
                     {
-                        KaizokuBackend.Models.Settings settings2 = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+                        SettingsDto settings2 = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
                         string finalPath = Path.Combine(settings2.StorageFolder, import.Path);
-                        await serie.SaveKaizokuInfoToDirectoryAsync(finalPath, _logger, token).ConfigureAwait(false);
+                        await serie.SaveImportSeriesSnapshotToDirectoryAsync(finalPath, _logger, token).ConfigureAwait(false);
                     }
                 }
                 acum += step;
                 progress.Report(ProgressStatus.InProgress, (int)acum, $"{import.Info.Title} imported.");
             }
-            KaizokuBackend.Models.Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             settings.IsWizardSetupComplete = true;
             settings.WizardSetupStepCompleted = 0;
             await _settings.SaveSettingsAsync(settings, false, token).ConfigureAwait(false);
             progress.Report(ProgressStatus.Completed, 100, $"Import completed for {imports.Count} series");
+            _logger.LogInformation("Import completed for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)
@@ -595,3 +632,4 @@ public class ImportCommandService
         }
     }
 }
+

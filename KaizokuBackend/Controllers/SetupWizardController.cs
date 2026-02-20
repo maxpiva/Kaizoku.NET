@@ -1,7 +1,8 @@
-﻿using KaizokuBackend.Data;
+using KaizokuBackend.Data;
 using KaizokuBackend.Hubs;
 using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
@@ -58,7 +59,7 @@ namespace KaizokuBackend.Controllers
         {
             try
             {
-                Settings settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+                SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
                 await _jobManagementService.EnqueueJobAsync(JobType.ScanLocalFiles, settings.StorageFolder, Priority.High, null, null, null, "Default", token).ConfigureAwait(false);
                 return Ok(new { success = true, message = "Scan Scheduled" });
             }
@@ -104,10 +105,10 @@ namespace KaizokuBackend.Controllers
         /// <response code="400">If no series were provided</response>
         /// <response code="500">If an error occurs during augmentation</response>
         [HttpPost("augment")]
-        [ProducesResponseType(typeof(ImportInfo), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ImportSeriesEntry), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<ImportInfo>> AugmentAsync([FromQuery] string path, [FromBody] List<LinkedSeries> linkedSeries, CancellationToken token = default)
+        public async Task<ActionResult<ImportSeriesEntry>> AugmentAsync([FromQuery] string path, [FromBody] List<LinkedSeriesDto> linkedSeries, CancellationToken token = default)
         {
             try
             {
@@ -137,7 +138,7 @@ namespace KaizokuBackend.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult> UpdateAsync([FromBody] ImportInfo info, CancellationToken token = default)
+        public async Task<ActionResult> UpdateAsync([FromBody] ImportSeriesEntry info, CancellationToken token = default)
         {
             try
             {
@@ -145,7 +146,7 @@ namespace KaizokuBackend.Controllers
                 {
                     return BadRequest(new { error = "No Import provided" });
                 }
-                await _importCommandService.UpdateImportInfoAsync(info, token).ConfigureAwait(false);
+                await _importCommandService.UpdateImportSeriesEntryAsync(info, token).ConfigureAwait(false);
                 return Ok(new { success = true, message = "Import updated successfully" });
             }
             catch (Exception ex)
@@ -187,9 +188,9 @@ namespace KaizokuBackend.Controllers
         /// <response code="200">Returns the list of imports</response>
         /// <response code="500">If an error occurs retrieving imports</response>
         [HttpGet("imports")]
-        [ProducesResponseType(typeof(List<ImportInfo>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(List<ImportSeriesEntry>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<List<ImportInfo>>> GetImportsAsync(CancellationToken token = default)
+        public async Task<ActionResult<List<ImportSeriesEntry>>> GetImportsAsync(CancellationToken token = default)
         {
             try
             {
@@ -210,9 +211,9 @@ namespace KaizokuBackend.Controllers
         /// <response code="200">Returns the list of imports</response>
         /// <response code="500">If an error occurs retrieving imports</response>
         [HttpGet("imports/totals")]
-        [ProducesResponseType(typeof(ImportTotals), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ImportTotalsDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
-        public async Task<ActionResult<ImportTotals>> GetImportsTotalsAsync(CancellationToken token = default)
+        public async Task<ActionResult<ImportTotalsDto>> GetImportsTotalsAsync(CancellationToken token = default)
         {
             try
             {
@@ -250,3 +251,4 @@ namespace KaizokuBackend.Controllers
         }
     }
 }
+

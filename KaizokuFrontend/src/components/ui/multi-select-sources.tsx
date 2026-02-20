@@ -31,7 +31,7 @@ export function MultiSelectSources({
   isDesktop = true,
 }: MultiSelectSourcesProps) {
   const handleToggleAll = () => {
-    const newSelection = selectedSources.length === sources.length ? [] : sources.map((source) => source.sourceId);
+    const newSelection = selectedSources.length === sources.length ? [] : sources.map((source) => source.mihonProviderId);
     onSelectionChange(newSelection);
   };
 
@@ -41,6 +41,9 @@ export function MultiSelectSources({
       : [...selectedSources, sourceId];
     onSelectionChange(newSelection);
   };
+
+  const getSourceLabel = (source: SearchSource): string =>
+    source.provider ?? source.mihonProviderId;
 
   const getDisplayText = () => {
     const count = selectedSources.length;
@@ -80,14 +83,14 @@ export function MultiSelectSources({
         <div className="max-h-60 overflow-y-auto">
           {sources.map((source) => (
             <DropdownMenuItem
-              key={source.sourceId}
+              key={source.mihonProviderId}
               className="flex items-center space-x-2 cursor-pointer"
               onSelect={(e) => {
                 e.preventDefault();
-                handleToggleSource(source.sourceId);
+                handleToggleSource(source.mihonProviderId);
               }}
             >              <Checkbox
-                checked={selectedSources.includes(source.sourceId)}
+                checked={selectedSources.includes(source.mihonProviderId)}
                 className="pointer-events-none"
               />
               <div className="flex items-center gap-2 text-sm flex-1">
@@ -104,7 +107,7 @@ export function MultiSelectSources({
                     title={`${source.language.toUpperCase()}`}
                   />
                 )}
-                <span>{source.sourceName}</span>
+                <span>{getSourceLabel(source)}</span>
               </div>
             </DropdownMenuItem>
           ))}

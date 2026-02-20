@@ -25,6 +25,8 @@ foreach ($rid in $runtimeIds) {
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -p:EnableCompressionInSingleFile=true `
+        -p:PublishAot=false `
+        -p:PublishReadyToRun=false `
         -p:DebugSymbols=false `
         -o $outputPath
 }

@@ -13,6 +13,12 @@ import {
 
 export const sidebarItems = [
   {
+    name: "Library",
+    href: "/library",
+    icon: <AppIc />,
+    topSide: true,
+  },
+  {
     name: "Newly Minted",
     href: "/cloud-latest",
     icon: <Sparkles className="h-6 w-6" />,
@@ -42,7 +48,7 @@ export default function KzkSidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-10 hidden w-14 flex-col border-r bg-background sm:flex">
       <nav className="flex flex-col items-center gap-4 px-2 py-4">
-        <AppIcon />        {sidebarItems
+        {sidebarItems
           .filter((item) => item.topSide)
           .map((item, index) => {
             return (
@@ -56,7 +62,7 @@ export default function KzkSidebar() {
                     <span className="sr-only">{item.name}</span>
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right">{item.name}</TooltipContent>
+                <TooltipContent side="right" className="z-10">{item.name}</TooltipContent>
               </Tooltip>
             );
           })}
@@ -75,7 +81,7 @@ export default function KzkSidebar() {
                     <span className="sr-only">{item.name}</span>
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right">{item.name}</TooltipContent>
+                <TooltipContent side="right" className="z-10">{item.name}</TooltipContent>
               </Tooltip>
             );
           })}
@@ -90,7 +96,7 @@ export default function KzkSidebar() {
 export function KzkNavbar() {
   return (
     <nav className="grid gap-6 text-lg font-medium">
-      <AppIcon />      {sidebarItems.map((item, index) => {
+    {sidebarItems.map((item, index) => {
         return (
           <Link
             key={index}
@@ -110,19 +116,29 @@ export function KzkNavbar() {
     </nav>
   );
 }
-
+function AppIc()
+{
+  return (<Image
+        src="/kaizoku.net.png"
+        alt="Kaizoku Net"
+        priority
+        width={200}
+        className="h-8 w-8 transition-all group-hover:scale-110"
+        height={200}
+      />)
+}
 function AppIcon() {
   return (
     <Link
       href="/library/"
-      className="group flex h-9 w-9 shrink-0 items-center justify-center gap-2 text-lg font-semibold text-primary-foreground"
+      className="group flex h-8 w-8 shrink-0 items-center justify-center gap-2 text-lg font-semibold text-primary-foreground"
     >
       <Image
         src="/kaizoku.net.png"
         alt="Kaizoku Net"
         priority
         width={200}
-        className="h-9 w-9 transition-all group-hover:scale-110"
+        className="h-8 w-8 transition-all group-hover:scale-110"
         height={200}
       />
       <span className="sr-only">Kaizoku</span>

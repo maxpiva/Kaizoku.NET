@@ -1,6 +1,5 @@
 ﻿using KaizokuBackend.Data;
-using KaizokuBackend.Models.Database;
-using KaizokuBackend.Services.Background;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Settings;
 using Microsoft.EntityFrameworkCore;
@@ -23,24 +22,13 @@ namespace KaizokuBackend.Services.Daily
 
         public async Task<JobResult> ExecuteAsync(JobInfo _, CancellationToken token = default)
         {
+            _logger.LogInformation("Starting daily maintenance tasks...");
             await CreateBackupAsync(token).ConfigureAwait(false);
             await CleanupOldCompletedEnqueueAsync(token).ConfigureAwait(false);
+            _logger.LogInformation("Daily maintenance tasks completed.");
             return JobResult.Success;
-        }
 
-        public async Task CleanSuwayomiTempDirectory(CancellationToken token = default)
-        {
-            string runtimeDir = _configuration["runtimeDirectory"] ?? "";
-            if (!string.IsNullOrEmpty(runtimeDir))
-            {
-                string tmpDir = Path.Combine(runtimeDir, "Suwayomi", "tmp");
-                await Task.Run(() =>
-                {
-                    SuwayomiHostedService.CleanupSuwayomiTempDirectory(tmpDir, TimeSpan.FromMinutes(60), _logger);
-                }, token).ConfigureAwait(false);
-            }
         }
-
 
         public async Task CreateBackupAsync(CancellationToken token = default)
         {

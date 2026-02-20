@@ -12,7 +12,6 @@ import {
 import { Plus, Loader2, Heart, ExternalLink } from 'lucide-react';
 import Image from 'next/image';
 import { type LatestSeriesInfo, InLibraryStatus } from '@/lib/api/types';
-import { getApiConfig } from '@/lib/api/config';
 import { AddSeries } from '@/components/kzk/series/add-series';
 import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
@@ -21,6 +20,8 @@ import { LastChapterBadge } from "@/components/ui/last-chapter-badge";
 import { SeriesStatus } from "@/lib/api/types";
 import { getStatusDisplay } from "@/lib/utils/series-status";
 import { useRouter } from 'next/navigation';
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
+import { CloudLatestDetailsModal } from '@/components/kzk/series/cloud-latest-details-modal';
 
 // Color array for the fetch date ring (31 colors from green to blue)
 const FETCH_DATE_COLORS = [
@@ -71,32 +72,17 @@ interface CloudLatestCardProps {
 
 const CloudLatestCard: React.FC<CloudLatestCardProps> = ({ item, cardWidth, textSize }) => {
   const [showAddSeries, setShowAddSeries] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const router = useRouter();
 
-  // Helper function to format thumbnail URL
-  const formatThumbnailUrl = (thumbnailUrl?: string): string => {
-    if (!thumbnailUrl) {
-      return '/kaizoku.net.png';
-    }
-    
-    // If it already starts with http, return as is
-    if (thumbnailUrl.startsWith('http')) {
-      return thumbnailUrl;
-    }
-    
-    // Otherwise, prefix with base URL and API path
-    const config = getApiConfig();
-    return `${config.baseUrl}/api/${thumbnailUrl}`;
-  };
-
-  // Handle card click navigation
+  // Handle card click - open details modal for items not in library, navigate for library items
   const handleCardClick = () => {
     if (item.seriesId) {
       // Navigate to individual series page using query parameter
       router.push(`/library/series?id=${item.seriesId}`);
-    } else if (item.url) {
-      // Open external URL in new tab
-      window.open(item.url, '_blank', 'noopener,noreferrer');
+    } else {
+      // Open details modal for items not in library
+      setShowDetailsModal(true);
     }
   };
 
@@ -274,12 +260,20 @@ const CloudLatestCard: React.FC<CloudLatestCardProps> = ({ item, cardWidth, text
 
       {/* Add Series Modal */}
       {showAddSeries && (
-        <AddSeries 
+        <AddSeries
           open={showAddSeries}
           onOpenChange={setShowAddSeries}
           title={item.title}
         />
       )}
+
+      {/* Details Modal - for mobile/touch users */}
+      <CloudLatestDetailsModal
+        open={showDetailsModal}
+        onOpenChange={setShowDetailsModal}
+        item={item}
+        onAddSeries={() => setShowAddSeries(true)}
+      />
     </>
   );
 };

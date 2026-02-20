@@ -1,5 +1,6 @@
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using Mihon.ExtensionsBridge.Models.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,7 +9,7 @@ namespace KaizokuBackend.Services.Downloads;
 
 public static class DownloadsExtensions
 {
-    public static List<ChapterDownload> ToDownloads(this KaizokuBackend.Models.Database.Series s, SeriesProvider sp, List<SuwayomiChapter> sr, string storagePath)
+    public static List<ChapterDownload> ToDownloads(this KaizokuBackend.Models.Database.SeriesEntity s, SeriesProviderEntity sp, List<ParsedChapter> sr, string storagePath)
     {
         var downloads = new List<ChapterDownload>();
         foreach (var chapter in sr)
@@ -18,19 +19,20 @@ public static class DownloadsExtensions
                 Id = Guid.NewGuid(),
                 SeriesProviderId = sp.Id,
                 SeriesId = sp.SeriesId,
-                SuwayomiId = sp.SuwayomiId,
-                SuwayomiIndex = chapter.Index,
-                PageCount = chapter.PageCount,
-                ProviderName = sp.Provider,
+                MihonId = sp.MihonId,
+                MihonProviderId = sp.MihonProviderId,
+                BridgeItemInfo = sp.BridgeItemInfo,
                 Scanlator = chapter.Scanlator,
-                ComicUploadDateUTC = chapter.UploadDate != 0 ? DateTimeOffset.FromUnixTimeMilliseconds(chapter.UploadDate).UtcDateTime : null,
+                ChapterName = chapter.ParsedName,
+                Index = chapter.Index,                
+                ProviderName = sp.Provider,
+                ComicUploadDateUTC = chapter.DateUpload.DateTime,
                 Title = s.Title,
                 SeriesTitle = sp.Title,
                 Url = chapter.RealUrl,
                 Language = sp.Language,
                 ThumbnailUrl = string.IsNullOrEmpty(sp.ThumbnailUrl) ? s.ThumbnailUrl : sp.ThumbnailUrl,
                 Chapter = chapter,
-                ChapterName = chapter.Name,
                 StoragePath = storagePath,
                 Artist = sp.Artist ?? s.Artist,
                 Author = sp.Author ?? s.Author,
@@ -42,10 +44,10 @@ public static class DownloadsExtensions
         return downloads;
     }
 
-    public static List<ChapterDownload> GenerateDownloadsFromChapterData(this KaizokuBackend.Models.Database.Series series, SeriesProvider serie, List<SuwayomiChapter>? chapterData)
+    public static List<ChapterDownload> GenerateDownloadsFromChapterData(this KaizokuBackend.Models.Database.SeriesEntity series, SeriesProviderEntity serie, List<ParsedChapter>? chapterData)
     {
-        List<SuwayomiChapter> wanted = [];
-        List<SuwayomiChapter> skip_the_filter = [];
+        List<ParsedChapter> wanted = [];
+        List<ParsedChapter> skip_the_filter = [];
         var allSeries = series.Sources.ToList();
 
         if (chapterData != null && chapterData.Count > 0)
@@ -66,14 +68,14 @@ public static class DownloadsExtensions
                 wanted = wanted.Where(a => a.Scanlator == serie.Scanlator).ToList();
             }
 
-            foreach (SuwayomiChapter c in wanted)
+            foreach (ParsedChapter c in wanted)
             {
-                if (c.UploadDate != 0)
+                if (c.DateUpload > DateTimeOffset.UtcNow.AddYears(1000))
                 {
                     try
                     {
-                        DateTime dt = DateTimeOffset.FromUnixTimeMilliseconds(c.UploadDate).UtcDateTime;
-                        Chapter? ns = serie.Chapters.FirstOrDefault(a => a.Number == c.ChapterNumber);
+                        DateTime dt = c.DateUpload.DateTime;
+                        Models.Chapter? ns = serie.Chapters.FirstOrDefault(a => a.Number == c.ParsedNumber);
                         if (ns != null && !string.IsNullOrEmpty(ns.Filename) && ns.ProviderUploadDate.HasValue)
                         {
                             if (ns.DownloadDate == null || ns.DownloadDate.Value != ns.ProviderUploadDate.Value)
@@ -98,23 +100,23 @@ public static class DownloadsExtensions
                 List<decimal?> exists = allSeries.SelectMany(s => s.Chapters)
                     .Where(c => c.Filename != null)
                     .Select(c => c.Number).ToList();
-                wanted = wanted.Where(c => !exists.Contains(c.ChapterNumber)).ToList();
+                wanted = wanted.Where(c => !exists.Contains(c.ParsedNumber)).ToList();
             }
             else
             {
                 List<decimal?> exists = serie.Chapters
                     .Where(c => c.Filename != null)
                     .Select(c => c.Number).ToList();
-                wanted = wanted.Where(c => !exists.Contains(c.ChapterNumber)).ToList();
+                wanted = wanted.Where(c => !exists.Contains(c.ParsedNumber)).ToList();
             }
 
             if (serie.ContinueAfterChapter != null)
             {
-                wanted = wanted.Where(c => c.ChapterNumber > serie.ContinueAfterChapter).ToList();
+                wanted = wanted.Where(c => c.ParsedNumber > serie.ContinueAfterChapter).ToList();
             }
         }
 
-        foreach (SuwayomiChapter c in skip_the_filter.ToList())
+        foreach (ParsedChapter c in skip_the_filter.ToList())
         {
             if (wanted.Contains(c))
                 skip_the_filter.Remove(c);

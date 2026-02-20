@@ -1,29 +1,7 @@
 import { apiClient } from '@/lib/api/client';
-import { buildApiUrl } from '@/lib/api/config';
-import { type Source, type Series, type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type SearchSource, type SeriesIntegrityResult } from '@/lib/api/types';
+import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type SearchSource, type SeriesIntegrityResult } from '@/lib/api/types';
 
 export const seriesService = {
-  /**
-   * Get available sources for series
-   */
-  async getSources(): Promise<Source[]> {
-    return apiClient.get<Source[]>('/api/serie/source');
-  },
-  /**
-   * Get source icon by APK name
-   */
-  async getSourceIcon(apk: string): Promise<Blob> {
-    const response = await fetch(buildApiUrl(`/api/serie/source/icon/${apk}`));
-    return response.blob();
-  },
-
-  /**
-   * Get series thumbnail by ID
-   */
-  async getSeriesThumb(id: number): Promise<Blob> {
-    const response = await fetch(buildApiUrl(`/api/serie/thumb/${id}`));
-    return response.blob();
-  },
   /**
    * Add series with full details to the library
    */

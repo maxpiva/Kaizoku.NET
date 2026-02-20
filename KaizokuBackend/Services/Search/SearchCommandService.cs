@@ -1,13 +1,18 @@
-using KaizokuBackend.Models;
-using KaizokuBackend.Models.Database;
-using KaizokuBackend.Extensions;
-using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Data;
-using Microsoft.EntityFrameworkCore;
-using System.Collections.Concurrent;
+using KaizokuBackend.Extensions;
+using KaizokuBackend.Models;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
+using KaizokuBackend.Services.Bridge;
+using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
-using KaizokuBackend.Services.Settings;
 using KaizokuBackend.Services.Series;
+using KaizokuBackend.Services.Settings;
+using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Models.Extensions;
+using System.Collections.Concurrent;
+using ExtensionChapter = Mihon.ExtensionsBridge.Models.Extensions.Chapter;
+using ExtensionManga = Mihon.ExtensionsBridge.Models.Extensions.Manga;
 
 namespace KaizokuBackend.Services.Search
 {
@@ -16,24 +21,23 @@ namespace KaizokuBackend.Services.Search
     /// </summary>
     public class SearchCommandService
     {
-        private readonly SuwayomiClient _suwayomi;
+
         private readonly SettingsService _settings;
-        private readonly ContextProvider _baseUrl;
+
         private readonly AppDbContext _db;
         private readonly ILogger<SearchCommandService> _logger;
+        private readonly MihonBridgeService _mihon;
 
         public SearchCommandService(
-            SuwayomiClient suwayomi,
             SettingsService settings,
-            ContextProvider baseUrl,
             AppDbContext db,
+            MihonBridgeService mihon,
             ILogger<SearchCommandService> logger)
-        {
-            _suwayomi = suwayomi;
+        {            
             _settings = settings;
-            _baseUrl = baseUrl;
             _db = db;
             _logger = logger;
+            _mihon = mihon;
         }
 
         /// <summary>
@@ -42,13 +46,12 @@ namespace KaizokuBackend.Services.Search
         /// <param name="linkedSeries">List of linked series to augment</param>
         /// <param name="token">Cancellation token</param>
         /// <returns>Augmented response with complete series information</returns>
-        public async Task<AugmentedResponse> AugmentSeriesAsync(List<LinkedSeries> linkedSeries, CancellationToken token = default)
+        public async Task<AugmentedResponseDto> AugmentSeriesAsync(List<LinkedSeriesDto> linkedSeries, CancellationToken token = default)
         {
             if (linkedSeries == null || linkedSeries.Count == 0)
             {
-                return new AugmentedResponse();
+                return new AugmentedResponseDto();
             }
-
             try
             {
                 var appSettings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
@@ -63,37 +66,32 @@ namespace KaizokuBackend.Services.Search
                 existingSeries = existingSeries.Where(a => linkedSeries.Any(ls => ls.Lang == a.Language && ls.Title == a.Title)).ToList();
 
                 // Fetch full series data in parallel
-                var seriesDetailsMap = new ConcurrentDictionary<string, SuwayomiSeries>();
-                var validSeries = linkedSeries.Where(ls => !string.IsNullOrEmpty(ls.Id) && int.TryParse(ls.Id, out _)).ToList();
+                var seriesDetailsMap = new ConcurrentDictionary<string, (ParsedManga, List<ParsedChapter>)>();
+                var validSeries = linkedSeries.Where(ls => !string.IsNullOrEmpty(ls.MihonId)).ToList();
                 var maxConcurrency = Math.Min(appSettings.NumberOfSimultaneousSearches, validSeries.Count);
-
                 var parallelOptions = new ParallelOptions
                 {
                     MaxDegreeOfParallelism = maxConcurrency,
                     CancellationToken = token
                 };
-
+                  
                 await Parallel.ForEachAsync(validSeries, parallelOptions, async (ls, ct) =>
                 {
                     try
                     {
-                        if (int.TryParse(ls.Id, out int seriesId))
+                        var source = await _mihon.SourceFromProviderIdAsync(ls.MihonProviderId!, token).ConfigureAwait(false);
+                        Manga m = ls.ToManga()!;
+                        var fullData = await source.GetDetailsAsync(m, token).ConfigureAwait(false);
+                        var chapterData = await source.GetChaptersAsync(m, token).ConfigureAwait(false);
+                        if (fullData != null && chapterData != null && chapterData.Count > 0)
                         {
-                            var fullData = await _suwayomi.GetFullSeriesDataAsync(seriesId, true, ct).ConfigureAwait(false);
-                            var chapterData = await _suwayomi.GetChaptersAsync(seriesId, true, ct).ConfigureAwait(false);
-                            
-                            if (fullData != null && chapterData != null && chapterData.Count > 0)
+                            // Set default scanlator if not provided
+                            chapterData.ForEach(a =>
                             {
-                                // Set default scanlator if not provided
-                                chapterData.ForEach(a =>
-                                {
-                                    if (string.IsNullOrEmpty(a.Scanlator))
-                                        a.Scanlator = ls.Provider;
-                                });
-                                
-                                fullData.Chapters = chapterData;
-                                seriesDetailsMap.TryAdd(ls.Id, fullData);
-                            }
+                                if (string.IsNullOrEmpty(a.Scanlator))
+                                    a.Scanlator = ls.Provider;
+                            });                                
+                            seriesDetailsMap.TryAdd(ls.MihonId!, (fullData, chapterData));
                         }
                     }
                     catch (HttpRequestException r)
@@ -102,114 +100,114 @@ namespace KaizokuBackend.Services.Search
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error fetching details for series ID {Id}: {Message}", ls.Id, ex.Message);
+                        _logger.LogError(ex, "Error fetching details for series ID {Title}: {Message}", ls.Title, ex.Message);
                     }
                 }).ConfigureAwait(false);
 
-                // Convert to FullSeries objects
-                var fullSeriesResults = new List<FullSeries>();
+                // Convert to ProviderSeriesDetails objects
+                var ProviderSeriesDetailsResults = new List<ProviderSeriesDetails>();
                 var categories = appSettings.Categories ?? [];
 
                 foreach (var ls in linkedSeries)
                 {
-                    if (string.IsNullOrEmpty(ls.Id) || !seriesDetailsMap.TryGetValue(ls.Id, out var details))
+                    if (string.IsNullOrEmpty(ls.MihonId) || !seriesDetailsMap.TryGetValue(ls.MihonId, out var details))
                     {
                         continue;
                     }
 
-                    details.Chapters.FillMissingChapterNumbers();
+                    details.Item2.FillMissingChapterNumbers();
 
-                    var fullSeries = new FullSeries
+                    var ProviderSeriesDetails = new ProviderSeriesDetails
                     {
-                        Id = ls.Id,
-                        ProviderId = ls.ProviderId,
+                        MihonId = ls.MihonId,
+                        MihonProviderId = ls.MihonProviderId,
+                        BridgeItemInfo = ls.BridgeItemInfo,
                         Provider = ls.Provider,
                         Scanlator = ls.Provider,
                         Lang = ls.Lang,
-                        Title = details.Title,
-                        ThumbnailUrl = _baseUrl.RewriteSeriesThumbnail(details),
-                        Artist = details.Artist ?? string.Empty,
-                        Author = details.Author ?? string.Empty,
-                        Description = details.Description ?? string.Empty,
-                        Genre = details.Genre ?? new List<string>(),
-                        ChapterCount = details.ChapterCount.HasValue ? (int)details.ChapterCount.Value : 0,
-                        Url = details.RealUrl,
-                        Meta = details.Meta ?? new Dictionary<string, string>(),
-                        SuggestedFilename = details.Title.MakeFolderNameSafe(),
-                        Status = details.Status,
+                        Title = details.Item1.Title,
+                        ThumbnailUrl = details.Item1.ThumbnailUrl,
+                        Artist = details.Item1.Artist ?? string.Empty,
+                        Author = details.Item1.Author ?? string.Empty,
+                        Description = details.Item1.Description ?? string.Empty,
+                        Genre = details.Item1.GetGenres(),
+                        ChapterCount = details.Item2?.Count ?? 0,
+                        Url = details.Item1.RealUrl,
+                        SuggestedFilename = details.Item1.Title.MakeFolderNameSafe(),
+                        Status = (SeriesStatus)(int)details.Item1.Status,
                         IsStorage = ls.IsStorage,
                     };
 
-                    fullSeries.Type = fullSeries.Genre.DeriveTypeFromGenre(categories);
+                    ProviderSeriesDetails.Type = ProviderSeriesDetails.Genre.DeriveTypeFromGenre(categories);
 
                     // Group chapters by scanlator
-                    var groupedChapters = details.Chapters
+                    var groupedChapters = details.Item2?
                         .GroupBy(c => c.Scanlator)
                         .ToDictionary(g => g.Key ?? "", g => g.ToList());
 
-                    var seriesPerScanlator = new List<FullSeries>();
+                    var seriesPerScanlator = new List<ProviderSeriesDetails>();
                     foreach (var scanlatorGroup in groupedChapters)
                     {
-                        var seriesCopy = FastDeepCloner.DeepCloner.Clone(fullSeries);
+                        var seriesCopy = FastDeepCloner.DeepCloner.Clone(ProviderSeriesDetails);
                         var firstChapter = scanlatorGroup.Value.First();
                         
                         seriesCopy.Scanlator = scanlatorGroup.Key;
-                        seriesCopy.LastUpdatedUTC = DateTimeOffset.FromUnixTimeSeconds(firstChapter.UploadDate / 1000).UtcDateTime;
+                        seriesCopy.LastUpdatedUTC = firstChapter.DateUpload.DateTime;
                         seriesCopy.ChapterCount = scanlatorGroup.Value.Count;
                         seriesCopy.Chapters = scanlatorGroup.Value.Select(a => a.ToChapter()).OrderBy(a => a.ProviderIndex).ToList();
-                        seriesCopy.ChapterList = scanlatorGroup.Value.Where(a => a.ChapterNumber != null).Select(a => a.ChapterNumber!.Value).FormatDecimalRanges();
+                        seriesCopy.ChapterList = scanlatorGroup.Value.Select(a => a.ParsedNumber).FormatDecimalRanges();
                         
                         seriesPerScanlator.Add(seriesCopy);
                     }
 
                     // Apply existing provider logic
-                    var existingForProvider = existingSeries.Where(a => a.Provider == ls.Provider && a.Language == ls.Lang && ls.Title == a.Title).ToList();
-                    foreach (var fullSeriesItem in seriesPerScanlator)
+                    var existingForProvider = existingSeries.Where(a => a.MihonProviderId == ls.MihonProviderId && a.Language == ls.Lang && ls.Title == a.Title).ToList();
+                    foreach (var ProviderSeriesDetailsItem in seriesPerScanlator)
                     {
-                        var existingProvider = existingForProvider.FirstOrDefault(a => 
-                            a.Title == fullSeriesItem.Title && 
-                            a.Language == fullSeriesItem.Lang && 
-                            a.Scanlator == fullSeriesItem.Scanlator);
+                        var existingProvider = existingForProvider.FirstOrDefault(a => a.MihonProviderId == ProviderSeriesDetailsItem.MihonProviderId && 
+                            a.Title == ProviderSeriesDetailsItem.Title && 
+                            a.Language == ProviderSeriesDetailsItem.Lang && 
+                            a.Scanlator == ProviderSeriesDetailsItem.Scanlator);
                         
                         if (existingProvider != null)
                         {
-                            fullSeriesItem.ExistingProvider = true;
+                            ProviderSeriesDetailsItem.ExistingProvider = true;
                             if (existingProvider.Status == SeriesStatus.ONGOING && existingProvider.Chapters.Count > 0)
-                                fullSeriesItem.ContinueAfterChapter = (int)(existingProvider.Chapters.Max(a => a.Number) ?? 0m);
+                                ProviderSeriesDetailsItem.ContinueAfterChapter = (int)(existingProvider.Chapters.Max(a => a.Number) ?? 0m);
                             else
-                                fullSeriesItem.ContinueAfterChapter = null;
+                                ProviderSeriesDetailsItem.ContinueAfterChapter = null;
                         }
                     }
 
-                    fullSeriesResults.AddRange(seriesPerScanlator);
+                    ProviderSeriesDetailsResults.AddRange(seriesPerScanlator);
                 }
 
                 // Apply type derivation logic
-                if (fullSeriesResults.All(a => a.Type == null))
+                if (ProviderSeriesDetailsResults.All(a => a.Type == null))
                 {
-                    fullSeriesResults.ForEach(a => { a.Type = a.Genre.DeriveTypeFromGenre(categories, true); });
+                    ProviderSeriesDetailsResults.ForEach(a => { a.Type = a.Genre.DeriveTypeFromGenre(categories, true); });
                 }
 
-                var inferredType = fullSeriesResults.FirstOrDefault(a => a.Type != null)?.Type;
+                var inferredType = ProviderSeriesDetailsResults.FirstOrDefault(a => a.Type != null)?.Type;
                 if (inferredType != null)
                 {
-                    fullSeriesResults.Where(a => a.Type == null).ToList().ForEach(a => a.Type = inferredType);
+                    ProviderSeriesDetailsResults.Where(a => a.Type == null).ToList().ForEach(a => a.Type = inferredType);
                 }
 
-                return new AugmentedResponse
+                return new AugmentedResponseDto
                 {
-                    Series = fullSeriesResults,
+                    Series = ProviderSeriesDetailsResults,
                     StorageFolderPath = appSettings.StorageFolder,
                     UseCategoriesForPath = appSettings.CategorizedFolders,
                     Categories = appSettings.Categories?.ToList() ?? [],
                     PreferredLanguages = appSettings.PreferredLanguages.ToList(),
-                    ExistingSeries = fullSeriesResults.Any(a => a.ExistingProvider)
+                    ExistingSeries = ProviderSeriesDetailsResults.Any(a => a.ExistingProvider)
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in AugmentSeriesAsync: {Message}", ex.Message);
-                return new AugmentedResponse();
+                return new AugmentedResponseDto();
             }
         }
     }

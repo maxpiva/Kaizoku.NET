@@ -11,10 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Trash2, Download, AlertTriangle, CheckCircle, Clock, Smile, Calendar, ExternalLink, RotateCcw } from 'lucide-react';
 import { ProgressStatus, QueueStatus, type DownloadInfo, type DownloadInfoList, ErrorDownloadAction } from '@/lib/api/types';
-import { getApiConfig } from '@/lib/api/config';
 import Image from 'next/image';
 import type { QueueItem } from '@/lib/api/services/queueService';
 import { JobsPanel } from '@/components/kzk/jobs/jobs-panel';
+import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 
 // Extended queue item interface that includes both static queue items and real-time downloads
 interface ExtendedQueueItem {
@@ -69,21 +69,6 @@ const DownloadCard = memo(({ item }: { item: ExtendedQueueItem | DownloadInfo })
     if ('seriesTitle' in item || !item.downloadDateUTC) return null;
     return new Date(normalizeUtcString(item.downloadDateUTC));
   })();
-  // Helper function to format thumbnail URL
-  const formatThumbnailUrl = (thumbnailUrl?: string): string => {
-    if (!thumbnailUrl) {
-      return '/kaizoku.net.png';
-    }
-    
-    // If it already starts with http, return as is
-    if (thumbnailUrl.startsWith('http')) {
-      return thumbnailUrl;
-    }
-    
-    // Otherwise, prefix with base URL and API path
-    const config = getApiConfig();
-    return `${config.baseUrl}/api/${thumbnailUrl}`;
-  };
 
   // Determine display data based on item type
   const displayData = 'seriesTitle' in item ? {
@@ -230,20 +215,6 @@ const ErrorDownloadCard = memo(({ item }: { item: DownloadInfo }) => {
 
   // Get download date for completed items
   const downloadDate = item.downloadDateUTC ? new Date(normalizeUtcString(item.downloadDateUTC)) : null;
-
-  // Helper function to format thumbnail URL
-  const formatThumbnailUrl = (thumbnailUrl?: string): string => {
-    if (!thumbnailUrl) {
-      return '/kaizoku.net.png';
-    }
-    
-    if (thumbnailUrl.startsWith('http')) {
-      return thumbnailUrl;
-    }
-    
-    const config = getApiConfig();
-    return `${config.baseUrl}/api/${thumbnailUrl}`;
-  };
 
   const handleDelete = () => {
     manageErrorDownloadMutation.mutate({ 

@@ -69,7 +69,7 @@ export default function AddProvidersStep({
 
   // Handle extensions change to update progress
   const handleExtensionsChange = useCallback((extensions: Provider[]) => {
-    const installedCount = extensions.filter(ext => ext.installed).length;
+    const installedCount = extensions.filter(ext => ext.isInstaled).length;
     setCanProgress(installedCount > 0);
   }, [setCanProgress]);return (
     <div 

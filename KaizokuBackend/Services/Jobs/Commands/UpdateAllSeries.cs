@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
-using KaizokuBackend.Models;
+using KaizokuBackend.Models.Enums;
 using KaizokuBackend.Services.Jobs.Models;
 using KaizokuBackend.Services.Series;
 
