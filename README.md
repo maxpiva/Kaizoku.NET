@@ -1,4 +1,13 @@
-# Kaizoku.NET
+# Kaizoku.NET 2.0
+
+> [!WARNING]
+> The current main branch no longer uses or includes Suwayomi.
+> You can test using the 2.0 pre-release Docker tag, but make sure to back up your configuration directory (including the database), as everything will be rewritten.
+>
+> The migration process has been working so far, but as always, proceed with caution.
+>
+> We are currently fixing remaining bugs and minor issues before the final 2.0 release. There is no formal 2.0 release available yet.
+> 
 
 
 https://github.com/user-attachments/assets/ac0af0eb-5b4a-4377-b777-9fcafbc329ae
