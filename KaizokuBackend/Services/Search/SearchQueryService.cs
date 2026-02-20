@@ -100,6 +100,8 @@ namespace KaizokuBackend.Services.Search
             var filteredSources = await _providerCache.GetSourcesForLanguagesAsync(languages, token).ConfigureAwait(false);
 
             string langs = languages.Count == 0 ? "all" : string.Join(",", languages);
+            if (searchSources!=null && searchSources.Count>0)
+                filteredSources = filteredSources.Where(s => searchSources.Contains(s.MihonProviderId)).ToList();
             _logger.LogInformation("Searching for '{keyword}' across {Count} providers in languages: {langs}", keyword, filteredSources.Count, langs);
 
             return await SearchSeriesAsync(keyword, filteredSources, appSettings, threshold, token).ConfigureAwait(false);
