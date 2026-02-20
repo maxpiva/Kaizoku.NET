@@ -8,6 +8,7 @@
 >
 > We are currently fixing remaining bugs and minor issues before the final 2.0 release. There is no formal 2.0 release available yet.
 > 
+> [2.0 Announcement](https://github.com/maxpiva/Kaizoku.NET/discussions/23)
 
 
 https://github.com/user-attachments/assets/ac0af0eb-5b4a-4377-b777-9fcafbc329ae
