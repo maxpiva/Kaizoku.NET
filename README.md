@@ -2,7 +2,7 @@
 
 > [!WARNING]
 > The current main branch no longer uses or includes Suwayomi.
-> You can test using the 2.0 pre-release Docker tag, but make sure to back up your configuration directory (including the database), as everything will be rewritten.
+> You can test using the **2.0** pre-release Docker tag, but make sure to back up your configuration directory (including the database), as everything will be rewritten.
 >
 > The migration process has been working so far, but as always, proceed with caution.
 >
