@@ -206,7 +206,7 @@ const ProviderCard = ({ provider,
 
         {/* Continue After Chapter input - mobile/tablet: below buttons, desktop: top-right */}
         {!provider.isUnknown && (
-          <div className="flex flex-wrap items-center gap-2 justify-end mb-2 lg:absolute lg:top-12 lg:right-3 lg:mb-0">
+          <div className="flex flex-wrap items-center gap-2 justify-end mb-2 lg:mt-1 lg:absolute lg:top-12 lg:right-3 lg:mb-0 z-10">
             <span className="text-muted-foreground text-sm">Continue After Chapter:</span>
             <Input
               type="number"
@@ -237,7 +237,7 @@ const ProviderCard = ({ provider,
             <div className="flex-1 space-y-2 min-w-0 overflow-hidden w-full text-center md:text-left">              <div className="min-w-0 overflow-hidden">
               <CardTitle className="text-lg truncate">{provider.title}</CardTitle>
               { provider.url ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:bg-accent/80 transition-colors min-w-0 overflow-hidden flex-wrap justify-center md:justify-start"
+              <div className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:bg-accent/80 transition-colors overflow-hidden flex-wrap"
                      onClick={(e) => {
                     e.stopPropagation();
                     if (provider.url) {
@@ -252,11 +252,12 @@ const ProviderCard = ({ provider,
                   svg
                   style={{ width: '20px', height: '15px', borderRadius: '2px', border: '1px solid #ccc' }}
                   title={provider.lang.toUpperCase()}
-                />
+                />       
                 <Badge variant="default" className={`ml-2 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
                   {getStatusDisplay(provider.status).text}
                 </Badge>
-              </div>
+                </div>
+       
               ) : (
                  <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0 overflow-hidden flex-wrap justify-center md:justify-start">
                 <span className="text-lg truncate min-w-0">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
@@ -1840,7 +1841,7 @@ function SeriesPageContent() {
 
                   {/* Series Path Display - Bottom of info section */}
                   {series.path && (
-                    <div className="mt-auto min-w-0 overflow-hidden">
+                    <div className="min-w-0 overflow-hidden mt-auto pt-2 lg:absolute lg:bottom-0 lg:left-0 lg:right-auto lg:max-w-[60%]">
                       <div
                       className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden"
                       >
