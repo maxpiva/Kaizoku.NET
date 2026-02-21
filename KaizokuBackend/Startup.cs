@@ -4,6 +4,7 @@ using KaizokuBackend.Models;
 using KaizokuBackend.Services;
 using KaizokuBackend.Services.Background;
 using KaizokuBackend.Utils;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
@@ -106,6 +107,19 @@ namespace KaizokuBackend
             services.AddHelperServices();
             services.AddBackgroundServices();
 
+            // Configure ForwardedHeaders to support reverse proxy SSL termination.
+            // Without this, Kestrel is unaware of the original HTTPS scheme when deployed
+            // behind a reverse proxy (Nginx, Traefik, Caddy, etc.), causing redirects to
+            // incorrectly use http:// instead of https://.
+            services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                // Clear default restrictions to accept forwarded headers from any proxy.
+                // This is safe when the app is always deployed behind a trusted reverse proxy.
+                options.KnownNetworks.Clear();
+                options.KnownProxies.Clear();
+            });
+
             // Register AppDbContext with SQLite provider, using the connection string from configuration (now points to runtime/kaizoku.db)
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(Configuration.GetConnectionString("DefaultConnection")));
             services.AddHostedService<StartupHostedService>();
@@ -113,6 +127,12 @@ namespace KaizokuBackend
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
+            // Must be first: reads X-Forwarded-Proto/For headers from reverse proxy so that
+            // all subsequent middleware (redirects, HSTS, etc.) use the correct scheme and IP.
+            // Without this, Response.Redirect() generates http:// URLs even when the client
+            // connected over HTTPS, causing ERR_FR_REDIRECTION_FAILURE in strict HTTPS clients.
+            app.UseForwardedHeaders();
+
             if (env.IsDevelopment())
             {
                 app.UseSwagger();
