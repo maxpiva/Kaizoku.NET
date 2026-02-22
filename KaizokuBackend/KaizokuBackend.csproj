@@ -11,9 +11,13 @@
 	<RuntimeIdentifiers>linux-arm64;linux-x64;win-x64;win-arm64;osx-arm64;</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Migration\NewFolder\**" />
     <Compile Remove="scripts\**" />
+    <Content Remove="Migration\NewFolder\**" />
     <Content Remove="scripts\**" />
+    <EmbeddedResource Remove="Migration\NewFolder\**" />
     <EmbeddedResource Remove="scripts\**" />
+    <None Remove="Migration\NewFolder\**" />
     <None Remove="scripts\**" />
   </ItemGroup>
   <ItemGroup>
@@ -60,6 +64,7 @@
 		<PrivateAssets>all</PrivateAssets>
 	  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 	</PackageReference>
+
 	<PackageReference Include="Microsoft.Extensions.Http.Polly" Version="10.0.*" />
 	<PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
 	<PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />

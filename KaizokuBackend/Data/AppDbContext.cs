@@ -136,6 +136,7 @@ namespace KaizokuBackend.Data
                 entity.Property(sp => sp.IsTitle).IsRequired();
                 entity.Property(sp => sp.IsCover).IsRequired();
                 entity.Property(sp => sp.IsUnknown).IsRequired();
+                entity.Property(sp => sp.IsNSFW).HasDefaultValue(false).IsRequired();
                 entity.Property(sp => sp.IsStorage).IsRequired();
                 entity.Property(sp => sp.IsDisabled).IsRequired();
                 entity.Property(sp => sp.IsUninstalled).IsRequired();

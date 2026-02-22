@@ -596,7 +596,8 @@ public class MigrationService
             if (!indexLookup.TryGetValue(key, out var position))
             {
                 int p = key.LastIndexOf("_");
-                key = key.Substring(0, p);
+                if (p>0)
+                    key = key.Substring(0, p);
                 if (!indexLookup.TryGetValue(key, out position))
                     continue;
             }

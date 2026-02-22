@@ -1,4 +1,5 @@
-﻿using eu.kanade.tachiyomi.source;
+﻿using extension.bridge;
+using eu.kanade.tachiyomi.source;
 using java.io;
 using java.lang;
 using java.net;
@@ -18,7 +19,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         private readonly ILogger _logger;
         private readonly IWorkingFolderStructure _structure;
         private readonly RepositoryEntry _entry;
-
+        private readonly string _jarPath;
+        
         private URLClassLoader? _classLoader;
         private List<ISourceInterop> _sources = new();
         private readonly CancellationTokenSource _shutdownCts = new();
@@ -51,6 +53,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
             if (!System.IO.File.Exists(jarPath))
                 throw new System.IO.FileNotFoundException("Jar file not found.", jarPath);
+            _jarPath = jarPath;
             Name = entry.Name;
             Version = entry.Extension.Version;
             string className = entry.Extension.Package + entry.ClassName;
@@ -97,10 +100,15 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 foreach (var p in sp.Preferences)
                 {
                     string uniqueKey = p.Key;
+                    int lastUnderscore = p.Key.LastIndexOf('_');
                     string possibleEnd = "_" + sp.Language;
                     if (uniqueKey.EndsWith(possibleEnd))
                     {
                         uniqueKey = uniqueKey.Substring(0, uniqueKey.Length - possibleEnd.Length);
+                    }
+                    else if (lastUnderscore > 1)
+                    {
+                        uniqueKey = uniqueKey.Substring(0, lastUnderscore);
                     }
                     if (uniquePrefs.ContainsKey(uniqueKey))
                     {
@@ -168,6 +176,10 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                     try { d.Dispose(); } catch { }
                 }
                 _disposables.Clear();
+                if (!string.IsNullOrWhiteSpace(_jarPath))
+                {
+                    try { extension.bridge.StartupKt.unloadExtension(_jarPath); } catch (System.Exception ex) { _logger.LogWarning(ex, "Error unloading extension classloader"); }
+                }
             }
             catch { }
             return Task.CompletedTask;
@@ -193,6 +205,11 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 }
                 _disposables.Clear();
 
+                if (!string.IsNullOrWhiteSpace(_jarPath))
+                {
+                    try { extension.bridge.StartupKt.unloadExtension(_jarPath); } catch (System.Exception ex) { _logger.LogWarning(ex, "Error unloading extension classloader"); }
+                }
+
                 // Close and release the classloader last, after all interop objects are disposed
                 var cl = _classLoader;
                 _classLoader = null;
@@ -214,8 +231,6 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             }
             finally
             {
-                // IMPORTANT: Do not force JVM GC or finalization here.
-                // IKVM + coreclr can enter an invalid state during managed->native transition.
                 System.Threading.Interlocked.Exchange(ref _disposeState, 2);
             }
         }

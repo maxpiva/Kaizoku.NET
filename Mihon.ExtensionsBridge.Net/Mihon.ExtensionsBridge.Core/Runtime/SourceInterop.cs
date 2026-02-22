@@ -350,7 +350,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             var list = new List<androidx.preference.Preference>();
             foreach (androidx.preference.Preference p in screen.getPreferences().toArray().Cast<androidx.preference.Preference>())
             {
-                list.Add(p);
+                if (p!=null)
+                    list.Add(p);
             }
             return list;
         }

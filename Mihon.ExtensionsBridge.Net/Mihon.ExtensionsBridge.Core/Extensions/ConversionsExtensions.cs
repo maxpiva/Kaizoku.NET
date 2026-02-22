@@ -100,25 +100,25 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 throw new ArgumentNullException(nameof(preference));
             KeyPreference pref = new KeyPreference
             {
-                Type = preference.GetType().Name,
-                Key = preference.getKey(),
+                Type = GetString(preference.GetType()?.Name),
+                Key = GetString(preference.getKey()),
                 Title = GetString(preference.getTitle()),
                 Summary = GetString(preference.getSummary()),
-                DefaultValue = preference.getDefaultValue().ToString() ?? "",
-                DefaultValueType = preference.getDefaultValueType(),
-                CurrentValue = preference.getCurrentValue().ToString() ?? "",
+                DefaultValue = GetString(preference.getDefaultValue()?.ToString() ?? ""),
+                DefaultValueType = GetString(preference.getDefaultValueType()),
+                CurrentValue = GetString(preference.getCurrentValue()?.ToString() ?? ""),
                 Visible = preference.getVisible(),
                 Index = index
             };
             if (preference is androidx.preference.ListPreference listPreference)
             {
-                pref.Entries = listPreference.getEntries().Select(e => e.ToString() ?? "").ToList();
-                pref.EntryValues = listPreference.getEntryValues().Select(ev => ev.ToString() ?? "").ToList();
+                pref.Entries = listPreference.getEntries()?.Select(e => e.ToString() ?? "").ToList() ?? [];
+                pref.EntryValues = listPreference.getEntryValues()?.Select(ev => ev.ToString() ?? "").ToList() ?? [];
             }
             if (preference is androidx.preference.MultiSelectListPreference multiSelectListPreference)
             {
-                pref.Entries = multiSelectListPreference.getEntries().Select(e => e.ToString() ?? "").ToList();
-                pref.EntryValues = multiSelectListPreference.getEntryValues().Select(ev => ev.ToString() ?? "").ToList();
+                pref.Entries = multiSelectListPreference.getEntries()?.Select(e => e.ToString() ?? "").ToList() ?? [];
+                pref.EntryValues = multiSelectListPreference.getEntryValues()?.Select(ev => ev.ToString() ?? "").ToList() ?? [];
             }
             if (preference is androidx.preference.DialogPreference editTextPreference)
             {

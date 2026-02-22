@@ -4,7 +4,9 @@ using Microsoft.Extensions.Logging;
 using net.dongliu.apk.parser;
 using net.dongliu.apk.parser.bean;
 using sun.net.www.protocol.jar;
+using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Core.Models;
@@ -12,13 +14,10 @@ using Mihon.ExtensionsBridge.Core.Runtime;
 using Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
-using static kotlin.reflect.jvm.@internal.ReflectProperties;
-using static kotlinx.coroutines.channels.ChannelResult;
 using Mihon.ExtensionsBridge.Core.Abstractions;
 
 namespace Mihon.ExtensionsBridge.Core.Services
 {
-
     /// <summary>
     /// Manages local extension repository groups, download/compile pipeline, and interop lifecycle.
     /// </summary>
@@ -34,6 +33,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
     /// </remarks>
     public class ExtensionManager : IInternalExtensionManager
     {
+        private static readonly TimeSpan InteropIdleTimeout = TimeSpan.FromMinutes(30);
+        private const int InteropCacheMaxCount = 32;
 
         /// <summary>
         /// Logger used for operational and diagnostic messages.
@@ -78,6 +79,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// In-memory list of local extension repository groups. Access guarded by <see cref="_localExtensionsLock"/>.
         /// </summary>
         private List<RepositoryGroup> LocalExtensions { get; } = [];
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ExtensionManager"/> class.
@@ -429,7 +431,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (!_localInitialized)
                 throw new InvalidOperationException("Local extensions not initialized.");
 
-            var repositoryManager = _serviceProvider.GetService<IInternalRepositoryManager>();
+            var repositoryManager = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IInternalRepositoryManager>(_serviceProvider);
             if (repositoryManager == null)
                 throw new InvalidOperationException("RepositoryManager service is not available.");
             (TachiyomiRepository? gg, TachiyomiExtension? ext) = repositoryManager.FindRealRepository(extension);
@@ -466,6 +468,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 throw new ArgumentException("APK is not a valid Tachiyomi extension (missing tachiyomi.extension feature).");
             string version = meta.getVersionName();
             int idx = version.LastIndexOf('.');
+
             version = idx > 0 ? version.Substring(0, idx) : version;
             if (float.TryParse(version, out float ver))
             {
@@ -805,11 +808,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 }
                 _logger.LogInformation("Downloaded extension {Apk} version {Version}.", extension.Apk, extension.Version);
                 unitofWork = await WorkUnitFromManifestAsync(unitofWork, token).ConfigureAwait(false);
-                bool worked = await CompileAsync(unitofWork, token).ConfigureAwait(false);
+                bool worked = await CompileAsync(unitofWork, token). ConfigureAwait(false);
                 if (!worked)
                     return null;
-                group = await UpdateEntriesAsync(group, entry, token).ConfigureAwait(false);
-                await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
+                group = await UpdateEntriesAsync(group, entry, token). ConfigureAwait(false);
+                await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token). ConfigureAwait(false);
                 _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", extension.Apk, extension.Version);
                 return group;
             }

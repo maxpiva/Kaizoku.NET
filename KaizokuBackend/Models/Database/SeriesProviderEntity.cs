@@ -30,6 +30,7 @@ public class SeriesProviderEntity : ProviderSummaryBase, IBridgeItemInfo, IThumb
     public bool IsTitle { get; set; }
     public bool IsCover { get; set; }
     public bool IsUnknown { get; set; }
+    public bool IsNSFW { get; set; }
     public bool IsLocal { get; set; }
     public bool IsDisabled { get; set; }
     public bool IsUninstalled { get; set; }

@@ -164,7 +164,7 @@ namespace KaizokuBackend.Services.Providers
         {
             return new UniquePreference
             {
-                Languages = new List<KeyLanguage> { new KeyLanguage { Key = "isStorage", Language = "english" } },
+                Languages = new List<KeyLanguage> { new KeyLanguage { Key = "isStorage", Language = "en"} },
                 Preference = new Preference
                 {
                     Index = -1,

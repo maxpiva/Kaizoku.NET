@@ -1,4 +1,5 @@
 ﻿using kotlin.coroutines;
+using System.Threading;
 
 namespace Mihon.ExtensionsBridge.Core.Utilities
 {
@@ -147,13 +148,28 @@ namespace Mihon.ExtensionsBridge.Core.Utilities
         {
             var tcs = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-
-            // Track if we already received an item.
             bool hasItem = false;
             T? firstItem = defaultVal;
+            rx.Subscription? subscription = null;
+            CancellationTokenRegistration ctr = default;
+            int completed = 0;
 
-            // Subscribe to the observable.
-            rx.Subscription? subscription = observable.subscribe(
+            void Cleanup()
+            {
+                if (Interlocked.Exchange(ref completed, 1) != 0)
+                    return;
+                try
+                {
+                    subscription?.unsubscribe();
+                }
+                catch
+                {
+                    // Ignore disposal errors
+                }
+                ctr.Dispose();
+            }
+
+            subscription = observable.subscribe(
                 new OnNextAction((object value) =>
                 {
                     if (!hasItem)
@@ -164,12 +180,12 @@ namespace Mihon.ExtensionsBridge.Core.Utilities
                 }),
                 new OnErrorAction((object error) =>
                 {
-                    // Propagate error unless already completed/canceled.
                     if (!tcs.Task.IsCompleted)
                     {
                         Exception ex = error as Exception ?? new Exception(error?.ToString() ?? "Unknown observable error");
                         tcs.TrySetException(ex);
                     }
+                    Cleanup();
                 }),
                 new OnCompletedAction(() =>
                 {
@@ -177,23 +193,16 @@ namespace Mihon.ExtensionsBridge.Core.Utilities
                     {
                         tcs.TrySetResult(hasItem ? (firstItem ?? defaultVal) : defaultVal);
                     }
+                    Cleanup();
                 })
             );
 
-            // Cancellation handling: dispose subscription and cancel the task.
             if (token.CanBeCanceled)
             {
-                token.Register(() =>
+                ctr = token.Register(() =>
                 {
-                    try
-                    {
-                        subscription?.unsubscribe();
-                    }
-                    catch
-                    {
-                        // Ignore disposal errors
-                    }
                     tcs.TrySetCanceled(token);
+                    Cleanup();
                 });
             }
 

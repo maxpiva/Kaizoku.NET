@@ -109,6 +109,7 @@ namespace KaizokuBackend.Services.Background
                 settingsService.SetThreadSettings(settings);
                 await settingsService.SetTimesSettingsAsync(settings, cancellationToken).ConfigureAwait(false);
                 AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
                 await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
                 await _fixes.FixThumbnailsOfSeriesWithMissingThumbnailsAsync(cancellationToken).ConfigureAwait(false);
 
