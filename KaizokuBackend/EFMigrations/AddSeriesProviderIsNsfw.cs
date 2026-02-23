@@ -10,18 +10,11 @@ public partial class AddSeriesProviderIsNsfw : Microsoft.EntityFrameworkCore.Mig
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.AddColumn<bool>(
-            name: "IsNSFW",
-            table: "SeriesProviders",
-            type: "INTEGER",
-            nullable: false,
-            defaultValue: false);
+        migrationBuilder.Sql("ALTER TABLE \"SeriesProviders\" ADD COLUMN IF NOT EXISTS \"IsNSFW\" INTEGER NOT NULL DEFAULT 0;");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropColumn(
-            name: "IsNSFW",
-            table: "SeriesProviders");
+        migrationBuilder.Sql("ALTER TABLE \"SeriesProviders\" DROP COLUMN IF EXISTS \"IsNSFW\";");
     }
 }
