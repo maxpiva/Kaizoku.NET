@@ -285,8 +285,29 @@ namespace KaizokuBackend.Services.Providers
             try
             {
                 _logger.LogInformation("Uninstalling provider: {PkgName}", pkgName);
-                List<ProviderStorageEntity> storages = await _db.Providers.Where(a => a.SourcePackageName == pkgName).ToListAsync(token).ConfigureAwait(false);
-                storages.ForEach(a=>a.IsEnabled=false);
+
+                // Remove physically from Mihon bridge
+                var extensions = _mihon.ListExtensions();
+                var group = extensions.FirstOrDefault(a => a.Entries.Any(e => e.Extension.Package == pkgName));
+                if (group != null)
+                {
+                    var removed = await _mihon.RemoveExtensionAsync(group, token).ConfigureAwait(false);
+                    if (!removed)
+                    {
+                        _logger.LogWarning("Failed to remove extension {PkgName} from Mihon bridge", pkgName);
+                        return false;
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Extension {PkgName} not found in local extensions, cleaning DB only", pkgName);
+                }
+
+                // Remove from database
+                List<ProviderStorageEntity> storages = await _db.Providers
+                    .Where(a => a.SourcePackageName == pkgName)
+                    .ToListAsync(token).ConfigureAwait(false);
+                _db.Providers.RemoveRange(storages);
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
                 return true;
