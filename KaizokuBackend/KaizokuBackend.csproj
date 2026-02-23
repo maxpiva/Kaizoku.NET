@@ -7,6 +7,7 @@
     <UserSecretsId>207bc8ca-9eb1-41a0-9fc0-6ef80b6fb958</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>.</DockerfileContext>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
 	<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.EntityFrameworkCore.GeneratedInterceptors</InterceptorsNamespaces>
 	<RuntimeIdentifiers>linux-arm64;linux-x64;win-x64;win-arm64;osx-arm64;</RuntimeIdentifiers>
   </PropertyGroup>

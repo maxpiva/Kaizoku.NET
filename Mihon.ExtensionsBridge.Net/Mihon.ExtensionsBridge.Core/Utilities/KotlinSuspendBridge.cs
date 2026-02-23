@@ -176,6 +176,12 @@ namespace Mihon.ExtensionsBridge.Core.Utilities
                     {
                         hasItem = true;
                         firstItem = value is T t ? t : defaultVal;
+
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            tcs.TrySetResult(firstItem);
+                        }
+                        Cleanup();
                     }
                 }),
                 new OnErrorAction((object error) =>

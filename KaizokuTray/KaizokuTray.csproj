@@ -5,6 +5,7 @@
 	  <FileVersion>1.0.0.6</FileVersion>
 	<TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 	<RuntimeIdentifiers>linux-arm64;linux-x64;win-x64;win-arm64;osx-arm64;</RuntimeIdentifiers>
     <ApplicationManifest>app.manifest</ApplicationManifest>
