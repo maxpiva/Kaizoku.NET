@@ -71,7 +71,7 @@ namespace KaizokuBackend.Services.Providers
             IEnumerable<string>? languages, CancellationToken token = default)
         {
             var storages = (await GetCachedProvidersAsync(token).ConfigureAwait(false))
-                .Where(a => a.IsEnabled).ToList();
+                .Where(a => a.IsActive).ToList();
 
             var result = new HashSet<ProviderStorageEntity>();
             var languageSet = new HashSet<string>(languages ?? [], StringComparer.InvariantCultureIgnoreCase);
@@ -119,7 +119,9 @@ namespace KaizokuBackend.Services.Providers
             bool commit = false;
             if (grp == null)
             {
-                foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead))
+                // Only mark as dead if the provider was enabled (user intended it installed).
+                // Skip providers that were explicitly uninstalled (IsEnabled = false).
+                foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead && a.IsEnabled))
                 {
                     dead.IsDead = true;
                     dead.IsEnabled = false;
@@ -138,8 +140,10 @@ namespace KaizokuBackend.Services.Providers
                     {
                         if (p.IsDead)
                         {
+                            // Clear dead flag since the provider is back in the ecosystem,
+                            // but do NOT set IsEnabled = true — the user must explicitly re-install.
+                            // The database is the source of truth for install state.
                             p.IsDead = false;
-                            p.IsEnabled = true;
                             p.SourceRepositoryId = entry.RepositoryId;
                             p.SourceRepositoryName = repoName;
                             commit = true;
@@ -223,7 +227,7 @@ namespace KaizokuBackend.Services.Providers
             if (commit)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             _providers = storages;
-            List<string> languages = storages.Where(a=>a.IsEnabled).Select(a=>a.Language).Distinct().ToList();
+            List<string> languages = storages.Where(a=>a.IsActive).Select(a=>a.Language).Distinct().ToList();
             if (languages.Contains("all"))
             {
                 languages.Remove("all");
@@ -251,11 +255,11 @@ namespace KaizokuBackend.Services.Providers
             if (provider.SupportLatest)
             {
                 var jobStatus = await _jobBusinessService.GetJobStatusAsync(JobType.GetLatest, provider.MihonProviderId, token).ConfigureAwait(false);
-                if ((jobStatus == null || !jobStatus.Value) && provider.IsEnabled)
+                if ((jobStatus == null || !jobStatus.Value) && provider.IsActive)
                 {
                     await UpdateSeriesAndJobsAsync(provider, true, token).ConfigureAwait(false);
                 }
-                else if (jobStatus.HasValue && jobStatus.Value && !provider.IsEnabled)
+                else if (jobStatus.HasValue && jobStatus.Value && !provider.IsActive)
                 {
                     await UpdateSeriesAndJobsAsync(provider, false, token).ConfigureAwait(false);
                 }
@@ -295,7 +299,7 @@ namespace KaizokuBackend.Services.Providers
         {
             if (_providers == null) return;
             
-            bool hasEnabledProviders = _providers.Any(p => p.IsEnabled);
+            bool hasEnabledProviders = _providers.Any(p => p.IsActive);
             await _jobBusinessService.ManageExtensionUpdatesAsync(hasEnabledProviders, token).ConfigureAwait(false);
         }
 
