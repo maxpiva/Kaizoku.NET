@@ -119,12 +119,10 @@ namespace KaizokuBackend.Services.Providers
             bool commit = false;
             if (grp == null)
             {
-                // Only mark as dead if the provider was enabled (user intended it installed).
-                // Skip providers that were explicitly uninstalled (IsEnabled = false).
-                foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead && a.IsEnabled))
+                // Mark as dead if the provider (enabled/disabled state mantained)
+                foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead))
                 {
                     dead.IsDead = true;
-                    dead.IsEnabled = false;
                     commit = true;
                 }
             }
@@ -141,7 +139,7 @@ namespace KaizokuBackend.Services.Providers
                         if (p.IsDead)
                         {
                             // Clear dead flag since the provider is back in the ecosystem,
-                            // but do NOT set IsEnabled = true — the user must explicitly re-install.
+                            // if it was enabled, it will back to life, if not keep uninstalled.
                             // The database is the source of truth for install state.
                             p.IsDead = false;
                             p.SourceRepositoryId = entry.RepositoryId;
