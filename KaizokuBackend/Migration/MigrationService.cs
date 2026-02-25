@@ -56,6 +56,22 @@ public class MigrationService
 
     }
 
+    /// <summary>
+    /// After <c>EnsureCreatedAsync</c> builds the full schema from the model, this method creates the
+    /// <c>__EFMigrationsHistory</c> table and inserts records for all known migrations so that
+    /// <c>MigrateAsync</c> won't attempt to re-apply them on top of an already-complete schema.
+    /// </summary>
+    private static async Task MarkAllMigrationsAsAppliedAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE TABLE IF NOT EXISTS \"__EFMigrationsHistory\" (\"MigrationId\" TEXT NOT NULL PRIMARY KEY, \"ProductVersion\" TEXT NOT NULL);",
+            cancellationToken).ConfigureAwait(false);
+
+        // Register all known EF Core migrations so MigrateAsync treats them as already applied.
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT OR IGNORE INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20260220120000_AddSeriesProviderIsNsfw', '8.0.23');",
+            cancellationToken).ConfigureAwait(false);
+    }
 
     private bool Version2Database(string dbPath)
     {
@@ -126,6 +142,11 @@ public class MigrationService
                 .Options;
             await using var targetDb2 = new AppDbContext(newDbOptions2);
             await targetDb2.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
+            // EnsureCreated builds the full schema from the model but does NOT create __EFMigrationsHistory.
+            // When MigrateAsync runs later, it would try to apply all migrations (e.g. AddColumn IsNSFW)
+            // on a schema that already has those columns, causing a crash.
+            // Fix: create the history table and mark all existing migrations as already applied.
+            await MarkAllMigrationsAsAppliedAsync(targetDb2, cancellationToken).ConfigureAwait(false);
             return false;
         }
         if (Version2Database(newDatabasePath))
@@ -168,6 +189,8 @@ public class MigrationService
         }
 
         await targetDb.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
+        // Same EnsureCreated/Migrate conflict fix as above for v1→v2 migration path.
+        await MarkAllMigrationsAsAppliedAsync(targetDb, cancellationToken).ConfigureAwait(false);
         MigrationState state = new();
         ObtainOriginalMangaMap(Path.GetDirectoryName(legacyDatabasePath)!, state);
         await MigrateSettingsAsync(legacyDb, targetDb, state, cancellationToken).ConfigureAwait(false);

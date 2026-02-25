@@ -1,4 +1,4 @@
-﻿using KaizokuBackend.Data;
+using KaizokuBackend.Data;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -10,11 +10,18 @@ public partial class AddSeriesProviderIsNsfw : Microsoft.EntityFrameworkCore.Mig
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.Sql("ALTER TABLE \"SeriesProviders\" ADD COLUMN IF NOT EXISTS \"IsNSFW\" INTEGER NOT NULL DEFAULT 0;");
+        migrationBuilder.AddColumn<bool>(
+            name: "IsNSFW",
+            table: "SeriesProviders",
+            type: "INTEGER",
+            nullable: false,
+            defaultValue: false);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.Sql("ALTER TABLE \"SeriesProviders\" DROP COLUMN IF EXISTS \"IsNSFW\";");
+        migrationBuilder.DropColumn(
+            name: "IsNSFW",
+            table: "SeriesProviders");
     }
 }
