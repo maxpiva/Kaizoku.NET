@@ -130,28 +130,28 @@ const SeriesCard = React.memo(({
         }`}
       onClick={handleCardClick}
     >
-      <CardContent className="p-3">
+      <CardContent className="p-2 sm:p-3">
         <div className="relative">
           {series.isUnselectable && (
             <Badge
               variant="destructive"
-              className={`absolute max-w-[98%] truncate top-0 right-0 ${isDesktop ? 'text-xs' : 'text-[10px]'}`}
+              className={`absolute max-w-[98%] truncate top-0 right-0 z-10 ${isDesktop ? 'text-xs' : 'text-[10px]'}`}
             >
               EXISTS
             </Badge>
           )}
         </div>
-        <div className="flex gap-4 h-full">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 h-full">
 
           {/* Thumbnail - Poster with proper aspect ratio */}
-          <div className="relative w-32 aspect-[3/4]">
+          <div className={`relative flex-shrink-0 ${isDesktop ? 'w-32' : 'w-20'} aspect-[3/4] self-center sm:self-start`}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Image
                   src={formatThumbnailUrl(series.thumbnailUrl)}
                   alt={series.title}
                   fill
-                  sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 20vw"
+                  sizes="(max-width: 768px) 80px, 128px"
                   className="rounded-md object-cover cursor-pointer"
                 />
               </TooltipTrigger>
@@ -178,8 +178,8 @@ const SeriesCard = React.memo(({
                 countryCode={getCountryCodeForLanguage(series.lang)}
                 svg
                 style={{
-                  width: '20px',
-                  height: '15px',
+                  width: isDesktop ? '20px' : '16px',
+                  height: isDesktop ? '15px' : '12px',
                   borderColor: "hsl(var(--secondary))",
                   borderWidth: "1px",
                   borderStyle: "solid"
@@ -191,7 +191,7 @@ const SeriesCard = React.memo(({
             {series.scanlator && series.scanlator !== series.provider && (
               <Badge
                 variant="poster"
-                className={`absolute bottom-1 left-1 text-${isDesktop ? 'text-xs left-2 ' : 'text-[10px] left-1'}`}
+                className={`absolute bottom-1 left-1 ${isDesktop ? 'text-xs left-2' : 'text-[10px] left-1'}`}
               >
                 {series.scanlator}
               </Badge>
@@ -199,16 +199,16 @@ const SeriesCard = React.memo(({
           </div>
 
           {/* Content */}
-          <div className="flex-1 space-y-1 min-h-0">
+          <div className="flex-1 space-y-1 min-h-0 min-w-0">
             <div>
-              <h3 className="font-semibold truncate align-top">{series.title}</h3>
+              <h3 className={`font-semibold truncate align-top ${isDesktop ? '' : 'text-sm'}`}>{series.title}</h3>
               {(series.author || series.artist) && (
-                <div className="flex justify-between items-center text-sm text-muted-foreground">
+                <div className="flex flex-wrap justify-between items-center text-xs sm:text-sm text-muted-foreground gap-x-2">
                   {series.author && (
-                    <span>by {series.author}</span>
+                    <span className="truncate">by {series.author}</span>
                   )}
                   {series.artist && series.artist !== series.author && (
-                    <span>art by {series.artist}</span>
+                    <span className="truncate">art by {series.artist}</span>
                   )}
                 </div>
               )}
@@ -220,35 +220,34 @@ const SeriesCard = React.memo(({
             )}
 
             {/* Description */}
-            <p className="text-sm text-muted-foreground line-clamp-4">
+            <p className={`text-muted-foreground ${isDesktop ? 'text-sm line-clamp-4' : 'text-xs line-clamp-2'}`}>
               {series.description || "No description available"}
             </p>
 
             {/* Switches */}
             <div
-              className="flex items-center gap-4 pt-1"
-              // Prevent card selection when clicking switches
+              className={`flex flex-wrap items-center gap-2 sm:gap-4 pt-1`}
             >
               <Badge
                 variant="secondary"
-                className={`whitespace-nowrap text-${isDesktop ? 'text-xs' : 'text-[8px]'}`}
+                className={`whitespace-nowrap ${isDesktop ? 'text-xs' : 'text-[10px]'}`}
               >
                 {series.chapterList}
-              </Badge>              <div className="flex items-center space-x-2">
+              </Badge>              <div className="flex items-center space-x-1 sm:space-x-2">
                 <Switch
-                  className={`text-${isDesktop ? 'text-xs' : 'text-[8px]'}`}
+                  className={isDesktop ? '' : 'scale-90'}
                   id={`storage-${seriesKey}`}
-                  checked={series.isStorage}  onClick={(e) => e.stopPropagation()} 
+                  checked={series.isStorage}  onClick={(e) => e.stopPropagation()}
                   onCheckedChange={handleStorageClick}
                   disabled={series.isUnselectable}
                 />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Label onClick={(e) => e.stopPropagation()} 
+                    <Label onClick={(e) => e.stopPropagation()}
                       htmlFor={`storage-${seriesKey}`}
-                      className={`font-medium cursor-help text-${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
+                      className={`font-medium cursor-help ${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
                     >
-                      Use as Permanent Source
+                      {isDesktop ? 'Use as Permanent Source' : 'Permanent'}
                     </Label>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -256,32 +255,34 @@ const SeriesCard = React.memo(({
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1 sm:space-x-2">
                 <Switch
+                  className={isDesktop ? '' : 'scale-90'}
                   id={`cover-${seriesKey}`}
-                  checked={series.useCover} onClick={(e) => e.stopPropagation()} 
+                  checked={series.useCover} onClick={(e) => e.stopPropagation()}
                   onCheckedChange={handleCoverClick}
                   disabled={series.isUnselectable}
                 />
-                <Label onClick={(e) => e.stopPropagation()} 
+                <Label onClick={(e) => e.stopPropagation()}
                   htmlFor={`cover-${seriesKey}`}
-                  className={`font-medium text-${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
+                  className={`font-medium ${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
                 >
-                  Use Cover
+                  Cover
                 </Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1 sm:space-x-2">
                 <Switch
+                  className={isDesktop ? '' : 'scale-90'}
                   id={`title-${seriesKey}`}
-                  checked={series.useTitle} onClick={(e) => e.stopPropagation()} 
+                  checked={series.useTitle} onClick={(e) => e.stopPropagation()}
                   onCheckedChange={handleTitleClick}
                   disabled={series.isUnselectable}
                 />
-                <Label onClick={(e) => e.stopPropagation()} 
+                <Label onClick={(e) => e.stopPropagation()}
                   htmlFor={`title-${seriesKey}`}
-                  className={`font-medium text-${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
+                  className={`font-medium ${isDesktop ? 'text-sm' : 'text-xs'} ${series.isUnselectable ? 'opacity-50' : ''}`}
                 >
-                  Use Title
+                  Title
                 </Label>
               </div>
             </div>
@@ -593,43 +594,46 @@ export function ConfirmSeriesStep({
             </span>
           )} {validFullSeries.filter(series => series.isSelected && !series.isUnselectable).length} of {validFullSeries.filter(series => !series.isUnselectable).length} source{validFullSeries.filter(series => !series.isUnselectable).length !== 1 ? 's' : ''} selected • Click cards to select/deselect
         </p>
-      </div><div className="gap-2 rounded-md border bg-secondary p-4">
+      </div><div className="gap-2 rounded-md border bg-secondary p-2 sm:p-4">
 
         {/* Storage Path Configuration - Hidden in Add Sources mode */}
         {!isAddSourcesMode && titleSeries && (
-          <div className="flex gap-4 items-end">            <div className="flex-1">
-            <Label htmlFor="storage-path" className="text-sm font-medium">
-              Storage Path
-            </Label>              <Input
-              id="storage-path"
-              value={editableStoragePath}
-              onChange={(e) => handleStoragePathChange(e.target.value)}
-              placeholder="Enter storage path..."
-              className="mt-1 bg-card mb-2"
-            />
-          </div>            {availableCategories.length > 0 && (
-            <div className="w-48 ">
-              <Label htmlFor="category-select" className="text-sm font-medium">
-                Category
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 sm:items-end">
+            <div className="flex-1 min-w-0">
+              <Label htmlFor="storage-path" className="text-sm font-medium">
+                Storage Path
               </Label>
-              <Select value={selectedCategory} onValueChange={handleCategoryChange}>
-                <SelectTrigger id="category-select" className="mt-1 bg-card mb-2">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent className="" >
-                  {availableCategories.map((category: string) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                id="storage-path"
+                value={editableStoragePath}
+                onChange={(e) => handleStoragePathChange(e.target.value)}
+                placeholder="Enter storage path..."
+                className="mt-1 bg-card mb-2 text-xs sm:text-sm"
+              />
             </div>
-          )}
+            {availableCategories.length > 0 && (
+              <div className="w-full sm:w-48">
+                <Label htmlFor="category-select" className="text-sm font-medium">
+                  Category
+                </Label>
+                <Select value={selectedCategory} onValueChange={handleCategoryChange}>
+                  <SelectTrigger id="category-select" className="mt-1 bg-card mb-2">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCategories.map((category: string) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         )}      <div
           ref={scrollContainerRef}
-          className={`h-[60dvh] overflow-y-auto space-y-4 ${hasScrollbar ? 'pr-2' : ''}`}      >        {validFullSeries.map((series: FullSeries) => (
+          className={`h-[55dvh] sm:h-[60dvh] overflow-y-auto space-y-3 sm:space-y-4 ${hasScrollbar ? 'pr-2' : ''}`}      >        {validFullSeries.map((series: FullSeries) => (
             <SeriesCard
               key={`${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`}
               series={series}
