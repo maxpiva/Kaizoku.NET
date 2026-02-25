@@ -88,7 +88,7 @@ export function AddSeries({
           {triggerElement}
         </DialogTrigger>
         <DialogContent
-          className="max-w-[70%]"
+          className="w-[95vw] max-w-4xl max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => {
             e.preventDefault();
           }}
@@ -97,8 +97,8 @@ export function AddSeries({
             <DialogDescription>
               {dialogDescription}            </DialogDescription>
           </DialogHeader>
-          <AddSeriesSteps 
-            onFinish={() => setOpen(false)} 
+          <AddSeriesSteps
+            onFinish={() => setOpen(false)}
             title={title}
             existingSources={existingSources}
             seriesId={seriesId}
