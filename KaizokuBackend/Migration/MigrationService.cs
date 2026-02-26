@@ -67,10 +67,18 @@ public class MigrationService
             "CREATE TABLE IF NOT EXISTS \"__EFMigrationsHistory\" (\"MigrationId\" TEXT NOT NULL PRIMARY KEY, \"ProductVersion\" TEXT NOT NULL);",
             cancellationToken).ConfigureAwait(false);
 
+        // Determine the EF Core product version at runtime so it stays in sync with the referenced EF Core assembly.
+        var efCoreVersion = typeof(DbContext).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+
         // Register all known EF Core migrations so MigrateAsync treats them as already applied.
-        await db.Database.ExecuteSqlRawAsync(
-            "INSERT OR IGNORE INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20260220120000_AddSeriesProviderIsNsfw', '8.0.23');",
-            cancellationToken).ConfigureAwait(false);
+        var allMigrations = db.Database.GetMigrations();
+        foreach (var migrationId in allMigrations)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT OR IGNORE INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ({0}, {1});",
+                new object[] { migrationId, efCoreVersion },
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private bool Version2Database(string dbPath)
