@@ -1780,15 +1780,15 @@ function SeriesPageContent() {
                 />
               </div>
               {/* Series Info */}
-              <div className="flex-1 gap-2 relative flex flex-col min-w-0 overflow-hidden">
-                {/* Status Badge - Top Right of Info Pane */}
-                <div className="lg:absolute lg:top-0 lg:right-0 mb-2 lg:mb-0">
-                  <Badge className={'text-base ' + statusDisplay.color}>
+              <div className="flex-1 gap-2 flex flex-col min-w-0 overflow-hidden">
+                {/* Title + Status Badge Row */}
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <CardTitle className="text-xl lg:text-2xl truncate min-w-0">{displayTitle}</CardTitle>
+                  <Badge className={'text-base flex-shrink-0 ' + statusDisplay.color}>
                     {statusDisplay.text}
                   </Badge>
                 </div>
                 <div className="min-w-0 overflow-hidden">
-                  <CardTitle className="text-xl lg:text-2xl lg:pr-20 truncate">{displayTitle}</CardTitle>
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-sm min-w-0">
                     <Badge variant="primary">
                       {series.chapterList}
@@ -1839,19 +1839,19 @@ function SeriesPageContent() {
                     </div>
                   )}
 
-                  {/* Series Path Display - Bottom of info section */}
-                  {series.path && (
-                    <div className="min-w-0 overflow-hidden mt-auto pt-2 lg:absolute lg:bottom-0 lg:left-0 lg:right-auto lg:max-w-[60%]">
-                      <div
-                      className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden"
-                      >
-                      {series.path}
+                  {/* Bottom Row: Path + Action Buttons */}
+                  <div className="mt-auto pt-2 flex flex-col lg:flex-row lg:items-end gap-2 min-w-0">
+                    {/* Series Path Display */}
+                    {series.path && (
+                      <div className="min-w-0 overflow-hidden flex-1">
+                        <div className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden">
+                          {series.path}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                
-                {/* Action Buttons - Delete, Verify, and Pause/Resume Downloads */}
-                <div className="mt-auto pt-2 lg:absolute lg:bottom-0 lg:right-0 flex flex-wrap gap-2 justify-center md:justify-end">
+                    )}
+
+                    {/* Action Buttons - Delete, Verify, and Pause/Resume Downloads */}
+                    <div className="flex flex-wrap gap-2 justify-center md:justify-end flex-shrink-0">
                   {/* Delete Series Button */}
                   <Button
                     variant="destructive"
@@ -1895,7 +1895,8 @@ function SeriesPageContent() {
                       </>
                     )}
                   </Button>
-                </div>
+                    </div>
+                  </div>
               </div>
             </div>            </CardHeader>
         </Card>          {/* Bottom Left: Providers */}

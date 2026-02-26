@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Abstractions;
 using Microsoft.EntityFrameworkCore;
@@ -37,4 +38,11 @@ public class ProviderStorageEntity : ProviderSummaryBase
     public bool IsEnabled { get; set; } = true;
     public bool IsBroken { get; set; } = false;
     public bool IsDead { get; set; } = false;
+
+    /// <summary>
+    /// Provider is truly usable: enabled by user, not broken, and not dead.
+    /// Use this instead of checking IsEnabled alone.
+    /// </summary>
+    [NotMapped]
+    public bool IsActive => IsEnabled && !IsBroken && !IsDead;
 }

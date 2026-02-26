@@ -236,6 +236,9 @@ namespace KaizokuBackend.Services.Providers
                     _logger.LogWarning("Failed to add provider {PkgName} to local extensions", pkgName);
                     return false;
                 }
+
+                // Re-enable existing providers and restore SeriesProvider state
+                await ReEnableProvidersForPackageAsync(pkgName, token).ConfigureAwait(false);
                 await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
                 return true;
             }
@@ -264,6 +267,10 @@ namespace KaizokuBackend.Services.Providers
                     return null;
                 }
                 _logger.LogInformation("Provider {name} added to local extensions", repo.Name);
+
+                // Re-enable existing providers and restore SeriesProvider state
+                string pkgName = repo.GetActiveEntry().Extension.Package;
+                await ReEnableProvidersForPackageAsync(pkgName, token).ConfigureAwait(false);
                 await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -273,6 +280,37 @@ namespace KaizokuBackend.Services.Providers
             return null;
         }
 
+
+        /// <summary>
+        /// Re-enables existing providers for a package and restores SeriesProvider state on install.
+        /// Sets IsEnabled=true, IsDead=false, IsBroken=false on ProviderStorageEntity,
+        /// and sets IsUninstalled=false on previously uninstalled SeriesProviderEntity entries.
+        /// </summary>
+        private async Task ReEnableProvidersForPackageAsync(string pkgName, CancellationToken token)
+        {
+            var existingStorages = await _db.Providers
+                .Where(a => a.SourcePackageName == pkgName)
+                .ToListAsync(token).ConfigureAwait(false);
+
+            foreach (var storage in existingStorages)
+            {
+                storage.IsEnabled = true;
+                storage.IsDead = false;
+                storage.IsBroken = false;
+            }
+
+            var mihonProviderIds = existingStorages.Select(a => a.MihonProviderId).ToList();
+            if (mihonProviderIds.Count > 0)
+            {
+                var seriesProviders = await _db.SeriesProviders
+                    .Where(sp => mihonProviderIds.Contains(sp.MihonProviderId) && sp.IsUninstalled)
+                    .ToListAsync(token).ConfigureAwait(false);
+                seriesProviders.ForEach(sp => sp.IsUninstalled = false);
+            }
+
+            if (existingStorages.Count > 0)
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+        }
 
         /// <summary>
         /// Uninstalls an extension by package name
@@ -285,9 +323,35 @@ namespace KaizokuBackend.Services.Providers
             try
             {
                 _logger.LogInformation("Uninstalling provider: {PkgName}", pkgName);
-                List<ProviderStorageEntity> storages = await _db.Providers.Where(a => a.SourcePackageName == pkgName).ToListAsync(token).ConfigureAwait(false);
-                storages.ForEach(a=>a.IsEnabled=false);
+
+                // 1. Set IsEnabled = false on all providers for this package
+                List<ProviderStorageEntity> storages = await _db.Providers
+                    .Where(a => a.SourcePackageName == pkgName)
+                    .ToListAsync(token).ConfigureAwait(false);
+                storages.ForEach(a => a.IsEnabled = false);
+
+                // 2. Mark all related SeriesProvider entries as IsUninstalled = true
+                var mihonProviderIds = storages.Select(a => a.MihonProviderId).ToList();
+                if (mihonProviderIds.Count > 0)
+                {
+                    var seriesProviders = await _db.SeriesProviders
+                        .Where(sp => mihonProviderIds.Contains(sp.MihonProviderId))
+                        .ToListAsync(token).ConfigureAwait(false);
+                    seriesProviders.ForEach(sp => sp.IsUninstalled = true);
+                }
+
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
+
+                // 3. Remove from Mihon bridge
+                var extensions = _mihon.ListExtensions();
+                var group = extensions.FirstOrDefault(a =>
+                    a.GetActiveEntry().Extension.Package.Equals(pkgName, StringComparison.OrdinalIgnoreCase));
+                if (group != null)
+                {
+                    await _mihon.RemoveExtensionAsync(group, token).ConfigureAwait(false);
+                }
+
+                // 4. Refresh cache (handles job scheduling)
                 await _providerCache.RefreshCacheAsync(false, token).ConfigureAwait(false);
                 return true;
             }

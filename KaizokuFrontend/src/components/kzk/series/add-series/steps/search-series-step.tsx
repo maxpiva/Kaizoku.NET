@@ -204,32 +204,36 @@ export function SearchSeriesStep({
   const allSeries = formState.allLinkedSeries;
   const isDesktop = useMediaQuery("(min-width: 768px)");
   return (
-    <div className="mt-4 grid gap-2 rounded-md border bg-secondary p-4">
-      <div className="flex items-center gap-2">
+    <div className="mt-4 grid gap-2 rounded-md border bg-secondary p-2 sm:p-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
         <Input
           onPointerDown={(e) => e.stopPropagation()}
           type="search"
           placeholder="Search for a series..."
-          className="mb-2 bg-card flex-1"
+          className="bg-card flex-1"
           value={searchValue}
           onChange={(e) => setSearchValue(e.target.value)}
         />
-        <div className="w-80 mb-2">          <MultiSelectSources
-            sources={availableSources}
-            selectedSources={selectedSources}
-            onSelectionChange={(newSelection) => {setSelectedSources(newSelection);
-            }}
-            placeholder="Select sources..."
-            isDesktop={isDesktop}
-          />
-        </div>
-        {formState.selectedLinkedSeries.length > 0 && (
-          <div className="text-sm text-muted-foreground font-medium whitespace-nowrap mb-2">
-            {formState.selectedLinkedSeries.length} selected
+        <div className="flex items-center gap-2">
+          <div className="flex-1 sm:w-80 min-w-0">
+            <MultiSelectSources
+              sources={availableSources}
+              selectedSources={selectedSources}
+              onSelectionChange={(newSelection) => {setSelectedSources(newSelection);
+              }}
+              placeholder="Select sources..."
+              isDesktop={isDesktop}
+            />
           </div>
-        )}
-      </div><div className="h-[60dvh] overflow-y-auto">
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-3">
+          {formState.selectedLinkedSeries.length > 0 && (
+            <div className="text-sm text-muted-foreground font-medium whitespace-nowrap">
+              {formState.selectedLinkedSeries.length} selected
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="h-[55dvh] sm:h-[60dvh] overflow-y-auto">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 gap-2 sm:gap-3">
           {allSeries.map((series) => {
             const seriesId = getSeriesId(series);
             const isSelected = isSeriesSelected(seriesId);

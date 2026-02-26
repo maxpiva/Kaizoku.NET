@@ -88,7 +88,7 @@ export function AddSeries({
           {triggerElement}
         </DialogTrigger>
         <DialogContent
-          className="max-w-[70%]"
+          className="w-[95vw] max-w-4xl max-h-[90dvh] overflow-y-auto"
           onInteractOutside={(e) => {
             e.preventDefault();
           }}
@@ -97,8 +97,8 @@ export function AddSeries({
             <DialogDescription>
               {dialogDescription}            </DialogDescription>
           </DialogHeader>
-          <AddSeriesSteps 
-            onFinish={() => setOpen(false)} 
+          <AddSeriesSteps
+            onFinish={() => setOpen(false)}
             title={title}
             existingSources={existingSources}
             seriesId={seriesId}
@@ -114,12 +114,13 @@ export function AddSeries({
       <DrawerTrigger asChild>
         {triggerElement}
       </DrawerTrigger>
-      <DrawerContent>
-        <DrawerHeader className="text-left">
+      <DrawerContent className="max-h-[90dvh]">
+        <DrawerHeader className="text-left pb-2">
           <DrawerTitle>{dialogTitle}</DrawerTitle>
-        </DrawerHeader>        <div className="mb-4 px-4">
-          <AddSeriesSteps 
-            onFinish={() => setOpen(false)} 
+        </DrawerHeader>
+        <div className="mb-4 px-3 overflow-y-auto">
+          <AddSeriesSteps
+            onFinish={() => setOpen(false)}
             title={title}
             existingSources={existingSources}
             seriesId={seriesId}

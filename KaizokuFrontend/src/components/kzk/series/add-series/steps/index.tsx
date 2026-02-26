@@ -224,8 +224,8 @@ export function AddSeriesSteps({
         steps={Object.values(steps)}
         variant="circle"
         orientation="horizontal"
-        size="md"
-        responsive={true}
+        size="sm"
+        responsive={false}
         state={isLoading ? "loading" : error ? "error" : undefined}
       >
         <Step
