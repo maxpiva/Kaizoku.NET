@@ -119,7 +119,7 @@ namespace KaizokuBackend.Services.Providers
             bool commit = false;
             if (grp == null)
             {
-                // Mark as dead if the provider (enabled/disabled state mantained)
+                // Mark as dead if the provider (enabled/disabled state maintained)
                 foreach (var dead in storages.Where(a => a.SourcePackageName == package && !a.IsDead))
                 {
                     dead.IsDead = true;
