@@ -8,6 +8,7 @@ import java.time.Instant
 plugins {
     id(libs.plugins.kotlin.jvm.get().pluginId)
     id(libs.plugins.kotlin.serialization.get().pluginId)
+    alias(libs.plugins.shadowjar)
 }
 
 dependencies {
@@ -34,7 +35,7 @@ dependencies {
     compileOnly(libs.android.annotations)
 
     // substitute for duktape-android/quickjs
-    implementation(libs.bundles.polyglot)
+    implementation(libs.bundles.rhino)
 
     // Kotlin wrapper around Java Preferences, makes certain things easier
     implementation(libs.bundles.settings)
@@ -59,28 +60,16 @@ tasks {
             }
         }
     }
-// ---- Fat jar task (library; no Main-Class) ----
-tasks.register<org.gradle.jvm.tasks.Jar>("fatJar") {
-    group = "build"
-    description = "Assembles an uber/fat jar containing this library + runtime dependencies."
+// ---- Shadow jar task (library; no Main-Class) ----
+tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
     archiveClassifier.set("all")
-
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-    // your compiled classes/resources
-    from(sourceSets.main.get().output)
-
-    // runtime deps exploded into the jar
-    dependsOn(configurations.runtimeClasspath)
-    from({
-        configurations.runtimeClasspath.get().map { file ->
-            if (file.isDirectory) file else zipTree(file)
-        }
-    })
-
+    
+    // Properly merge GraalVM service files
+    mergeServiceFiles()
+    
     // avoid broken signature metadata in fat jars
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-
+    
     // optional metadata
     manifest {
         attributes(
@@ -90,4 +79,9 @@ tasks.register<org.gradle.jvm.tasks.Jar>("fatJar") {
             )
         )
     }
+}
+
+// Alias for backward compatibility
+tasks.register("fatJar") {
+    dependsOn(tasks.named("shadowJar"))
 }

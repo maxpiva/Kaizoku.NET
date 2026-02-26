@@ -111,7 +111,7 @@ namespace KaizokuBackend.Services.Providers
                 {
                     RepositoryEntry entry = repo.GetActiveEntry();
                     TachiyomiExtension extension = entry.Extension;
-                    ProviderStorageEntity? existing = storages.FirstOrDefault(a => a.SourceRepositoryId == entry.RepositoryId && a.SourcePackageName == entry.Extension.Package);
+                    ProviderStorageEntity? existing = storages.FirstOrDefault(a => a.SourcePackageName == entry.Extension.Package);
                     if (existing != null)
                     {
                         ExtensionDto v = extension.ToExtensionInfo();

@@ -387,25 +387,25 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     foreach (var extension in repo.Extensions)
                     {
                         string folderName = extension.GetName();
-                        if (lastExtensions.TryGetValue(folderName, out string? localVersion))
+                        if (lastExtensions.TryGetValue(folderName, out string? localVersion) &&
+                            Version.TryParse(localVersion, out var localParsed) &&
+                            Version.TryParse(extension.Version, out var onlineParsed) &&
+                            onlineParsed > localParsed)
                         {
-                            if (localVersion != extension.Version)
+                            _logger.LogInformation("Auto-updating extension {Apk} from version {LocalVersion} to {OnlineVersion}.", extension.Apk, localVersion, extension.Version);
+                            try
                             {
-                                _logger.LogInformation("Auto-updating extension {Apk} from version {LocalVersion} to {OnlineVersion}.", extension.Apk, localVersion, extension.Version);
-                                try
-                                {
-                                    await AddExtensionAsync(repo, extension, false, token).ConfigureAwait(false);
-                                    _logger.LogInformation("Successfully auto-updated extension {Apk} to version {Version}.", extension.Apk, extension.Version);
-                                }
-                                catch (OperationCanceledException)
-                                {
-                                    _logger.LogError("Operation canceled while auto-updating extension {Apk}.", extension.Apk);
-                                    throw;
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Failed to auto-update extension {Apk} to version {Version}.", extension.Apk, extension.Version);
-                                }
+                                await AddExtensionAsync(repo, extension, false, token).ConfigureAwait(false);
+                                _logger.LogInformation("Successfully auto-updated extension {Apk} to version {Version}.", extension.Apk, extension.Version);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                _logger.LogError("Operation canceled while auto-updating extension {Apk}.", extension.Apk);
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to auto-update extension {Apk} to version {Version}.", extension.Apk, extension.Version);
                             }
                         }
                     }
@@ -506,14 +506,17 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     unit.Entry.ClassName = dict[f];
                 }
             }
-            string oldApk = unit.Entry.Extension.Apk;
+            string oldApk = unit.Entry.Extension.Apk ?? "";
             unit.Entry.Extension.Apk = CreateApkName(unit.Entry.Extension.Package, unit.Entry.Extension.Version);
+            unit.Entry.Name = unit.Entry.Extension.GetName();
+            /*
             if (!oldApk.Equals(unit.Entry.Extension.Apk, StringComparison.OrdinalIgnoreCase))
             {
                 string newApkPath = Path.Combine(unit.WorkingFolder.Path, unit.Entry.Extension.Apk);
                 File.Move(originalName, newApkPath);
                 unit.Entry.Apk.FileName = unit.Entry.Extension.Apk;
             }
+            */
             var list = z.getAllIcons();
             byte[]? iconData = GetBestIcon(list, 640);
             if (iconData != null)
@@ -585,6 +588,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             unitofWork.Entry = new RepositoryEntry();
             unitofWork.Entry.Extension = new TachiyomiExtension();
             unitofWork.Entry.IsLocal = true;
+            unitofWork.Entry.RepositoryId= "Local";
             unitofWork.WorkingFolder = _workingStructure.CreateTemporaryDirectory();
             string fileName = Path.Combine(unitofWork.WorkingFolder.Path, "extension.apk");
             File.WriteAllBytes(fileName, apkData);

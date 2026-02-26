@@ -16,6 +16,12 @@
     <ProjectReference Include="..\..\Mihon.ExtensionsBridge.Models\Mihon.ExtensionsBridge.Models.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="Android.Compat">
+      <HintPath>..\..\libs\Android.Compat.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
 
 
 </Project>

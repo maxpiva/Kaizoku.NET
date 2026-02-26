@@ -6,7 +6,7 @@ jvmTarget = "1.8"
 okhttp = "5.0.0-alpha.11" # Major version is locked by Tachiyomi extensions
 jackson = "2.15.0" # jackson version locked by javalin, ref: `io.javalin.core.util.OptionalDependency`
 dex2jar = "2.4.34"
-polyglot = "19.3.6"
+rhino = "1.7.15"
 settings = "1.1.1"
 twelvemonkeys = "3.13.0"
 xmlserialization = "0.86.3"
@@ -85,7 +85,7 @@ bouncycastle = "org.bouncycastle:bcprov-jdk15on:1.70"
 android-annotations = "androidx.annotation:annotation:1.9.1"
 
 # Substitute for duktape-android
-polyglot-core = { module = "org.graalvm.js:js-scriptengine", version.ref = "polyglot" }
+rhino-engine = { module = "org.mozilla:rhino", version.ref = "rhino" }
 
 
 # Settings
@@ -184,8 +184,8 @@ jackson = [
     "jackson-annotations",
 ]
 
-polyglot = [
-    "polyglot-core"
+rhino = [
+    "rhino-engine"
 ]
 settings = [
     "settings-core",
