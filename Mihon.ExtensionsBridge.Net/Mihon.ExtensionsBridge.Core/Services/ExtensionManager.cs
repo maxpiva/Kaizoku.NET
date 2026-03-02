@@ -637,6 +637,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             //string destpdbFile = Path.ChangeExtension(Path.Combine(expectedFolder, workUnit.Entry.Icon.FileName), "pdb");
             string srcIconFile = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Icon.FileName);
             string destIconFile = Path.Combine(expectedFolder, workUnit.Entry.Icon.FileName);
+            GC.Collect();
             await MoveFileSafeAsync(srcApkFile, destApkFile,
                 $"Failed to move APK file for extension {workUnit.Entry.Extension.Name} version {workUnit.Entry.Extension.Version} after multiple attempts. (File Copied)",
                 5, token).ConfigureAwait(false);

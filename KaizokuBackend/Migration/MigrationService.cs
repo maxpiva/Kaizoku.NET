@@ -143,7 +143,7 @@ public class MigrationService
         newDatabasePath = Path.GetFullPath(newDatabasePath);
         if (!File.Exists(newDatabasePath))
         {
-            _logger.LogError("No existing database found at {Path}. Assuming new installation.", newDatabasePath);
+            _logger.LogInformation("No existing database found at {Path}. Assuming new installation.", newDatabasePath);
             var newDbOptions2 = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlite($"Data Source={newDatabasePath}")
                 .UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll)
