@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { getResponsiveCardDefault } from "@/lib/utils/responsive-card-default";
 import { Sparkles, Globe } from "lucide-react";
 import {
   Select,
@@ -74,7 +75,7 @@ export default function CloudLatestPage() {
   const [selectedSourceId, setSelectedSourceIdState] = useState<string | null>(
     getSessionValue(SESSION_KEYS.sourceId, null)
   );
-  const [cardWidth, setCardWidthState] = useState<string>(getSessionValue(SESSION_KEYS.cardWidth, "w-45")!);
+  const [cardWidth, setCardWidthState] = useState<string>(getSessionValue(SESSION_KEYS.cardWidth, getResponsiveCardDefault())!);
   const [items, setItems] = useState<LatestSeriesInfo[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);

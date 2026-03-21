@@ -1,4 +1,6 @@
-﻿using KaizokuBackend.Migration;
+﻿using KaizokuBackend.Authorization;
+using KaizokuBackend.Migration;
+using KaizokuBackend.Services.Auth;
 using KaizokuBackend.Services.Background;
 using KaizokuBackend.Services.Bridge;
 using KaizokuBackend.Services.Daily;
@@ -10,9 +12,11 @@ using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Jobs.Settings;
 using KaizokuBackend.Services.Providers;
+using KaizokuBackend.Services.Requests;
 using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Series;
 using KaizokuBackend.Services.Settings;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace KaizokuBackend.Services
@@ -85,7 +89,8 @@ namespace KaizokuBackend.Services
             
             // Provider Cache and Storage
             services.TryAddScoped<ProviderCacheService>();
-            
+            services.TryAddScoped<ProviderHealthCheckService>();
+
             return services;
         }
 
@@ -103,7 +108,26 @@ namespace KaizokuBackend.Services
             // Download CQRS Services
             services.TryAddScoped<DownloadQueryService>();
             services.TryAddScoped<DownloadCommandService>();
-            
+
+            return services;
+        }
+
+        public static IServiceCollection AddAuthServices(this IServiceCollection services)
+        {
+            services.TryAddScoped<AuthService>();
+            services.TryAddScoped<UserService>();
+            services.TryAddScoped<PermissionService>();
+            services.TryAddScoped<PermissionPresetService>();
+            services.TryAddScoped<InviteLinkService>();
+            services.TryAddScoped<UserPreferencesService>();
+            services.TryAddScoped<MangaRequestService>();
+
+            // Authorization handlers — must use AddSingleton (not TryAdd) to replace the
+            // DefaultAuthorizationPolicyProvider already registered by AddAuthorization()
+            services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+            services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+            services.AddScoped<IAuthorizationHandler, AdminAuthorizationHandler>();
+
             return services;
         }
     }

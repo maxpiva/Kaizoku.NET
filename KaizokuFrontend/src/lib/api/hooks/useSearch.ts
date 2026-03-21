@@ -3,12 +3,15 @@ import { searchService, type SearchParams } from '@/lib/api/services/searchServi
 import { type LinkedSeries } from '@/lib/api/types';
 
 /**
- * Hook for getting available search sources
+ * Hook for getting available search sources.
+ * Only fetches when enabled (user has CanBrowseSources permission).
+ * Users without the permission search all sources via the backend default.
  */
-export const useAvailableSearchSources = () => {
+export const useAvailableSearchSources = (enabled = true) => {
   return useQuery({
     queryKey: ['search', 'sources'],
     queryFn: () => searchService.getAvailableSearchSources(),
+    enabled,
   });
 };
 
@@ -25,7 +28,7 @@ export const useSearchSeries = (
 ) => {
   return useQuery({
     queryKey: ['search', 'series', params.keyword, params.languages, params.searchSources],
-    queryFn: () => searchService.searchSeries(params),
+    queryFn: ({ signal }) => searchService.searchSeries(params, { signal }),
     enabled: options?.enabled ?? !!params.keyword?.trim(),
   });
 };

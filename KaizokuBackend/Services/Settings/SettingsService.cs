@@ -299,7 +299,10 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = settings.SocksProxyVersion,
                 SocksProxyUsername = settings.SocksProxyUsername,
                 SocksProxyPassword = settings.SocksProxyPassword,
-                NsfwVisibility = settings.NsfwVisibility
+                NsfwVisibility = settings.NsfwVisibility,
+                MaxPendingRequestsPerUser = settings.MaxPendingRequestsPerUser,
+                DefaultPermissionPresetId = settings.DefaultPermissionPresetId,
+                RegistrationEnabled = settings.RegistrationEnabled
 
             };
 
@@ -335,7 +338,10 @@ namespace KaizokuBackend.Services.Settings
                 SocksProxyVersion = ed.SocksProxyVersion,
                 SocksProxyUsername = ed.SocksProxyUsername,
                 SocksProxyPassword = ed.SocksProxyPassword,
-                NsfwVisibility = ed.NsfwVisibility
+                NsfwVisibility = ed.NsfwVisibility,
+                MaxPendingRequestsPerUser = ed.MaxPendingRequestsPerUser,
+                DefaultPermissionPresetId = ed.DefaultPermissionPresetId,
+                RegistrationEnabled = ed.RegistrationEnabled
 
             };
             set.StorageFolder = _config["StorageFolder"] ?? string.Empty;

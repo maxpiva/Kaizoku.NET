@@ -2,26 +2,32 @@
 
 // All rendering happens on the client for static export compatibility
 
-import { ListFilter } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
 import { AddSeries } from "@/components/kzk/series/add-series";
 import { ListSeries } from "@/components/kzk/series/list-series";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectTrigger,
   SelectContent,
   SelectItem,
   SelectValue,
-  SelectLabel,
-  SelectSeparator,
 } from "@/components/ui/select";
-import KzkHeader from "@/components/kzk/layout/header";
-import KzkSidebar from "@/components/kzk/layout/sidebar";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { PageLayout } from "@/components/kzk/layout/page-layout";
 import { SeriesStatus, type SeriesInfo } from "@/lib/api/types";
 import { useLibrary } from "@/lib/api/hooks/useSeries";
+import { PullToRefresh } from "@/components/ui/pull-to-refresh";
+import { usePermission } from "@/hooks/use-permission";
+import { useQueryClient } from "@tanstack/react-query";
+import { getResponsiveCardDefault } from "@/lib/utils/responsive-card-default";
 
 export default function RootPage() {
+  const queryClient = useQueryClient();
+  const canBrowseSources = usePermission('canBrowseSources');
+
+  const handleRefresh = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["series", "library"] });
+  }, [queryClient]);
+
   // Session storage keys
   const SESSION_KEYS = {
     tab: "kzk_tab",
@@ -42,7 +48,7 @@ export default function RootPage() {
   const [selectedGenre, setSelectedGenreState] = useState<string | null>(getSessionValue(SESSION_KEYS.genre, null));
   const [selectedProvider, setSelectedProviderState] = useState<string | null>(getSessionValue(SESSION_KEYS.provider, null));
   const [orderBy, setOrderByState] = useState<string>(getSessionValue(SESSION_KEYS.orderBy, "title")!);
-  const [cardWidth, setCardWidthState] = useState<string>(getSessionValue(SESSION_KEYS.cardWidth, "w-45")!);
+  const [cardWidth, setCardWidthState] = useState<string>(getSessionValue(SESSION_KEYS.cardWidth, getResponsiveCardDefault())!);
 
   // Wrap setters to also update sessionStorage
   const setTab = (v: string) => { setTabState(v); sessionStorage.setItem(SESSION_KEYS.tab, v); };
@@ -56,12 +62,11 @@ export default function RootPage() {
   // Debug and deduplicate library data to prevent duplicate keys
   const deduplicatedLibrary = useMemo(() => {
     if (!library) return library;
-    
-    // Check for duplicates and log them
+
     const seen = new Set<string>();
     const duplicates: string[] = [];
     const unique: SeriesInfo[] = [];
-    
+
     library.forEach((series) => {
       if (seen.has(series.id)) {
         duplicates.push(series.title);
@@ -71,11 +76,11 @@ export default function RootPage() {
         unique.push(series);
       }
     });
-    
+
     if (duplicates.length > 0) {
       console.error(`[Library] Found ${duplicates.length} duplicate series:`, duplicates);
     }
-    
+
     return unique;
   }, [library]);
 
@@ -110,10 +115,8 @@ export default function RootPage() {
   // Sorting logic for ListSeries - memoized for performance
   const sortFn = useCallback((a: SeriesInfo, b: SeriesInfo) => {
     if (orderBy === "lastChange") {
-      // Descending by lastChangeUTC
       return (b.lastChangeUTC ? new Date(b.lastChangeUTC).getTime() : 0) - (a.lastChangeUTC ? new Date(a.lastChangeUTC).getTime() : 0);
     }
-    // Default: Alphabetical by title
     return a.title.localeCompare(b.title);
   }, [orderBy]);
 
@@ -121,7 +124,7 @@ export default function RootPage() {
   const filterFn = useCallback((series: SeriesInfo) => {
     const matchesTab =
       tab === "completed"
-        ? series.status === SeriesStatus.COMPLETED || series.status === SeriesStatus.PUBLISHING_FINISHED 
+        ? series.status === SeriesStatus.COMPLETED || series.status === SeriesStatus.PUBLISHING_FINISHED
         : tab === "active"
         ? series.status !== SeriesStatus.COMPLETED && series.status !== SeriesStatus.PUBLISHING_FINISHED && series.isActive && !series.pausedDownloads
         : tab === "paused"
@@ -137,146 +140,136 @@ export default function RootPage() {
   // Count for each tab (with genre and provider filter applied) - memoized for performance
   const { allCount, activeCount, pausedCount, unassignedCount, completedCount } = useMemo(() => {
     if (!deduplicatedLibrary) return { allCount: 0, activeCount: 0, pausedCount: 0, unassignedCount: 0, completedCount: 0 };
-    
-    // Base filter function for genre and provider
-    const baseFilter = (series: SeriesInfo) => 
+
+    const baseFilter = (series: SeriesInfo) =>
       (!selectedGenre || series.genre?.includes(selectedGenre)) &&
       (!selectedProvider || series.providers?.some((p) => p.provider === selectedProvider));
-    
+
     const baseFiltered = deduplicatedLibrary.filter(baseFilter);
-    
+
     return {
       allCount: baseFiltered.length,
-      activeCount: baseFiltered.filter(series => 
-        series.status !== SeriesStatus.COMPLETED && 
-        series.status !== SeriesStatus.PUBLISHING_FINISHED && 
-        series.isActive && 
+      activeCount: baseFiltered.filter(series =>
+        series.status !== SeriesStatus.COMPLETED &&
+        series.status !== SeriesStatus.PUBLISHING_FINISHED &&
+        series.isActive &&
         !series.pausedDownloads
       ).length,
       pausedCount: baseFiltered.filter(series => series.pausedDownloads).length,
       unassignedCount: baseFiltered.filter(series => series.hasUnknown === true).length,
-      completedCount: baseFiltered.filter(series => 
-        series.status === SeriesStatus.COMPLETED || 
+      completedCount: baseFiltered.filter(series =>
+        series.status === SeriesStatus.COMPLETED ||
         series.status === SeriesStatus.PUBLISHING_FINISHED
       ).length,
     };
   }, [deduplicatedLibrary, selectedGenre, selectedProvider]);
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-muted/40">
-      <KzkSidebar />
-      <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
-        <KzkHeader />
-        <main className="grid flex-1 items-start gap-2 p-2 sm:gap-4 sm:p-4 sm:px-6 sm:py-0">
-                {/* Filter row - wraps on mobile */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Status Filter - first select */}
-                  <div className="w-28 sm:w-40">
-                    <Select value={tab} onValueChange={setTab}>
-                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">
-                          All{allCount > 0 && ` (${allCount})`}
-                        </SelectItem>
-                        <SelectItem value="active">
-                          Active{activeCount > 0 && ` (${activeCount})`}
-                        </SelectItem>
-                        <SelectItem value="paused">
-                          Paused{pausedCount > 0 && ` (${pausedCount})`}
-                        </SelectItem>
-                        <SelectItem value="unassigned">
-                          Unassigned{unassignedCount > 0 && ` (${unassignedCount})`}
-                        </SelectItem>
-                        <SelectItem value="completed">
-                          Completed{completedCount > 0 && ` (${completedCount})`}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                 
-                  <div className="w-28 sm:w-40">
-                    <Select
-                      value={selectedGenre ?? "__ALL__"}
-                      onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
-                    >
-                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
-                        <SelectValue placeholder="All Genres" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__ALL__">All Genres</SelectItem>
-                        {genres.map((genre) => (
-                          <SelectItem key={genre} value={genre}>
-                            {genre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="w-28 sm:w-48">
-                    <Select
-                      value={selectedProvider ?? "__ALL__"}
-                      onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
-                    >
-                      <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
-                        <SelectValue placeholder="All Sources" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__ALL__">All Sources</SelectItem>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider} value={provider}>
-                            {provider}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {/* Right side controls */}
-                  <div className="flex items-center gap-2 ml-auto">
-                    {/* Order Select */}
-                    <div className="w-24 sm:w-32">
-                      <Select value={orderBy} onValueChange={setOrderBy}>
-                        <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="title">Alphabetical</SelectItem>
-                          <SelectItem value="lastChange">Last Change</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {/* Card Size Select */}
-                    <div className="w-14 sm:w-16">
-                      <Select value={cardWidth} onValueChange={setCardWidth}>
-                        <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-10 text-xs sm:text-sm">
-                          <SelectValue placeholder="Card Size" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {cardWidthOptions.map(opt => (
-                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+    <PageLayout mainClassName="p-2 pb-16 sm:px-6 sm:py-4 sm:pb-4 overflow-y-auto">
+      <PullToRefresh onRefresh={handleRefresh}>
+      <div className="flex flex-col gap-4">
+        {/* Filter row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Status Filter */}
+          <div className="w-28 sm:w-40">
+            <Select value={tab} onValueChange={setTab}>
+              <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-9 text-xs sm:text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All{allCount > 0 && ` (${allCount})`}</SelectItem>
+                <SelectItem value="active">Active{activeCount > 0 && ` (${activeCount})`}</SelectItem>
+                <SelectItem value="paused">Paused{pausedCount > 0 && ` (${pausedCount})`}</SelectItem>
+                <SelectItem value="unassigned">Unassigned{unassignedCount > 0 && ` (${unassignedCount})`}</SelectItem>
+                <SelectItem value="completed">Completed{completedCount > 0 && ` (${completedCount})`}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-                    <div className="h-8 sm:h-9">
-                      <AddSeries />
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2 sm:gap-4 pt-2 sm:pt-4">
-                  <ListSeries 
-                    filterFn={filterFn} 
-                    sortFn={sortFn} 
-                    cardWidth={cardWidth} 
-                    cardWidthOptions={cardWidthOptions} 
-                    orderBy={orderBy}
-                    library={deduplicatedLibrary}
-                  />
-                </div>
-        </main>
+          <div className="w-28 sm:w-40">
+            <Select
+              value={selectedGenre ?? "__ALL__"}
+              onValueChange={(value) => setSelectedGenre(value === "__ALL__" ? null : value)}
+            >
+              <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-9 text-xs sm:text-sm">
+                <SelectValue placeholder="All Genres" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__ALL__">All Genres</SelectItem>
+                {genres.map((genre) => (
+                  <SelectItem key={genre} value={genre}>{genre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {canBrowseSources && (
+            <div className="w-28 sm:w-48">
+              <Select
+                value={selectedProvider ?? "__ALL__"}
+                onValueChange={(value) => setSelectedProvider(value === "__ALL__" ? null : value)}
+              >
+                <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-9 text-xs sm:text-sm">
+                  <SelectValue placeholder="All Sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__ALL__">All Sources</SelectItem>
+                  {providers.map((provider) => (
+                    <SelectItem key={provider} value={provider}>{provider}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-2 ml-auto">
+            {/* Order Select */}
+            <div className="w-24 sm:w-32">
+              <Select value={orderBy} onValueChange={setOrderBy}>
+                <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-9 text-xs sm:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="title">Alphabetical</SelectItem>
+                  <SelectItem value="lastChange">Last Change</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Card Size Select */}
+            <div className="w-14 sm:w-16">
+              <Select value={cardWidth} onValueChange={setCardWidth}>
+                <SelectTrigger className="w-full !pr-2 caret-transparent h-8 sm:h-9 text-xs sm:text-sm">
+                  <SelectValue placeholder="Card Size" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cardWidthOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="h-8 sm:h-9">
+              <AddSeries />
+            </div>
+          </div>
+        </div>
+
+        {/* Series grid */}
+        <div className="flex flex-wrap gap-2 sm:gap-4">
+          <ListSeries
+            filterFn={filterFn}
+            sortFn={sortFn}
+            cardWidth={cardWidth}
+            cardWidthOptions={cardWidthOptions}
+            orderBy={orderBy}
+            library={deduplicatedLibrary}
+          />
+        </div>
       </div>
-    </div>
+      </PullToRefresh>
+    </PageLayout>
   );
 }

@@ -9,11 +9,13 @@ import {
   TooltipTrigger,
   TooltipProvider 
 } from '@/components/ui/tooltip';
-import { Plus, Loader2, Heart, ExternalLink } from 'lucide-react';
+import { Plus, Loader2, Heart, ExternalLink, BookPlus } from 'lucide-react';
 import Image from 'next/image';
 import { type LatestSeriesInfo, InLibraryStatus } from '@/lib/api/types';
 import { AddSeries } from '@/components/kzk/series/add-series';
+import { RequestSeriesDialog } from '@/components/kzk/series/request-series-dialog';
 import ReactCountryFlag from "react-country-flag";
+import { usePermission } from '@/hooks/use-permission';
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { DynamicTags } from "@/components/kzk/series/add-series/steps/confirm-series-step";
 import { LastChapterBadge } from "@/components/ui/last-chapter-badge";
@@ -73,7 +75,10 @@ interface CloudLatestCardProps {
 const CloudLatestCard: React.FC<CloudLatestCardProps> = ({ item, cardWidth, textSize }) => {
   const [showAddSeries, setShowAddSeries] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showRequestDialog, setShowRequestDialog] = useState(false);
   const router = useRouter();
+  const canAddSeries = usePermission('canAddSeries');
+  const canRequestSeries = usePermission('canRequestSeries');
 
   // Handle card click - open details modal for items not in library, navigate for library items
   const handleCardClick = () => {
@@ -240,18 +245,34 @@ const CloudLatestCard: React.FC<CloudLatestCardProps> = ({ item, cardWidth, text
            
             </div>
             
-            {/* Add Series Button - Bottom Right Absolute - Only show if not in library */}
+            {/* Add/Request Series Button — only if not in library */}
             {item.inLibrary === InLibraryStatus.NotInLibrary && (
-              <Button
-                size="sm"
-                className="absolute bottom-3 right-3 h-8 w-8 p-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowAddSeries(true);
-                }}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
+              canAddSeries ? (
+                <Button
+                  size="sm"
+                  className="absolute bottom-3 right-3 h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAddSeries(true);
+                  }}
+                  title="Add to library"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              ) : canRequestSeries ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="absolute bottom-3 right-3 h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowRequestDialog(true);
+                  }}
+                  title="Request this manga"
+                >
+                  <BookPlus className="h-4 w-4" />
+                </Button>
+              ) : null
             )}
           </TooltipContent>
         </Tooltip>
@@ -272,8 +293,17 @@ const CloudLatestCard: React.FC<CloudLatestCardProps> = ({ item, cardWidth, text
         open={showDetailsModal}
         onOpenChange={setShowDetailsModal}
         item={item}
-        onAddSeries={() => setShowAddSeries(true)}
+        onAddSeries={canAddSeries ? () => setShowAddSeries(true) : canRequestSeries ? () => setShowRequestDialog(true) : undefined}
       />
+
+      {/* Request Series Dialog */}
+      {showRequestDialog && (
+        <RequestSeriesDialog
+          item={item}
+          open={showRequestDialog}
+          onOpenChange={setShowRequestDialog}
+        />
+      )}
     </>
   );
 };
@@ -366,11 +396,16 @@ export const CloudLatestGrid: React.FC<CloudLatestGridProps> = ({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-6 w-6 animate-spin" />
-          <span>Loading latest series...</span>
-        </div>
+      <div className="flex flex-wrap gap-4" style={{ justifyContent: "space-evenly" }}>
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div
+            key={i}
+            className={`relative ${cardWidth} rounded-md overflow-hidden`}
+            style={{ aspectRatio: "4/6" }}
+          >
+            <div className="w-full h-full skeleton-shimmer rounded-md" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -400,7 +435,7 @@ export const CloudLatestGrid: React.FC<CloudLatestGridProps> = ({
         >
           {items.map((item, index) => (
             <CloudLatestCard 
-              key={`${item.id}-${index}`} 
+              key={`${item.mihonId}-${index}`} 
               item={item} 
               cardWidth={cardWidth}
               textSize={textSize}

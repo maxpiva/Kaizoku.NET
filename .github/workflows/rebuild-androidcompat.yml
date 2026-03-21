@@ -1,0 +1,133 @@
+name: Rebuild Android.Compat.dll
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_result:
+        description: 'Commit the rebuilt DLL back to the branch'
+        required: true
+        default: true
+        type: boolean
+  push:
+    paths:
+      - 'Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/gradle/libs.versions.toml'
+      - 'Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/**/build.gradle.kts'
+      - 'Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/settings.gradle.kts'
+      - 'Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.Builder/**'
+      - 'Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.CILPatcher/**'
+      - 'Mihon.ExtensionsBridge.Net/IKVM.AndroidCompact.Build.ps1'
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build AndroidCompat fat JAR
+        working-directory: Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer
+        run: |
+          chmod +x gradlew
+          ./gradlew fatJar :AndroidCompat:jar --no-daemon --stacktrace
+
+      - name: Verify fat JAR exists
+        run: |
+          JAR="Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/AndroidCompat/build/libs/AndroidCompat-1.0-all.jar"
+          if [ ! -f "$JAR" ]; then
+            echo "::error::Fat JAR not found at $JAR"
+            exit 1
+          fi
+          echo "Fat JAR size: $(du -h "$JAR" | cut -f1)"
+
+      - name: Build IKVM Android.Compat.dll
+        working-directory: Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.Builder
+        run: dotnet build -c Release
+
+      - name: Verify Builder output
+        run: |
+          DLL="Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.Builder/bin/Release/net8.0/Android.Compat.dll"
+          if [ ! -f "$DLL" ]; then
+            echo "::error::Builder output not found at $DLL"
+            exit 1
+          fi
+          echo "Builder DLL size: $(du -h "$DLL" | cut -f1)"
+
+      - name: Build CIL Patcher
+        working-directory: Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.CILPatcher
+        run: dotnet build -c Release
+
+      - name: Run CIL Patcher
+        run: |
+          INPUT="Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.Builder/bin/Release/net8.0/Android.Compat.dll"
+          OUTPUT="Mihon.ExtensionsBridge.Net/libs/Android.Compat.dll"
+          mkdir -p "$(dirname "$OUTPUT")"
+
+          PATCHER="Mihon.ExtensionsBridge.Net/IKVM.Android.Compatibility.Layer.CILPatcher/bin/Release/net8.0/IKVM.Android.Compatibility.Layer.CILPatcher"
+          if [ -f "${PATCHER}.dll" ]; then
+            dotnet "${PATCHER}.dll" "$INPUT" "$OUTPUT"
+          elif [ -f "$PATCHER" ]; then
+            "$PATCHER" "$INPUT" "$OUTPUT"
+          else
+            echo "::error::CIL Patcher executable not found"
+            exit 1
+          fi
+
+      - name: Verify final Android.Compat.dll
+        run: |
+          DLL="Mihon.ExtensionsBridge.Net/libs/Android.Compat.dll"
+          if [ ! -f "$DLL" ]; then
+            echo "::error::Final Android.Compat.dll not found"
+            exit 1
+          fi
+          SIZE=$(du -h "$DLL" | cut -f1)
+          SHA=$(sha256sum "$DLL" | cut -d' ' -f1)
+          echo "## Android.Compat.dll Rebuilt" >> $GITHUB_STEP_SUMMARY
+          echo "- **Size:** $SIZE" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA256:** \`$SHA\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android.Compat.dll
+          path: Mihon.ExtensionsBridge.Net/libs/Android.Compat.dll
+          retention-days: 30
+
+      - name: Commit rebuilt DLL
+        if: ${{ github.event_name == 'push' || inputs.commit_result }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Mihon.ExtensionsBridge.Net/libs/Android.Compat.dll
+          if git diff --cached --quiet; then
+            echo "No changes to Android.Compat.dll"
+          else
+            KOTLIN_VER=$(grep 'kotlin = ' Mihon.ExtensionsBridge.Net/Android.Compatibility.Layer/gradle/libs.versions.toml | head -1 | sed 's/.*= "//;s/"//')
+            git commit -m "$(cat <<EOF
+          build: rebuild Android.Compat.dll
+
+          Triggered by changes to AndroidCompat build configuration.
+          Kotlin ${KOTLIN_VER}
+          EOF
+          )"
+            git push
+          fi

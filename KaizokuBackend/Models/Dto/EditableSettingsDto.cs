@@ -65,6 +65,15 @@ public class EditableSettingsDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public NsfwVisibility NsfwVisibility { get; set; } = NsfwVisibility.HideByDefault;
 
+    [JsonPropertyName("maxPendingRequestsPerUser")]
+    public int MaxPendingRequestsPerUser { get; set; } = 10;
+
+    [JsonPropertyName("defaultPermissionPresetId")]
+    public string DefaultPermissionPresetId { get; set; } = string.Empty;
+
+    [JsonPropertyName("registrationEnabled")]
+    public bool RegistrationEnabled { get; set; } = true;
+
 }
 public enum NsfwVisibility
 {

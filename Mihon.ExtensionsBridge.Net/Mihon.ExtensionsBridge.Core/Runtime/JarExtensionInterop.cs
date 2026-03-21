@@ -58,7 +58,18 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             Version = entry.Extension.Version;
             string className = entry.Extension.Package + entry.ClassName;
             java.util.List ops = null;
-            ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
+            try
+            {
+                ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load extension sources for {Package} (class: {ClassName}). " +
+                    "This is likely a Kotlin/Java version mismatch — the extension may require a newer Android.Compat.dll build.",
+                    entry.Extension.Package, className);
+                throw new ExtensionLoadException(
+                    $"Failed to load extension '{entry.Name}' ({entry.Extension.Package}): {ex.Message}", ex);
+            }
             var list = new List<ISourceInterop>();
             ops.toArray().Cast<Source>().ToList().ForEach(s => list.Add(new SourceInterop(s, logger)));
             /*

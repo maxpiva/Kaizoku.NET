@@ -79,10 +79,14 @@ namespace KaizokuBackend.Services.Search
                 {
                     try
                     {
-                        var source = await _mihon.SourceFromProviderIdAsync(ls.MihonProviderId!, token).ConfigureAwait(false);
+                        // Per-provider timeout: 30 seconds to prevent one slow source blocking augmentation
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                        var source = await _mihon.SourceFromProviderIdAsync(ls.MihonProviderId!, timeoutCts.Token).ConfigureAwait(false);
                         Manga m = ls.ToManga()!;
-                        var fullData = await source.GetDetailsAsync(m, token).ConfigureAwait(false);
-                        var chapterData = await source.GetChaptersAsync(m, token).ConfigureAwait(false);
+                        var fullData = await source.GetDetailsAsync(m, timeoutCts.Token).ConfigureAwait(false);
+                        var chapterData = await source.GetChaptersAsync(m, timeoutCts.Token).ConfigureAwait(false);
                         if (fullData != null && chapterData != null && chapterData.Count > 0)
                         {
                             // Set default scanlator if not provided
@@ -90,9 +94,13 @@ namespace KaizokuBackend.Services.Search
                             {
                                 if (string.IsNullOrEmpty(a.Scanlator))
                                     a.Scanlator = ls.Provider;
-                            });                                
+                            });
                             seriesDetailsMap.TryAdd(ls.MihonId!, (fullData, chapterData));
                         }
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        _logger.LogWarning("Provider {Provider} timed out fetching details for {Title}, skipping.", ls.Provider, ls.Title);
                     }
                     catch (HttpRequestException r)
                     {

@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import type { Provider, ProviderPreferences } from '../types';
+import type { Provider, ProviderPreferences, ProviderHealthResult } from '../types';
 
 export const providerService = {
   /**
@@ -53,5 +53,32 @@ export const providerService = {
    */
   async setProviderPreferences(preferences: ProviderPreferences): Promise<void> {
     return apiClient.post<void>('/api/provider/preferences', preferences);
+  },
+
+  /**
+   * Checks health of a single provider by performing a test search
+   */
+  async checkProviderHealth(mihonProviderId: string): Promise<ProviderHealthResult> {
+    return apiClient.post<ProviderHealthResult>(
+      `/api/provider/health-check/${encodeURIComponent(mihonProviderId)}`,
+      null
+    );
+  },
+
+  /**
+   * Checks health of all sources in a specific extension package
+   */
+  async checkPackageHealth(pkgName: string): Promise<ProviderHealthResult[]> {
+    return apiClient.post<ProviderHealthResult[]>(
+      `/api/provider/health-check/package/${encodeURIComponent(pkgName)}`,
+      null
+    );
+  },
+
+  /**
+   * Checks health of all installed/enabled providers
+   */
+  async checkAllProvidersHealth(): Promise<ProviderHealthResult[]> {
+    return apiClient.post<ProviderHealthResult[]>('/api/provider/health-check', null);
   },
 };

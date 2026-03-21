@@ -4,12 +4,14 @@ using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Providers;
 using KaizokuBackend.Services.Series;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
 {
     [ApiController]
-    [Route("api/serie")]
+    [Route("api/series")]
+    [Authorize]
     public class SeriesController : ControllerBase
     {
         private readonly ILogger _logger;
@@ -44,6 +46,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>Extended information about the series.</returns>
         [HttpGet]
+        [Authorize(Policy = "RequirePermission:CanViewLibrary")]
         [ProducesResponseType(typeof(SeriesExtendedDto), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
@@ -64,6 +67,7 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpGet("verify")]
+        [Authorize(Policy = "RequirePermission:CanEditSeries")]
         [ProducesResponseType(typeof(SeriesIntegrityResultDto), 200)]
         [ProducesResponseType(500)]
         public async Task<ActionResult<SeriesIntegrityResultDto>> VerifyIntegrityAsync([FromQuery] Guid g, CancellationToken token = default)
@@ -81,6 +85,7 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpGet("cleanup")]
+        [Authorize(Policy = "RequirePermission:CanEditSeries")]
         [ProducesResponseType(500)]
         public async Task<ActionResult> CleanupSeriesAsync([FromQuery] Guid g, CancellationToken token = default)
         {
@@ -97,6 +102,7 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpPost("update-all")]
+        [Authorize(Policy = "RequirePermission:CanEditSeries")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
@@ -120,6 +126,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>List of series in the library.</returns>
         [HttpGet("library")]
+        [Authorize(Policy = "RequirePermission:CanViewLibrary")]
         [ProducesResponseType(typeof(List<SeriesInfoDto>), 200)]
         [ProducesResponseType(500)]
         public async Task<ActionResult<List<SeriesInfoDto>>> GetLibraryAsync(CancellationToken token = default)
@@ -140,6 +147,7 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpGet("latest")]
+        [Authorize(Policy = "RequirePermission:CanViewLibrary")]
         [ProducesResponseType(typeof(List<LatestSeriesDto>), 200)]
         [ProducesResponseType(500)]
         public async Task<ActionResult<List<LatestSeriesDto>>> GetLatestAsync([FromQuery] int start, [FromQuery] int count, [FromQuery] string? sourceId = null, [FromQuery] string? keyword = null, CancellationToken token = default)
@@ -164,6 +172,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>The provider match if found.</returns>
         [HttpGet("match/{providerId}")]
+        [Authorize(Policy = "RequirePermission:CanViewLibrary")]
         [ProducesResponseType(typeof(ProviderMatchDto), 200)]
         [ProducesResponseType(500)]
         public async Task<ActionResult<ProviderMatchDto?>> GetMatchAsync([FromRoute] Guid providerId, CancellationToken token = default)
@@ -187,6 +196,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the match was set successfully.</returns>
         [HttpPost("match")]
+        [Authorize(Policy = "RequirePermission:CanEditSeries")]
         [ProducesResponseType(typeof(bool), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
@@ -213,6 +223,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>The ID of the newly created series.</returns>
         [HttpPost]
+        [Authorize(Policy = "RequirePermission:CanAddSeries")]
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
@@ -242,6 +253,7 @@ namespace KaizokuBackend.Controllers
         /// <param name="token">Cancellation token.</param>
         /// <returns>The updated series information.</returns>
         [HttpPatch]
+        [Authorize(Policy = "RequirePermission:CanEditSeries")]
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]
@@ -266,6 +278,7 @@ namespace KaizokuBackend.Controllers
         }
 
         [HttpDelete]
+        [Authorize(Policy = "RequirePermission:CanDeleteSeries")]
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
         [ProducesResponseType(500)]

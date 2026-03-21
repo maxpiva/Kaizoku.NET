@@ -1,5 +1,4 @@
 import org.gradle.kotlin.dsl.withType
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import de.undercouch.gradle.tasks.download.Download
 import org.gradle.api.tasks.bundling.Jar
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
@@ -48,14 +47,8 @@ dependencies {
     implementation(libs.imageio.webp)
 }
 tasks {
-        withType<KotlinCompile>().configureEach {
-            kotlinOptions.freeCompilerArgs += "-Xcontext-receivers"
-            kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
-
-        }
         withType<KotlinJvmCompile> {
             compilerOptions {
-                freeCompilerArgs.add("-Xcontext-receivers")
                 freeCompilerArgs.add("-opt-in=kotlinx.serialization.ExperimentalSerializationApi")
             }
         }

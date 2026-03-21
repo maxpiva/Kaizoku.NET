@@ -37,7 +37,7 @@ const steps = {
 } satisfies Record<string, StepItem>;
 
 export function ImportWizard() {
-  const { isWizardActive, currentStep, totalSteps, nextStep, previousStep, completeWizard } = useImportWizard();
+  const { isWizardActive, currentStep, totalSteps, nextStep, previousStep, completeWizard, cancelWizard } = useImportWizard();
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [canProgress, setCanProgress] = React.useState(false);
@@ -48,11 +48,9 @@ export function ImportWizard() {
   }
 
   return (
-    <Dialog open={true} onOpenChange={() => { /* Prevent closing */ }} modal>
+    <Dialog open={true} onOpenChange={(open) => { if (!open) cancelWizard(); }} modal>
       <DialogContent
         className="w-[98vw] sm:w-[95vw] md:max-w-[90%] lg:max-w-5xl max-h-[95vh] sm:max-h-[90%] flex flex-col overflow-hidden"
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <DialogHeader>
           <DialogTitle>Import Wizard</DialogTitle>
@@ -151,6 +149,7 @@ export function ImportWizard() {
             isLoading={isLoading}
             onNext={currentStep === totalSteps - 1 ? () => void completeWizard() : () => void nextStep()}
             onPrevious={() => previousStep()}
+            onCancel={() => cancelWizard()}
           />
         </div>
       </DialogContent>
@@ -165,24 +164,35 @@ interface FooterProps {
   isLoading: boolean;
   onNext: () => void;
   onPrevious: () => void;
+  onCancel: () => void;
 }
 
-function Footer({ currentStep, totalSteps, canProgress, isLoading, onNext, onPrevious }: FooterProps) {
+function Footer({ currentStep, totalSteps, canProgress, isLoading, onNext, onPrevious, onCancel }: FooterProps) {
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === totalSteps - 1;
 
   return (
     <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-3 sm:gap-2 pt-4 border-t sm:border-t-0">
+      {isFirstStep ? (
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={isLoading}
+          className="flex items-center gap-2 w-full sm:w-auto min-h-[44px]"
+        >
+          Cancel
+        </Button>
+      ) : (
       <Button
         variant="outline"
         onClick={onPrevious}
-        disabled={isFirstStep || isLoading}
-        className={`flex items-center gap-2 transition-opacity duration-200 w-full sm:w-auto min-h-[44px] ${isFirstStep ? 'opacity-0 pointer-events-none hidden sm:flex' : ''}`}
-        style={isFirstStep ? { visibility: 'hidden' } : {}}
+        disabled={isLoading}
+        className="flex items-center gap-2 transition-opacity duration-200 w-full sm:w-auto min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Previous
       </Button>
+      )}
       <div className="text-sm text-muted-foreground order-first sm:order-none pb-2 sm:pb-0">
         Step {currentStep + 1} of {totalSteps}
       </div>

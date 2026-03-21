@@ -22,14 +22,17 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePermission } from "@/hooks/use-permission";
 
 export const AddSeriesButton = forwardRef<HTMLButtonElement, ButtonProps>(
   (props, ref) => {
+    const canAdd = usePermission('canAddSeries');
+    const label = canAdd ? "Add Series" : "Request Series";
     return (
       <Button size="sm" className="h-full gap-1" ref={ref} {...props}>
         <PlusCircle className="h-4 w-4" />
         <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-          Add Series
+          {label}
         </span>
       </Button>
     );
@@ -55,30 +58,48 @@ export interface AddSeriesProps {
   triggerButton?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  // Optional props for Approve Request mode
+  approveRequestId?: string;
+  preloadedLinkedSeries?: LinkedSeries[];
 }
 
-export function AddSeries({ 
-  title, 
-  existingSources, 
-  seriesId, 
+export function AddSeries({
+  title,
+  existingSources,
+  seriesId,
   triggerButton,
   open: controlledOpen,
-  onOpenChange 
+  onOpenChange,
+  approveRequestId,
+  preloadedLinkedSeries,
 }: AddSeriesProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
-  
+  const canAddSeries = usePermission('canAddSeries');
+
   // Use controlled or internal state
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
     // Determine if this is Add Sources mode
   const isAddSourcesMode = !!(title && existingSources && seriesId);
-  
+
   // Dialog/Drawer content
-  const dialogTitle = isAddSourcesMode ? `Add New Sources to '${title}'` : "Add new series";
-  const dialogDescription = isAddSourcesMode 
-    ? "Search and add new sources to your Series."
-    : "Search for and add new series to your library.";
+  const isApproveMode = !!(approveRequestId && preloadedLinkedSeries);
+  const isRequestMode = !canAddSeries && !isAddSourcesMode && !isApproveMode;
+  const dialogTitle = isApproveMode
+    ? "Approve Request"
+    : isAddSourcesMode
+      ? `Add New Sources to '${title}'`
+      : isRequestMode
+        ? "Request series"
+        : "Add new series";
+  const dialogDescription = isApproveMode
+    ? "Configure sources and add this series to the library."
+    : isAddSourcesMode
+      ? "Search and add new sources to your Series."
+      : isRequestMode
+        ? "Search for a series and submit a request for an admin to add it."
+        : "Search for and add new series to your library.";
   
   const triggerElement = triggerButton || <AddSeriesButton />;
   if (isDesktop) {
@@ -88,43 +109,51 @@ export function AddSeries({
           {triggerElement}
         </DialogTrigger>
         <DialogContent
-          className="w-[95vw] max-w-4xl max-h-[90dvh] overflow-y-auto"
+          className="w-[95vw] max-w-4xl max-h-[85vh] overflow-y-auto p-0"
           onInteractOutside={(e) => {
             e.preventDefault();
           }}
-        >          <DialogHeader>
+        >
+          <DialogHeader className="px-5 pt-5 pb-0">
             <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>
-              {dialogDescription}            </DialogDescription>
+              {dialogDescription}
+            </DialogDescription>
           </DialogHeader>
+          <div className="px-5 pb-5">
           <AddSeriesSteps
             onFinish={() => setOpen(false)}
             title={title}
             existingSources={existingSources}
             seriesId={seriesId}
             isAddSourcesMode={isAddSourcesMode}
+            approveRequestId={approveRequestId}
+            preloadedLinkedSeries={preloadedLinkedSeries}
           />
+          </div>
         </DialogContent>
       </Dialog>
     );
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
+    <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         {triggerElement}
       </DrawerTrigger>
-      <DrawerContent className="max-h-[90dvh]">
+      <DrawerContent className="max-h-[92dvh] flex flex-col">
         <DrawerHeader className="text-left pb-2">
           <DrawerTitle>{dialogTitle}</DrawerTitle>
         </DrawerHeader>
-        <div className="mb-4 px-3 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))]" data-vaul-no-drag>
           <AddSeriesSteps
             onFinish={() => setOpen(false)}
             title={title}
             existingSources={existingSources}
             seriesId={seriesId}
             isAddSourcesMode={isAddSourcesMode}
+            approveRequestId={approveRequestId}
+            preloadedLinkedSeries={preloadedLinkedSeries}
           />
         </div>
       </DrawerContent>
