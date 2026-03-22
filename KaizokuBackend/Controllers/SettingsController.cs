@@ -1,4 +1,5 @@
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
 using KaizokuBackend.Services.Settings;
@@ -12,6 +13,7 @@ namespace KaizokuBackend.Controllers
     [ApiController]
     [Route("api/settings")]
     [Produces("application/json")]
+    [Authorize(Policy = "RequireAdmin")]
     public class SettingsController : ControllerBase
     {
         private readonly SettingsService _settingsService;

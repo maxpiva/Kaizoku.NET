@@ -8,7 +8,8 @@ import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
-import { Download, Trash2, Search, Upload } from "lucide-react";
+import { Download, Trash2, Search, Upload, Activity, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import ReactCountryFlag from "react-country-flag";
 import { providerService } from "@/lib/api/services/providerService";
 import { type Provider, type ExtensionEntry, NsfwVisibility } from "@/lib/api/types";
@@ -23,7 +24,9 @@ interface ProviderCardProps {
   extension: Provider;
   onInstall?: (pkgName: string) => void;
   onUninstall?: (pkgName: string) => void;
+  onHealthCheck?: (extension: Provider) => void;
   isLoading?: boolean;
+  isHealthChecking?: boolean;
   isCompact?: boolean;
   showNsfwIndicator?: boolean;
 }
@@ -79,13 +82,15 @@ const getExtensionVersion = (extension: Provider): string =>
 const isExtensionNsfw = (extension: Provider): boolean =>
   getExtensionEntries(extension).some((entry) => entry.nsfw);
 
-function ProviderCard({ 
-  extension, 
-  onInstall, 
-  onUninstall, 
-  isLoading = false, 
+function ProviderCard({
+  extension,
+  onInstall,
+  onUninstall,
+  onHealthCheck,
+  isLoading = false,
+  isHealthChecking = false,
   isCompact = false,
-  showNsfwIndicator = true 
+  showNsfwIndicator = true
 }: ProviderCardProps) {
   const handleAction = () => {
     if (extension.isInstaled && onUninstall) {
@@ -134,7 +139,27 @@ function ProviderCard({
                 <CardTitle className={`${isCompact ? 'text-sm' : 'text-lg'} truncate`}>
                   {extension.name}
                 </CardTitle>
-               
+                {extension.isInstaled && extension.lastHealthCheckPassed !== undefined && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="flex-shrink-0">
+                          {extension.lastHealthCheckPassed ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{extension.lastHealthCheckPassed
+                          ? `Healthy — checked ${extension.lastHealthCheckUtc ? new Date(extension.lastHealthCheckUtc).toLocaleString() : 'recently'}`
+                          : `Failing: ${extension.lastHealthCheckError || 'Unknown error'}`}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
               </div>
               <CardDescription className={`${isCompact ? 'text-xs' : 'text-xs'} truncate flex items-center`}>
                 <span className="text-muted-foreground">
@@ -155,6 +180,22 @@ function ProviderCard({
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {extension.isInstaled && onHealthCheck && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onHealthCheck(extension)}
+                disabled={isHealthChecking}
+                className="gap-1"
+                title="Check source health"
+              >
+                {isHealthChecking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Activity className="h-4 w-4" />
+                )}
+              </Button>
+            )}
             {extension.isInstaled && (
               <ProviderSettingsButton
                 variant={isCompact ? 'default' : undefined}
@@ -250,6 +291,8 @@ export function ProviderManager({
   const [hasInstalledScrollbar, setHasInstalledScrollbar] = useState(false);
   const [hasAvailableScrollbar, setHasAvailableScrollbar] = useState(false);
   const [isUploadingApk, setIsUploadingApk] = useState(false);
+  const [healthCheckingPkg, setHealthCheckingPkg] = useState<string | null>(null);
+  const [isCheckingAll, setIsCheckingAll] = useState(false);
   const [hideNsfwProviders, setHideNsfwProviders] = useState(true);
   const [filteredLanguages, setFilteredLanguages] = useState<string[] | null>(
     null,
@@ -455,6 +498,42 @@ export function ProviderManager({
     event.target.value = '';
   };
 
+  const handleHealthCheck = async (extension: Provider) => {
+    try {
+      setHealthCheckingPkg(extension.package);
+      onError?.(null);
+      await providerService.checkPackageHealth(extension.package);
+
+      // Refresh provider list to get updated health status
+      const data = await providerService.getProviders();
+      setExtensions(data);
+      onExtensionsChange?.(data);
+    } catch (error) {
+      console.error('Failed to check provider health:', error);
+      onError?.('Failed to check source health. Please try again.');
+    } finally {
+      setHealthCheckingPkg(null);
+    }
+  };
+
+  const handleCheckAllHealth = async () => {
+    try {
+      setIsCheckingAll(true);
+      onError?.(null);
+      await providerService.checkAllProvidersHealth();
+
+      // Refresh provider list to get updated health status
+      const data = await providerService.getProviders();
+      setExtensions(data);
+      onExtensionsChange?.(data);
+    } catch (error) {
+      console.error('Failed to check all providers health:', error);
+      onError?.('Failed to check source health. Please try again.');
+    } finally {
+      setIsCheckingAll(false);
+    }
+  };
+
   useEffect(() => {
     const checkScrollbars = () => {
       if (installedContainerRef.current) {
@@ -513,9 +592,25 @@ export function ProviderManager({
             <h2 className={`${isCompact ? 'text-lg font-medium' : 'text-xl font-semibold'}`}>
               {installedTitle}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              {filteredInstalledExtensions.length} provider{filteredInstalledExtensions.length !== 1 ? 's' : ''} installed
-            </p>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCheckAllHealth}
+                disabled={isCheckingAll}
+                className="gap-2"
+              >
+                {isCheckingAll ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Activity className="h-4 w-4" />
+                )}
+                <span className="hidden md:inline">{isCheckingAll ? 'Checking...' : 'Check All'}</span>
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {filteredInstalledExtensions.length} provider{filteredInstalledExtensions.length !== 1 ? 's' : ''} installed
+              </p>
+            </div>
           </div>
           <div 
             ref={installedContainerRef}
@@ -525,7 +620,9 @@ export function ProviderManager({
                 key={extension.package}
                 extension={extension}
                 onUninstall={handleUninstall}
+                onHealthCheck={handleHealthCheck}
                 isLoading={actionLoading === extension.package}
+                isHealthChecking={healthCheckingPkg === extension.package || isCheckingAll}
                 isCompact={isCompact}
                 showNsfwIndicator={showNsfwIndicator}
               />

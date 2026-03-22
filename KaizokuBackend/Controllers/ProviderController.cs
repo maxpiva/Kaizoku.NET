@@ -1,6 +1,7 @@
 using KaizokuBackend.Models.Dto;
 using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Providers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -8,10 +9,12 @@ namespace KaizokuBackend.Controllers
     [ApiController]
     [Route("api/provider")]
     [Produces("application/json")]
+    [Authorize(Policy = "RequireAdmin")]
     public class ProviderController : ControllerBase
     {
         private readonly ProviderManagerService _managerService;
         private readonly ProviderPreferencesService _preferencesService;
+        private readonly ProviderHealthCheckService _healthCheckService;
         private readonly ThumbCacheService _thumbs;
         private readonly ILogger _logger;
 
@@ -19,12 +22,14 @@ namespace KaizokuBackend.Controllers
             ILogger<ProviderController> logger,
             ThumbCacheService thumbs,
             ProviderManagerService installationService,
-            ProviderPreferencesService preferencesService)
+            ProviderPreferencesService preferencesService,
+            ProviderHealthCheckService healthCheckService)
         {
             _logger = logger;
             _thumbs = thumbs;
             _managerService = installationService;
             _preferencesService = preferencesService;
+            _healthCheckService = healthCheckService;
         }
 
         /// <summary>
@@ -206,6 +211,71 @@ namespace KaizokuBackend.Controllers
             {
                 _logger.LogError(ex, "Error installing extension from file {FileName}", file?.FileName);
                 return StatusCode(500, new { error =$"Error installing extension from file {file?.FileName ?? ""}."});
+            }
+        }
+
+        /// <summary>
+        /// Checks the health of a single provider by performing a test search
+        /// </summary>
+        [HttpPost("health-check/{mihonProviderId}")]
+        [ProducesResponseType(typeof(ProviderHealthResultDto), 200)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<ActionResult<ProviderHealthResultDto>> CheckProviderHealthAsync(
+            [FromRoute] string mihonProviderId, CancellationToken token = default)
+        {
+            try
+            {
+                var result = await _healthCheckService.CheckProviderAsync(
+                    Uri.UnescapeDataString(mihonProviderId), token).ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking health of provider {ProviderId}", mihonProviderId);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Checks the health of all sources in a specific extension package
+        /// </summary>
+        [HttpPost("health-check/package/{pkgName}")]
+        [ProducesResponseType(typeof(List<ProviderHealthResultDto>), 200)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<ActionResult<List<ProviderHealthResultDto>>> CheckPackageHealthAsync(
+            [FromRoute] string pkgName, CancellationToken token = default)
+        {
+            try
+            {
+                var results = await _healthCheckService.CheckByPackageAsync(
+                    Uri.UnescapeDataString(pkgName), token).ConfigureAwait(false);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking health of package {PkgName}", pkgName);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Checks the health of all installed/enabled providers
+        /// </summary>
+        [HttpPost("health-check")]
+        [ProducesResponseType(typeof(List<ProviderHealthResultDto>), 200)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<ActionResult<List<ProviderHealthResultDto>>> CheckAllProvidersHealthAsync(
+            CancellationToken token = default)
+        {
+            try
+            {
+                var results = await _healthCheckService.CheckAllProvidersAsync(token).ConfigureAwait(false);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking health of all providers");
+                return StatusCode(500, new { error = ex.Message });
             }
         }
     }

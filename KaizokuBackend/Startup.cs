@@ -2,19 +2,24 @@ using KaizokuBackend.Data;
 using KaizokuBackend.Hubs;
 using KaizokuBackend.Models;
 using KaizokuBackend.Services;
+using KaizokuBackend.Services.Auth;
 using KaizokuBackend.Services.Background;
 using KaizokuBackend.Utils;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models.Configuration;
 using Serilog;
 using Serilog.Extensions.Logging;
 using sun.java2d;
+using System.Text;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace KaizokuBackend
@@ -68,9 +73,13 @@ namespace KaizokuBackend
                         .AllowAnyHeader()
                         .AllowAnyMethod().AllowCredentials();
 #else
-                    policy.AllowAnyOrigin()
+                    // Self-hosted app: users deploy behind arbitrary reverse proxies so we
+                    // must accept any origin. Auth uses Bearer tokens (not cookies), which
+                    // mitigates CSRF risk that AllowCredentials + wildcard origin would pose.
+                    policy.SetIsOriginAllowed(_ => true)
                         .AllowAnyHeader()
-                        .AllowAnyMethod();
+                        .AllowAnyMethod()
+                        .AllowCredentials();
 #endif
                 });
             });
@@ -95,6 +104,53 @@ namespace KaizokuBackend
                 options.AgeInDays = Configuration.GetValue<int>("CacheCheckInDays", 7);
             });
 
+            // JWT Authentication
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(options =>
+            {
+                // We can't resolve the key at ConfigureServices time since DB may not exist yet.
+                // Use IssuerSigningKeyResolver to lazily resolve the key from the database.
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = "KaizokuNET",
+                    ValidAudience = "KaizokuNET",
+                    ClockSkew = TimeSpan.FromMinutes(1)
+                };
+
+                // SignalR JWT auth via query string
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        var path = context.HttpContext.Request.Path;
+                        if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/progress"))
+                        {
+                            context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = context =>
+                    {
+                        return Task.CompletedTask;
+                    }
+                };
+
+            });
+
+            // PostConfigure JWT options to resolve signing key from database at runtime
+            services.AddSingleton<IPostConfigureOptions<JwtBearerOptions>, KaizokuBackend.Authorization.JwtKeyResolver>();
+
+            services.AddAuthorization();
+
             services.AddExtensionsBridge();
 
             // Add consolidated services
@@ -106,6 +162,7 @@ namespace KaizokuBackend
             services.AddDownloadServices();
             services.AddHelperServices();
             services.AddBackgroundServices();
+            services.AddAuthServices();
 
             // Configure ForwardedHeaders to support reverse proxy SSL termination.
             // Without this, Kestrel is unaware of the original HTTPS scheme when deployed
@@ -152,6 +209,13 @@ namespace KaizokuBackend
 
             // Order matters for the following middleware
             app.UseRouting();
+
+            // Bootstrap mode: when no users exist, only setup endpoints are accessible.
+            // MUST run before UseAuthentication so that the setup wizard isn't blocked by 401.
+            app.UseMiddleware<KaizokuBackend.Authorization.BootstrapModeMiddleware>();
+
+            app.UseAuthentication();
+            app.UseAuthorization();
 
             // Configure static file serving with proper MIME types for .txt files
             var provider = new FileExtensionContentTypeProvider();

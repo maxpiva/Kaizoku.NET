@@ -2,6 +2,7 @@
 using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Search;
 using KaizokuBackend.Services.Settings;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
@@ -11,6 +12,7 @@ namespace KaizokuBackend.Controllers
     /// </summary>
     [ApiController]
     [Route("api/search")]
+    [Authorize]
     public class SearchController : ControllerBase
     {
         private readonly ILogger _logger;
@@ -70,6 +72,7 @@ namespace KaizokuBackend.Controllers
         /// </summary>
         /// <returns>List of available search sources</returns>
         [HttpGet("sources")]
+        [Authorize(Policy = "RequirePermission:CanBrowseSources")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<List<SearchSourceDto>>> GetAvailableSearchSourcesAsync(CancellationToken token = default)
@@ -119,8 +122,19 @@ namespace KaizokuBackend.Controllers
             try
             {
                 var results = await _searchQueryService.SearchSeriesAsync(keyword, languageList, searchSources, 0.1f, token).ConfigureAwait(false);
+
+                // Guard against populating thumbs with a token that's already been cancelled
+                // (e.g. browser disconnected while search was running)
+                token.ThrowIfCancellationRequested();
+
                 await _thumbs.PopulateThumbsAsync(results, "/api/image/", token).ConfigureAwait(false);
                 return Ok(results);
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or request was cancelled — return partial results gracefully
+                _logger.LogWarning("Search for '{keyword}' was cancelled by the client.", keyword);
+                return Ok(new List<LinkedSeriesDto>());
             }
             catch (Exception ex)
             {

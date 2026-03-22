@@ -48,7 +48,8 @@ export const useSeriesById = (id: string, enabled = true) => {
     queryKey: ['series', 'detail', id],
     queryFn: () => seriesService.getSeriesById(id),
     enabled: enabled && !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 0, // Always refetch on navigation to avoid stale data race conditions
+    retry: 3, // More retries for transient failures during client-side navigation
   });
 };
 

@@ -633,7 +633,8 @@ export function ConfirmSeriesStep({
           </div>
         )}      <div
           ref={scrollContainerRef}
-          className={`h-[55dvh] sm:h-[60dvh] overflow-y-auto space-y-3 sm:space-y-4 ${hasScrollbar ? 'pr-2' : ''}`}      >        {validFullSeries.map((series: FullSeries) => (
+          className={`h-[55dvh] sm:h-[60dvh] overflow-y-auto overscroll-contain touch-pan-y space-y-3 sm:space-y-4 ${hasScrollbar ? 'pr-2' : ''}`}
+          data-vaul-no-drag      >        {validFullSeries.map((series: FullSeries) => (
             <SeriesCard
               key={`${getSeriesId(series)}-${series.provider}-${series.lang}-${series.scanlator}`}
               series={series}

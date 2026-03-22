@@ -1,0 +1,2137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kaizoku · Modal Redesign System</title>
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:           hsl(20, 14.3%, 4.1%);
+  --card:         hsl(24, 9.8%, 10%);
+  --card-hover:   hsl(24, 9.8%, 13%);
+  --primary:      hsl(346.8, 77.2%, 49.8%);
+  --primary-dark: hsl(346.8, 77.2%, 40%);
+  --primary-glow: hsl(346.8, 77.2%, 49.8%, 0.18);
+  --muted:        hsl(0, 0%, 15%);
+  --border:       hsl(240, 3.7%, 15.9%);
+  --border-light: hsl(240, 3.7%, 20%);
+  --fg:           hsl(0, 0%, 95%);
+  --fg-muted:     hsl(0, 0%, 63.9%);
+  --fg-subtle:    hsl(0, 0%, 42%);
+  --success:      hsl(142, 60%, 38%);
+  --success-bg:   hsl(142, 60%, 8%);
+  --info:         hsl(215, 70%, 52%);
+  --info-bg:      hsl(215, 70%, 8%);
+  --warning:      hsl(38, 90%, 50%);
+
+  --radius-sm:    4px;
+  --radius:       8px;
+  --radius-lg:    12px;
+  --radius-xl:    16px;
+  --radius-2xl:   24px;
+  --radius-full:  9999px;
+
+  --shadow-sm:  0 1px 3px rgba(0,0,0,.4);
+  --shadow-md:  0 4px 16px rgba(0,0,0,.5);
+  --shadow-lg:  0 8px 40px rgba(0,0,0,.65);
+  --shadow-xl:  0 16px 64px rgba(0,0,0,.8);
+
+  --font: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Page Layout ──────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Top Nav / Tab Bar ────────────────────────────────────────── */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: hsl(20, 14.3%, 5.5%);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.topnav-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 52px;
+}
+
+.topnav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 28px;
+  border-right: 1px solid var(--border);
+  margin-right: 20px;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  background: var(--primary);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -1px;
+}
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -.3px;
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--fg-subtle);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.tab-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-list::-webkit-scrollbar { display: none; }
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  height: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+  position: relative;
+}
+
+.tab-btn:hover { color: var(--fg); }
+
+.tab-btn.active {
+  color: var(--fg);
+  border-bottom-color: var(--primary);
+}
+
+.tab-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg-subtle);
+}
+
+.tab-btn.active .tab-num {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+/* ─── Stage Area ───────────────────────────────────────────────── */
+.stage {
+  flex: 1;
+  padding: 40px 24px 60px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.modal-panel { display: none; }
+.modal-panel.active { display: block; }
+
+.panel-header {
+  margin-bottom: 32px;
+}
+.panel-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.4px;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+.panel-desc {
+  font-size: 13.5px;
+  color: var(--fg-muted);
+  max-width: 640px;
+}
+
+/* ─── Two-Up Layout ────────────────────────────────────────────── */
+.two-up {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 32px;
+  align-items: start;
+}
+
+.frame-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--fg-subtle);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.frame-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ─── Desktop Preview Frame ────────────────────────────────────── */
+.desktop-frame {
+  background: hsl(20, 14.3%, 6%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.desktop-chrome {
+  height: 32px;
+  background: hsl(20, 14.3%, 7%);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 7px;
+}
+
+.chrome-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.chrome-dot.red   { background: #ff5f57; }
+.chrome-dot.amber { background: #febc2e; }
+.chrome-dot.green { background: #28c840; }
+
+.desktop-stage {
+  min-height: 520px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  position: relative;
+}
+
+.desktop-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ─── Dialog (Desktop Modal) ───────────────────────────────────── */
+.dialog {
+  position: relative;
+  z-index: 10;
+  background: var(--card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255,255,255,.03);
+  overflow: hidden;
+  width: 100%;
+  max-width: 860px;
+  animation: dialogIn .22s cubic-bezier(.32,.72,0,1) both;
+}
+
+@keyframes dialogIn {
+  from { opacity: 0; transform: scale(.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.dialog-sm  { max-width: 640px; }
+.dialog-md  { max-width: 720px; }
+.dialog-lg  { max-width: 860px; }
+.dialog-xl  { max-width: 920px; }
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -.2px;
+}
+
+.dialog-close {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s, color .12s;
+  flex-shrink: 0;
+}
+.dialog-close:hover { background: var(--muted); color: var(--fg); }
+
+.dialog-body {
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: hsl(24, 9.8%, 8%);
+}
+
+.footer-meta {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.footer-meta strong { color: var(--fg); }
+
+.footer-actions { display: flex; gap: 8px; }
+
+/* ─── Buttons ──────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 32px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .12s, border-color .12s, opacity .12s, box-shadow .12s;
+  white-space: nowrap;
+  text-decoration: none;
+  line-height: 1;
+}
+.btn-sm { height: 28px; font-size: 12px; padding: 0 10px; }
+.btn-lg { height: 38px; font-size: 14px; padding: 0 20px; }
+.btn-full { width: 100%; }
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+
+.btn-outline {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border-light);
+}
+.btn-outline:hover { background: var(--muted); border-color: var(--border-light); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--fg-muted);
+  border-color: transparent;
+}
+.btn-ghost:hover { background: var(--muted); color: var(--fg); }
+
+/* ─── Inputs ───────────────────────────────────────────────────── */
+.input {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 0 10px;
+  height: 30px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  width: 100%;
+}
+.input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+.input::placeholder { color: var(--fg-subtle); }
+.input-sm { height: 26px; font-size: 12px; padding: 0 8px; }
+.input-mono { font-family: var(--font-mono); font-size: 12px; }
+
+.select {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 0 28px 0 10px;
+  height: 30px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color .15s;
+}
+.select:focus { border-color: var(--primary); }
+
+/* ─── Checkbox ─────────────────────────────────────────────────── */
+.cb {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  border: 1.5px solid var(--border-light);
+  background: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background .1s, border-color .1s;
+}
+.cb.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.cb svg { display: none; }
+.cb.checked svg { display: block; }
+
+/* ─── Badge ────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.badge-primary { background: var(--primary-glow); color: var(--primary); border: 1px solid hsl(346.8, 77.2%, 49.8%, 0.3); }
+.badge-success { background: var(--success-bg); color: var(--success); border: 1px solid hsl(142, 60%, 38%, 0.25); }
+.badge-info    { background: var(--info-bg);    color: var(--info);    border: 1px solid hsl(215, 70%, 52%, 0.25); }
+.badge-muted   { background: var(--muted);      color: var(--fg-muted); border: 1px solid var(--border); }
+.badge-warning { background: hsl(38,90%,8%);   color: var(--warning); border: 1px solid hsl(38,90%,50%,.25); }
+
+/* ─── Source Badge ─────────────────────────────────────────────── */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  MODAL 1 — Match Source to Chapters                           */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: hsl(24, 9.8%, 8.5%);
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.toolbar-spacer { flex: 1; }
+
+.toolbar-label {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.toolbar-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-subtle);
+  margin-left: auto;
+}
+.toolbar-links a {
+  color: var(--fg-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color .1s;
+}
+.toolbar-links a:hover { color: var(--primary); }
+.toolbar-links span { color: var(--border-light); }
+
+/* Chapter table */
+.ch-table { width: 100%; }
+
+.ch-head {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr 120px 70px;
+  gap: 0;
+  padding: 7px 20px;
+  border-bottom: 1px solid var(--border);
+  background: hsl(24, 9.8%, 7%);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.ch-head-cell {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--fg-subtle);
+}
+
+.ch-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr 120px 70px;
+  gap: 0;
+  padding: 7px 20px;
+  border-bottom: 1px solid hsl(240, 3.7%, 12%);
+  align-items: center;
+  transition: background .1s;
+  position: relative;
+}
+.ch-row:hover { background: var(--card-hover); }
+.ch-row.selected {
+  background: hsl(346.8, 77.2%, 49.8%, .07);
+  border-left: 2px solid var(--primary);
+  padding-left: 18px;
+}
+.ch-row:nth-child(even):not(.selected) {
+  background: hsl(24, 9.8%, 9%);
+}
+.ch-row:nth-child(even):not(.selected):hover {
+  background: var(--card-hover);
+}
+
+.ch-cell { display: flex; align-items: center; gap: 6px; }
+
+.ch-filename {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* ─── Phone Frame ──────────────────────────────────────────────── */
+.phone-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.phone {
+  width: 280px;
+  background: hsl(20, 14.3%, 5%);
+  border: 1.5px solid hsl(240, 3.7%, 22%);
+  border-radius: 42px;
+  padding: 14px 10px 20px;
+  box-shadow: 0 0 0 .5px hsl(240,3.7%,10%) inset, var(--shadow-xl);
+  position: relative;
+  overflow: hidden;
+}
+
+.phone-island {
+  width: 80px;
+  height: 26px;
+  background: hsl(20, 14.3%, 3%);
+  border-radius: 14px;
+  margin: 0 auto 10px;
+  border: 1px solid hsl(240, 3.7%, 18%);
+}
+
+.phone-screen {
+  background: var(--bg);
+  border-radius: 30px;
+  overflow: hidden;
+  height: 520px;
+  position: relative;
+}
+
+/* Bottom sheet inside phone */
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: hsl(24, 9.8%, 11%);
+  border-top-left-radius: var(--radius-2xl);
+  border-top-right-radius: var(--radius-2xl);
+  border: 1px solid var(--border-light);
+  border-bottom: none;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.6);
+  overflow: hidden;
+  animation: sheetUp .25s cubic-bezier(.32,.72,0,1) both;
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 6px;
+}
+.sheet-handle-pill {
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: hsl(240, 3.7%, 30%);
+}
+
+.sheet-header {
+  padding: 2px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-title { font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
+.sheet-subtitle { font-size: 11.5px; color: var(--fg-muted); margin-top: 2px; }
+
+.sheet-body { overflow-y: auto; }
+
+.sheet-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: hsl(24, 9.8%, 9%);
+  display: flex;
+  gap: 8px;
+}
+
+/* Mobile chapter rows */
+.m-ch-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 60px;
+  gap: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid hsl(240, 3.7%, 12%);
+  align-items: center;
+  min-height: 44px;
+}
+.m-ch-row.selected {
+  background: hsl(346.8, 77.2%, 49.8%, .07);
+  border-left: 2px solid var(--primary);
+  padding-left: 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  MODAL 2 — Series Details                                      */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.series-cover-wrap {
+  position: relative;
+  width: 120px;
+  flex-shrink: 0;
+}
+.series-cover {
+  width: 120px;
+  aspect-ratio: 2/3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+.cover-art {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: linear-gradient(135deg, hsl(24,20%,14%), hsl(20,20%,10%));
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.series-meta {
+  flex: 1;
+  min-width: 0;
+  padding-left: 18px;
+}
+.series-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  line-height: 1.25;
+  margin-bottom: 4px;
+}
+.series-byline {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  margin-bottom: 8px;
+}
+.series-desc {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  MODAL 3 — Search                                              */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.search-bar-row {
+  display: flex;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+}
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-subtle);
+  pointer-events: none;
+}
+
+.search-input {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-size: 13.5px;
+  font-family: inherit;
+  padding: 0 14px 0 36px;
+  height: 36px;
+  outline: none;
+  width: 100%;
+  transition: border-color .15s, box-shadow .15s;
+}
+.search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 16px 20px;
+}
+
+.manga-card {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--muted);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: border-color .12s, transform .12s, box-shadow .12s;
+}
+.manga-card:hover {
+  border-color: var(--border-light);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.manga-card.sel {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.manga-thumb {
+  aspect-ratio: 2/3;
+  background: linear-gradient(135deg, hsl(24,20%,15%), hsl(20,20%,11%));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.manga-info {
+  padding: 8px 8px 6px;
+}
+.manga-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.3;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.manga-provider {
+  font-size: 10.5px;
+  color: var(--fg-subtle);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  MODAL 4 — Provider Preferences                               */
+/* ═══════════════════════════════════════════════════════════════ */
+
+.pref-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+
+.pref-item {
+  background: var(--card);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pref-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pref-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.pref-desc {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+/* Toggle switch */
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border-light);
+  position: relative;
+  cursor: pointer;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--primary); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  top: 3px;
+  left: 3px;
+  transition: transform .15s;
+}
+.toggle.on::after { transform: translateX(16px); }
+
+/* Section header in preferences */
+.pref-section-head {
+  padding: 12px 20px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--fg-subtle);
+  border-bottom: 1px solid var(--border);
+  background: hsl(24, 9.8%, 8%);
+}
+
+/* Mobile pref list */
+.m-pref-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid hsl(240, 3.7%, 12%);
+}
+.m-pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+/* ─── Scrim / background figure in desktop stage ───────────────── */
+.bg-figure {
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.018'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* ─── Utility ──────────────────────────────────────────────────── */
+.flex    { display: flex; }
+.items-center { align-items: center; }
+.gap-2   { gap: 8px; }
+.gap-1   { gap: 4px; }
+.ml-auto { margin-left: auto; }
+.text-muted { color: var(--fg-muted); }
+.text-subtle { color: var(--fg-subtle); }
+.text-sm { font-size: 12px; }
+.text-xs { font-size: 11px; }
+.font-mono { font-family: var(--font-mono); }
+.font-600 { font-weight: 600; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-full { width: 100%; }
+.num-input { width: 52px !important; text-align: center; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(240,3.7%,30%); }
+
+/* ─── Responsive: collapse two-up on smaller viewports ─────────── */
+@media (max-width: 900px) {
+  .two-up { grid-template-columns: 1fr; }
+  .phone-wrap { margin-top: 8px; }
+}
+
+/* ─── Annotations ──────────────────────────────────────────────── */
+.anno-strip {
+  margin-top: 28px;
+  padding: 18px;
+  background: hsl(24, 9.8%, 7%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+.anno-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--fg-subtle);
+  margin-bottom: 12px;
+}
+.anno-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.anno-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.anno-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.anno-dot-primary { background: var(--primary); }
+.anno-dot-success { background: var(--success); }
+.anno-dot-info    { background: var(--info); }
+.anno-dot-warn    { background: var(--warning); }
+.anno-dot-muted   { background: var(--fg-subtle); }
+.anno-text { font-size: 12px; color: var(--fg-muted); line-height: 1.45; }
+.anno-text strong { color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- TOP NAV -->
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <div class="topnav-brand">
+        <div class="brand-mark">K</div>
+        <div>
+          <div class="brand-name">Kaizoku <span class="brand-sub">modal redesign</span></div>
+        </div>
+      </div>
+      <ul class="tab-list" role="tablist">
+        <li><button class="tab-btn active" data-tab="0" role="tab"><span class="tab-num">1</span> Match Source</button></li>
+        <li><button class="tab-btn" data-tab="1" role="tab"><span class="tab-num">2</span> Series Details</button></li>
+        <li><button class="tab-btn" data-tab="2" role="tab"><span class="tab-num">3</span> Search Series</button></li>
+        <li><button class="tab-btn" data-tab="3" role="tab"><span class="tab-num">4</span> Provider Prefs</button></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="stage">
+
+    <!-- ╔══════════════════════════════════════════════════════╗ -->
+    <!-- ║  PANEL 1: Match Source to Chapters                  ║ -->
+    <!-- ╚══════════════════════════════════════════════════════╝ -->
+    <section class="modal-panel active" id="panel-0">
+      <div class="panel-header">
+        <div class="panel-title">Match Source to Chapters</div>
+        <div class="panel-desc">Links chapter files to source entries. Desktop uses a wide dialog with a paintable selection table. Mobile collapses to a bottom sheet with a simplified, touch-friendly layout.</div>
+      </div>
+
+      <div class="two-up">
+        <!-- Desktop -->
+        <div>
+          <div class="frame-label">Desktop · 900px dialog</div>
+          <div class="desktop-frame">
+            <div class="desktop-chrome">
+              <div class="chrome-dot red"></div>
+              <div class="chrome-dot amber"></div>
+              <div class="chrome-dot green"></div>
+            </div>
+            <div class="desktop-stage">
+              <div class="bg-figure"></div>
+              <div class="desktop-backdrop"></div>
+
+              <div class="dialog dialog-xl">
+                <!-- Header -->
+                <div class="dialog-header">
+                  <span class="dialog-title">Match Source to Chapters</span>
+                  <button class="dialog-close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Toolbar -->
+                <div class="toolbar">
+                  <div class="toolbar-group">
+                    <select class="select" style="width:auto">
+                      <option>🇬🇧 MangaDex</option>
+                      <option>🇯🇵 MangaPlus</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+                      Match
+                    </button>
+                  </div>
+                  <div class="toolbar-divider"></div>
+                  <div class="toolbar-group">
+                    <span class="toolbar-label">Range fill:</span>
+                    <input class="input input-sm num-input" value="1" type="number" />
+                    <span class="toolbar-label text-subtle">step</span>
+                    <input class="input input-sm num-input" value="1" type="number" />
+                    <button class="btn btn-outline btn-sm">Fill</button>
+                  </div>
+                  <div class="toolbar-spacer"></div>
+                  <div class="toolbar-links">
+                    <a>All</a>
+                    <span>·</span>
+                    <a>None</a>
+                  </div>
+                </div>
+
+                <!-- Table -->
+                <div class="dialog-body">
+                  <div class="ch-table">
+                    <div class="ch-head">
+                      <div class="ch-head-cell"></div>
+                      <div class="ch-head-cell">Filename</div>
+                      <div class="ch-head-cell">Name</div>
+                      <div class="ch-head-cell">Source</div>
+                      <div class="ch-head-cell">#</div>
+                    </div>
+
+                    <!-- Rows — mix of selected and unselected -->
+                    <div class="ch-row selected">
+                      <div class="ch-cell"><div class="cb checked"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.01 Ch.001.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" value="A New Adventure Begins" /></div>
+                      <div class="ch-cell"><span class="badge badge-info">🇬🇧 MangaDex</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" value="1" /></div>
+                    </div>
+
+                    <div class="ch-row selected">
+                      <div class="ch-cell"><div class="cb checked"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.01 Ch.002.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" value="The World Beyond" /></div>
+                      <div class="ch-cell"><span class="badge badge-info">🇬🇧 MangaDex</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" value="2" /></div>
+                    </div>
+
+                    <div class="ch-row selected">
+                      <div class="ch-cell"><div class="cb checked"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.01 Ch.003.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" value="Clash of Rivals" /></div>
+                      <div class="ch-cell"><span class="badge badge-info">🇬🇧 MangaDex</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" value="3" /></div>
+                    </div>
+
+                    <div class="ch-row">
+                      <div class="ch-cell"><div class="cb"></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.01 Ch.004.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" placeholder="Chapter name…" /></div>
+                      <div class="ch-cell"><span class="badge badge-muted">—</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" placeholder="—" /></div>
+                    </div>
+
+                    <div class="ch-row">
+                      <div class="ch-cell"><div class="cb"></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.02 Ch.005.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" placeholder="Chapter name…" /></div>
+                      <div class="ch-cell"><span class="badge badge-muted">—</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" placeholder="—" /></div>
+                    </div>
+
+                    <div class="ch-row">
+                      <div class="ch-cell"><div class="cb"></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.02 Ch.006.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" placeholder="Chapter name…" /></div>
+                      <div class="ch-cell"><span class="badge badge-muted">—</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" placeholder="—" /></div>
+                    </div>
+
+                    <div class="ch-row">
+                      <div class="ch-cell"><div class="cb"></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.02 Ch.007 Special.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" placeholder="Chapter name…" /></div>
+                      <div class="ch-cell"><span class="badge badge-muted">—</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" placeholder="—" /></div>
+                    </div>
+
+                    <div class="ch-row">
+                      <div class="ch-cell"><div class="cb"></div></div>
+                      <div class="ch-cell"><span class="ch-filename truncate">Vol.03 Ch.008.cbz</span></div>
+                      <div class="ch-cell"><input class="input input-sm w-full" placeholder="Chapter name…" /></div>
+                      <div class="ch-cell"><span class="badge badge-muted">—</span></div>
+                      <div class="ch-cell"><input class="input input-sm num-input" placeholder="—" /></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="dialog-footer">
+                  <span class="footer-meta"><strong>3</strong> of 24 selected</span>
+                  <div class="footer-actions">
+                    <button class="btn btn-ghost">Cancel</button>
+                    <button class="btn btn-primary">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile -->
+        <div class="phone-wrap">
+          <div class="frame-label" style="width:280px">Mobile · bottom sheet</div>
+          <div class="phone">
+            <div class="phone-island"></div>
+            <div class="phone-screen">
+              <div class="sheet-backdrop"></div>
+              <!-- Partial app behind sheet — just a hint -->
+              <div style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:16px;opacity:.3">
+                <div style="width:100%;height:40px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+              </div>
+
+              <div class="sheet" style="height:84%">
+                <div class="sheet-handle"><div class="sheet-handle-pill"></div></div>
+                <div class="sheet-header">
+                  <div class="sheet-title">Match Source</div>
+                  <div class="sheet-subtitle">3 of 24 selected</div>
+                </div>
+
+                <!-- Mobile toolbar -->
+                <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:7px;background:hsl(24,9.8%,9%)">
+                  <select class="select" style="width:100%">
+                    <option>🇬🇧 MangaDex</option>
+                  </select>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-primary btn-sm" style="flex:1">Match</button>
+                    <input class="input input-sm num-input" value="1" type="number" />
+                    <input class="input input-sm num-input" value="1" type="number" />
+                    <button class="btn btn-outline btn-sm">Fill</button>
+                  </div>
+                </div>
+
+                <div class="sheet-body" style="max-height:235px;overflow-y:auto">
+                  <div class="m-ch-row selected">
+                    <div class="ch-cell"><div class="cb checked" style="width:13px;height:13px"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                      <span class="ch-filename text-xs truncate" style="color:var(--fg-muted)">Vol.01 Ch.001.cbz</span>
+                      <span class="badge badge-info" style="font-size:10px;align-self:flex-start">🇬🇧 MangaDex</span>
+                    </div>
+                    <input class="input input-sm num-input" value="1" />
+                  </div>
+
+                  <div class="m-ch-row selected">
+                    <div class="ch-cell"><div class="cb checked" style="width:13px;height:13px"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                      <span class="ch-filename text-xs truncate" style="color:var(--fg-muted)">Vol.01 Ch.002.cbz</span>
+                      <span class="badge badge-info" style="font-size:10px;align-self:flex-start">🇬🇧 MangaDex</span>
+                    </div>
+                    <input class="input input-sm num-input" value="2" />
+                  </div>
+
+                  <div class="m-ch-row selected">
+                    <div class="ch-cell"><div class="cb checked" style="width:13px;height:13px"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                      <span class="ch-filename text-xs truncate" style="color:var(--fg-muted)">Vol.01 Ch.003.cbz</span>
+                      <span class="badge badge-info" style="font-size:10px;align-self:flex-start">🇬🇧 MangaDex</span>
+                    </div>
+                    <input class="input input-sm num-input" value="3" />
+                  </div>
+
+                  <div class="m-ch-row">
+                    <div class="ch-cell"><div class="cb" style="width:13px;height:13px"></div></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                      <span class="ch-filename text-xs truncate" style="color:var(--fg-muted)">Vol.01 Ch.004.cbz</span>
+                      <span class="badge badge-muted" style="font-size:10px;align-self:flex-start">Unmatched</span>
+                    </div>
+                    <input class="input input-sm num-input" placeholder="—" />
+                  </div>
+
+                  <div class="m-ch-row">
+                    <div class="ch-cell"><div class="cb" style="width:13px;height:13px"></div></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+                      <span class="ch-filename text-xs truncate" style="color:var(--fg-muted)">Vol.02 Ch.005.cbz</span>
+                      <span class="badge badge-muted" style="font-size:10px;align-self:flex-start">Unmatched</span>
+                    </div>
+                    <input class="input input-sm num-input" placeholder="—" />
+                  </div>
+                </div>
+
+                <div class="sheet-footer">
+                  <button class="btn btn-ghost btn-sm" style="flex:1">Cancel</button>
+                  <button class="btn btn-primary btn-sm" style="flex:2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Annotations -->
+      <div class="anno-strip">
+        <div class="anno-title">Design Notes</div>
+        <div class="anno-grid">
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-primary"></div>
+            <div class="anno-text"><strong>Paint-select rows</strong> — click and drag to select multiple rows at once. Left border accent + tinted background indicates selection state.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-info"></div>
+            <div class="anno-text"><strong>Range fill</strong> — select rows, enter start + step, hit Fill to auto-populate chapter numbers sequentially.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-success"></div>
+            <div class="anno-text"><strong>Mobile simplification</strong> — Name column removed on mobile. Row height enforces 44px touch targets. Inputs stay editable.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-muted"></div>
+            <div class="anno-text"><strong>Sticky header</strong> — column headers remain pinned during scroll. Footer counter updates live as selections change.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════════════════════╗ -->
+    <!-- ║  PANEL 2: Series Details                            ║ -->
+    <!-- ╚══════════════════════════════════════════════════════╝ -->
+    <section class="modal-panel" id="panel-1">
+      <div class="panel-header">
+        <div class="panel-title">Series Details</div>
+        <div class="panel-desc">Shows cloud-latest metadata for a series. No traditional header bar — the cover and title flow naturally. Available sources appear at the bottom with action buttons.</div>
+      </div>
+
+      <div class="two-up">
+        <!-- Desktop -->
+        <div>
+          <div class="frame-label">Desktop · 640px dialog</div>
+          <div class="desktop-frame">
+            <div class="desktop-chrome">
+              <div class="chrome-dot red"></div>
+              <div class="chrome-dot amber"></div>
+              <div class="chrome-dot green"></div>
+            </div>
+            <div class="desktop-stage">
+              <div class="bg-figure"></div>
+              <div class="desktop-backdrop"></div>
+
+              <div class="dialog dialog-sm" style="max-width:580px">
+                <!-- No traditional header — X floats top-right -->
+                <div style="position:relative">
+                  <button class="dialog-close" style="position:absolute;top:14px;right:14px;z-index:2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Content area -->
+                <div style="padding:20px 20px 16px;display:flex;gap:0;align-items:flex-start">
+                  <!-- Cover -->
+                  <div class="series-cover-wrap">
+                    <div class="series-cover">
+                      <div class="cover-art">📚</div>
+                    </div>
+                    <div style="margin-top:8px">
+                      <div class="source-badge" style="width:100%;justify-content:center">
+                        <span>🇬🇧</span>
+                        <span>MangaDex</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:1px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Metadata -->
+                  <div class="series-meta">
+                    <div class="flex items-center gap-2" style="margin-bottom:6px;flex-wrap:wrap">
+                      <div class="series-title">Frieren: Beyond Journey's End</div>
+                      <span class="badge badge-success">Ongoing</span>
+                    </div>
+                    <div class="series-byline">by Kanehito Yamada &middot; art by Tsukasa Abe</div>
+                    <div class="tag-row">
+                      <span class="tag">Fantasy</span>
+                      <span class="tag">Adventure</span>
+                      <span class="tag">Slice of Life</span>
+                      <span class="tag">Drama</span>
+                      <span class="tag">Magic</span>
+                    </div>
+                    <div class="series-desc" style="margin-top:10px">
+                      The adventure is over but life goes on for an elf mage just beginning to learn what living is all about. Elf mage Frieren and her courageous fellow adventurers have defeated the Demon King and brought peace to the land. But Frieren will long outlive the rest of her party…
+                    </div>
+                    <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+                      <div style="font-size:11.5px;color:var(--fg-subtle)">
+                        <span style="color:var(--fg-muted)">138 chapters</span>
+                        <span style="color:var(--border-light);margin:0 5px">·</span>
+                        <span style="color:var(--fg-muted)">Updated Mar 2026</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Chapter source row -->
+                <div style="padding:10px 20px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:hsl(24,9.8%,8%);display:flex;align-items:center;gap:8px">
+                  <span style="font-size:11.5px;color:var(--fg-muted)">Available from:</span>
+                  <span class="badge badge-info">🇬🇧 MangaDex</span>
+                  <span class="badge badge-muted">🇯🇵 MangaPlus</span>
+                  <span class="badge badge-muted">🇺🇸 MANGA Plus</span>
+                </div>
+
+                <!-- Footer -->
+                <div class="dialog-footer">
+                  <div style="font-size:12px;color:var(--fg-subtle)">Shounen Sunday S · 2020</div>
+                  <div class="footer-actions">
+                    <button class="btn btn-outline">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                      View Source
+                    </button>
+                    <button class="btn btn-primary">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+                      Add to Library
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile -->
+        <div class="phone-wrap">
+          <div class="frame-label" style="width:280px">Mobile · bottom sheet</div>
+          <div class="phone">
+            <div class="phone-island"></div>
+            <div class="phone-screen">
+              <div class="sheet-backdrop"></div>
+              <div class="sheet" style="height:88%">
+                <div class="sheet-handle"><div class="sheet-handle-pill"></div></div>
+
+                <!-- Cover centered -->
+                <div style="display:flex;flex-direction:column;align-items:center;padding:8px 20px 14px;border-bottom:1px solid var(--border)">
+                  <div style="width:90px;aspect-ratio:2/3;background:linear-gradient(135deg,hsl(24,20%,14%),hsl(20,20%,10%));border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:10px">📚</div>
+                  <div style="text-align:center">
+                    <div style="font-size:14px;font-weight:700;letter-spacing:-.2px;line-height:1.25;margin-bottom:3px">Frieren: Beyond Journey's End</div>
+                    <div style="font-size:11px;color:var(--fg-muted);margin-bottom:6px">by Yamada Kanehito</div>
+                    <div style="display:flex;justify-content:center;gap:4px">
+                      <span class="badge badge-success">Ongoing</span>
+                      <span class="badge badge-muted">138 ch</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Tags -->
+                <div style="padding:10px 14px;border-bottom:1px solid var(--border)">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    <span class="tag" style="font-size:10px">Fantasy</span>
+                    <span class="tag" style="font-size:10px">Adventure</span>
+                    <span class="tag" style="font-size:10px">Slice of Life</span>
+                    <span class="tag" style="font-size:10px">Drama</span>
+                  </div>
+                </div>
+
+                <!-- Description -->
+                <div style="padding:10px 14px;border-bottom:1px solid var(--border)">
+                  <p style="font-size:11.5px;color:var(--fg-muted);line-height:1.5">The adventure is over but life goes on for an elf mage just beginning to learn what living is all about…</p>
+                </div>
+
+                <!-- Source badges -->
+                <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:5px;flex-wrap:wrap">
+                  <span class="badge badge-info" style="font-size:10px">🇬🇧 MangaDex</span>
+                  <span class="badge badge-muted" style="font-size:10px">🇯🇵 MangaPlus</span>
+                </div>
+
+                <div class="sheet-footer" style="flex-direction:column;gap:6px">
+                  <button class="btn btn-primary btn-sm btn-full">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+                    Add to Library
+                  </button>
+                  <button class="btn btn-outline btn-sm btn-full">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                    View Source
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="anno-strip">
+        <div class="anno-title">Design Notes</div>
+        <div class="anno-grid">
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-muted"></div>
+            <div class="anno-text"><strong>No header bar</strong> — the cover and title are the hero. The close button floats absolute top-right without a divider line.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-success"></div>
+            <div class="anno-text"><strong>Status badge</strong> inline with title on desktop; centered below title on mobile for better scanability.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-info"></div>
+            <div class="anno-text"><strong>Source availability</strong> shown as a strip between the content and footer, not buried in metadata.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-primary"></div>
+            <div class="anno-text"><strong>Mobile CTA priority</strong> — Add to Library is the full-width primary, View Source is secondary below it.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════════════════════╗ -->
+    <!-- ║  PANEL 3: Search Series                             ║ -->
+    <!-- ╚══════════════════════════════════════════════════════╝ -->
+    <section class="modal-panel" id="panel-2">
+      <div class="panel-header">
+        <div class="panel-title">Search Series</div>
+        <div class="panel-desc">Multi-source search with a live results grid. Desktop shows a wide dialog with 4-column results grid. Mobile collapses to a near-fullscreen bottom sheet with 2 columns.</div>
+      </div>
+
+      <div class="two-up">
+        <!-- Desktop -->
+        <div>
+          <div class="frame-label">Desktop · 780px dialog</div>
+          <div class="desktop-frame">
+            <div class="desktop-chrome">
+              <div class="chrome-dot red"></div>
+              <div class="chrome-dot amber"></div>
+              <div class="chrome-dot green"></div>
+            </div>
+            <div class="desktop-stage" style="min-height:560px">
+              <div class="bg-figure"></div>
+              <div class="desktop-backdrop"></div>
+
+              <div class="dialog" style="max-width:780px">
+                <!-- Header -->
+                <div class="dialog-header">
+                  <div>
+                    <div class="dialog-title">Search Series</div>
+                    <div style="font-size:12px;color:var(--fg-muted);margin-top:2px">Search for series from available sources</div>
+                  </div>
+                  <button class="dialog-close">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Search bar -->
+                <div class="search-bar-row">
+                  <div class="search-input-wrap">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    <input class="search-input" value="Frieren" placeholder="Search series…" />
+                  </div>
+                  <select class="select" style="width:auto;height:36px;font-size:13px">
+                    <option>All Sources</option>
+                    <option>MangaDex</option>
+                    <option>MangaPlus</option>
+                  </select>
+                  <span class="badge badge-primary" style="white-space:nowrap">2 sources</span>
+                </div>
+
+                <!-- Results grid -->
+                <div class="dialog-body">
+                  <div class="results-grid">
+
+                    <div class="manga-card sel">
+                      <div class="manga-thumb">📚</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Frieren: Beyond Journey's End</div>
+                        <div class="manga-provider">🇬🇧 <span>MangaDex</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">⚔️</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Dungeon Meshi</div>
+                        <div class="manga-provider">🇬🇧 <span>MangaDex</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">🌙</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Chainsaw Man</div>
+                        <div class="manga-provider">🇯🇵 <span>MangaPlus</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">🔥</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Jujutsu Kaisen</div>
+                        <div class="manga-provider">🇯🇵 <span>MangaPlus</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">🌺</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Blue Period</div>
+                        <div class="manga-provider">🇬🇧 <span>MangaDex</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">💫</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Spy x Family</div>
+                        <div class="manga-provider">🇯🇵 <span>MangaPlus</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">🗡️</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Vagabond</div>
+                        <div class="manga-provider">🇬🇧 <span>MangaDex</span></div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb">🌊</div>
+                      <div class="manga-info">
+                        <div class="manga-name">Berserk</div>
+                        <div class="manga-provider">🇬🇧 <span>MangaDex</span></div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="dialog-footer">
+                  <span class="footer-meta"><strong>1</strong> selected &middot; 8 results</span>
+                  <div class="footer-actions">
+                    <button class="btn btn-ghost">Cancel</button>
+                    <button class="btn btn-primary">OK</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile -->
+        <div class="phone-wrap">
+          <div class="frame-label" style="width:280px">Mobile · bottom sheet</div>
+          <div class="phone">
+            <div class="phone-island"></div>
+            <div class="phone-screen">
+              <div class="sheet-backdrop"></div>
+              <div class="sheet" style="height:92%">
+                <div class="sheet-handle"><div class="sheet-handle-pill"></div></div>
+                <div class="sheet-header">
+                  <div class="sheet-title">Search Series</div>
+                </div>
+
+                <!-- Mobile search controls -->
+                <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px;background:hsl(24,9.8%,9%)">
+                  <div class="search-input-wrap">
+                    <svg class="search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    <input class="search-input" value="Frieren" placeholder="Search…" style="height:32px;font-size:12.5px;padding-left:30px" />
+                  </div>
+                  <select class="select" style="width:100%;height:30px">
+                    <option>All Sources (2)</option>
+                  </select>
+                </div>
+
+                <!-- 2-col grid -->
+                <div class="sheet-body" style="max-height:320px;overflow-y:auto">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 12px">
+
+                    <div class="manga-card sel">
+                      <div class="manga-thumb" style="font-size:20px">📚</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Frieren: Beyond Journey's End</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇬🇧 MangaDex</div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb" style="font-size:20px">⚔️</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Dungeon Meshi</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇬🇧 MangaDex</div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb" style="font-size:20px">🌙</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Chainsaw Man</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇯🇵 MangaPlus</div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb" style="font-size:20px">🔥</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Jujutsu Kaisen</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇯🇵 MangaPlus</div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb" style="font-size:20px">💫</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Spy x Family</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇯🇵 MangaPlus</div>
+                      </div>
+                    </div>
+
+                    <div class="manga-card">
+                      <div class="manga-thumb" style="font-size:20px">🌊</div>
+                      <div class="manga-info" style="padding:6px">
+                        <div class="manga-name" style="font-size:10.5px">Berserk</div>
+                        <div class="manga-provider" style="font-size:9.5px">🇬🇧 MangaDex</div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                <div class="sheet-footer">
+                  <button class="btn btn-ghost btn-sm" style="flex:1">Cancel</button>
+                  <button class="btn btn-primary btn-sm" style="flex:2">OK — 1 selected</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="anno-strip">
+        <div class="anno-title">Design Notes</div>
+        <div class="anno-grid">
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-primary"></div>
+            <div class="anno-text"><strong>Selected state</strong> — primary ring border + glow shadow on selected card. Click to toggle.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-info"></div>
+            <div class="anno-text"><strong>Source filter</strong> — multi-select dropdown on desktop, full-width select on mobile. Counter badge shows active count.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-muted"></div>
+            <div class="anno-text"><strong>Grid adapts</strong> — 4 columns on desktop, 2 on mobile. Cards maintain cover 2:3 ratio throughout.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-success"></div>
+            <div class="anno-text"><strong>Footer is live</strong> — "1 selected" counter in the OK button updates as user selects/deselects results.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ╔══════════════════════════════════════════════════════╗ -->
+    <!-- ║  PANEL 4: Provider Preferences                      ║ -->
+    <!-- ╚══════════════════════════════════════════════════════╝ -->
+    <section class="modal-panel" id="panel-3">
+      <div class="panel-header">
+        <div class="panel-title">Provider Preferences</div>
+        <div class="panel-desc">Per-provider settings form. Desktop uses a 2-column grid of preference cards. Mobile stacks to a single column within a bottom sheet.</div>
+      </div>
+
+      <div class="two-up">
+        <!-- Desktop -->
+        <div>
+          <div class="frame-label">Desktop · 700px dialog</div>
+          <div class="desktop-frame">
+            <div class="desktop-chrome">
+              <div class="chrome-dot red"></div>
+              <div class="chrome-dot amber"></div>
+              <div class="chrome-dot green"></div>
+            </div>
+            <div class="desktop-stage">
+              <div class="bg-figure"></div>
+              <div class="desktop-backdrop"></div>
+
+              <div class="dialog dialog-md">
+                <!-- Header -->
+                <div class="dialog-header" style="align-items:flex-start">
+                  <div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                      <div style="width:30px;height:30px;background:var(--info-bg);border:1px solid hsl(215,70%,52%,.25);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px">🇬🇧</div>
+                      <div class="dialog-title">MangaDex Settings</div>
+                    </div>
+                    <div style="font-size:12px;color:var(--fg-muted);padding-left:38px">Configure how Kaizoku fetches and displays content from MangaDex.</div>
+                  </div>
+                  <button class="dialog-close" style="margin-top:2px">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Preferences -->
+                <div class="dialog-body" style="max-height:380px">
+                  <div class="pref-section-head">Language &amp; Content</div>
+                  <div class="pref-grid">
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Language</div>
+                        <select class="select" style="width:auto;height:28px;font-size:12px">
+                          <option>English</option>
+                          <option>Japanese</option>
+                          <option>French</option>
+                        </select>
+                      </div>
+                      <div class="pref-desc">Preferred translation language for chapters</div>
+                    </div>
+
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Safe Mode</div>
+                        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                      </div>
+                      <div class="pref-desc">Filter explicit content from search results</div>
+                    </div>
+
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Data Saver</div>
+                        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                      </div>
+                      <div class="pref-desc">Use compressed images to reduce bandwidth</div>
+                    </div>
+
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Original Language</div>
+                        <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                      </div>
+                      <div class="pref-desc">Prefer scanlations from the original language</div>
+                    </div>
+                  </div>
+
+                  <div class="pref-section-head" style="margin-top:1px">Scanlation Groups</div>
+                  <div class="pref-grid">
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Preferred Groups</div>
+                      </div>
+                      <div class="pref-desc">Groups to prioritize when multiple translations exist</div>
+                      <input class="input" style="margin-top:6px;font-size:12px;height:28px" placeholder="e.g. Scanlation Group Name…" />
+                    </div>
+
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Blocked Groups</div>
+                      </div>
+                      <div class="pref-desc">Groups whose chapters will be hidden</div>
+                      <input class="input" style="margin-top:6px;font-size:12px;height:28px" placeholder="Groups to exclude…" />
+                    </div>
+                  </div>
+
+                  <div class="pref-section-head" style="margin-top:1px">Network</div>
+                  <div class="pref-grid">
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Rate Limit</div>
+                        <select class="select" style="width:auto;height:28px;font-size:12px">
+                          <option>5 req/s</option>
+                          <option>2 req/s</option>
+                          <option>1 req/s</option>
+                        </select>
+                      </div>
+                      <div class="pref-desc">Max requests per second to MangaDex API</div>
+                    </div>
+
+                    <div class="pref-item">
+                      <div class="pref-item-row">
+                        <div class="pref-label">Cache Duration</div>
+                        <select class="select" style="width:auto;height:28px;font-size:12px">
+                          <option>1 hour</option>
+                          <option>6 hours</option>
+                          <option>24 hours</option>
+                        </select>
+                      </div>
+                      <div class="pref-desc">How long to cache chapter list responses</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="dialog-footer">
+                  <button class="btn btn-ghost btn-sm" style="color:hsl(0,72%,55%);opacity:.8">Reset to Defaults</button>
+                  <div class="footer-actions">
+                    <button class="btn btn-ghost">Cancel</button>
+                    <button class="btn btn-primary">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile -->
+        <div class="phone-wrap">
+          <div class="frame-label" style="width:280px">Mobile · bottom sheet</div>
+          <div class="phone">
+            <div class="phone-island"></div>
+            <div class="phone-screen">
+              <div class="sheet-backdrop"></div>
+              <div class="sheet" style="height:90%">
+                <div class="sheet-handle"><div class="sheet-handle-pill"></div></div>
+                <div class="sheet-header">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:18px">🇬🇧</span>
+                    <div>
+                      <div class="sheet-title">MangaDex Settings</div>
+                      <div class="sheet-subtitle">Language &amp; content preferences</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="sheet-body" style="max-height:348px;overflow-y:auto">
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div class="pref-label" style="font-size:12.5px">Language</div>
+                      <select class="select" style="height:26px;font-size:11px;width:auto">
+                        <option>English</option>
+                      </select>
+                    </div>
+                    <div class="pref-desc" style="font-size:11px">Preferred translation language</div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div>
+                        <div class="pref-label" style="font-size:12.5px">Safe Mode</div>
+                        <div class="pref-desc" style="font-size:11px">Filter explicit content</div>
+                      </div>
+                      <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                    </div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div>
+                        <div class="pref-label" style="font-size:12.5px">Data Saver</div>
+                        <div class="pref-desc" style="font-size:11px">Use compressed images</div>
+                      </div>
+                      <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                    </div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div>
+                        <div class="pref-label" style="font-size:12.5px">Original Language</div>
+                        <div class="pref-desc" style="font-size:11px">Prefer source-language scans</div>
+                      </div>
+                      <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                    </div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="pref-label" style="font-size:12.5px;margin-bottom:5px">Preferred Groups</div>
+                    <input class="input" style="font-size:11.5px;height:28px" placeholder="e.g. Scanlation Group Name…" />
+                    <div class="pref-desc" style="font-size:11px;margin-top:3px">Groups to prioritize</div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div class="pref-label" style="font-size:12.5px">Rate Limit</div>
+                      <select class="select" style="height:26px;font-size:11px;width:auto">
+                        <option>5 req/s</option>
+                      </select>
+                    </div>
+                    <div class="pref-desc" style="font-size:11px">Max requests per second</div>
+                  </div>
+
+                  <div class="m-pref-item">
+                    <div class="m-pref-row">
+                      <div class="pref-label" style="font-size:12.5px">Cache Duration</div>
+                      <select class="select" style="height:26px;font-size:11px;width:auto">
+                        <option>1 hour</option>
+                      </select>
+                    </div>
+                    <div class="pref-desc" style="font-size:11px">How long to cache responses</div>
+                  </div>
+                </div>
+
+                <div class="sheet-footer">
+                  <button class="btn btn-ghost btn-sm" style="flex:1">Cancel</button>
+                  <button class="btn btn-primary btn-sm" style="flex:2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                    Save Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="anno-strip">
+        <div class="anno-title">Design Notes</div>
+        <div class="anno-grid">
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-muted"></div>
+            <div class="anno-text"><strong>2-column grid</strong> on desktop groups related preferences side-by-side, reducing scrolling. Mobile stacks to single column.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-primary"></div>
+            <div class="anno-text"><strong>Toggle switches</strong> are interactive — click to flip state. Uses CSS-only transition, no JS required.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-warn"></div>
+            <div class="anno-text"><strong>Reset to Defaults</strong> is in the footer as a destructive-tinted ghost button — present but de-emphasized.</div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-dot anno-dot-info"></div>
+            <div class="anno-text"><strong>Section headers</strong> act as visual anchors between preference categories, with consistent monospace-uppercase treatment.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Tab switching ──────────────────────────────────────────────
+  const tabs   = document.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.modal-panel');
+
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const idx = parseInt(btn.dataset.tab, 10);
+
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      panels.forEach(function (p) { p.classList.remove('active'); });
+
+      btn.classList.add('active');
+      panels[idx].classList.add('active');
+
+      // Re-trigger animations on the newly visible panel
+      const dialog = panels[idx].querySelector('.dialog');
+      const sheet  = panels[idx].querySelector('.sheet');
+
+      if (dialog) {
+        dialog.style.animation = 'none';
+        // Force reflow
+        void dialog.offsetWidth;
+        dialog.style.animation = '';
+      }
+      if (sheet) {
+        sheet.style.animation = 'none';
+        void sheet.offsetWidth;
+        sheet.style.animation = '';
+      }
+    });
+  });
+
+  // ── Checkbox toggle (paint-select feel) ───────────────────────
+  const rows = document.querySelectorAll('.ch-row, .m-ch-row');
+  rows.forEach(function (row) {
+    row.addEventListener('click', function (e) {
+      // Don't toggle if clicking directly into an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+      const cb = row.querySelector('.cb');
+      if (!cb) return;
+
+      row.classList.toggle('selected');
+      cb.classList.toggle('checked');
+
+      // Update footer counter
+      updateCounter();
+    });
+  });
+
+  function updateCounter () {
+    const panel = document.getElementById('panel-0');
+    if (!panel) return;
+    const sel   = panel.querySelectorAll('.ch-row.selected, .m-ch-row.selected').length;
+    const total = panel.querySelectorAll('.ch-row, .m-ch-row').length;
+    const metas = panel.querySelectorAll('.footer-meta');
+    metas.forEach(function (m) {
+      m.innerHTML = '<strong>' + sel + '</strong> of ' + total + ' selected';
+    });
+    const sheetSub = panel.querySelector('.sheet-subtitle');
+    if (sheetSub) sheetSub.textContent = sel + ' of ' + total + ' selected';
+  }
+
+  // ── Manga card selection ───────────────────────────────────────
+  const cards = document.querySelectorAll('.manga-card');
+  cards.forEach(function (card) {
+    card.addEventListener('click', function () {
+      // Within same grid, allow multi-select
+      card.classList.toggle('sel');
+      updateSearchFooter(card.closest('.dialog') || card.closest('.sheet'));
+    });
+  });
+
+  function updateSearchFooter (parent) {
+    if (!parent) return;
+    const selCount = parent.querySelectorAll('.manga-card.sel').length;
+    const okBtns   = parent.querySelectorAll('.btn-primary');
+    okBtns.forEach(function (btn) {
+      if (btn.textContent.includes('OK') || btn.textContent.includes('selected')) {
+        btn.textContent = selCount > 0 ? 'OK — ' + selCount + ' selected' : 'OK';
+      }
+    });
+    const meta = parent.querySelector('.footer-meta');
+    if (meta) {
+      const total = parent.querySelectorAll('.manga-card').length;
+      meta.innerHTML = '<strong>' + selCount + '</strong> selected &middot; ' + total + ' results';
+    }
+  }
+
+  // ── Keyboard navigation for tabs ──────────────────────────────
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const active = document.querySelector('.tab-btn.active');
+      const all    = Array.from(tabs);
+      const idx    = all.indexOf(active);
+      let next     = idx + (e.key === 'ArrowRight' ? 1 : -1);
+      next = Math.max(0, Math.min(all.length - 1, next));
+      all[next].click();
+      all[next].focus();
+    }
+  });
+})();
+</script>
+</body>
+</html>

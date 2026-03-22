@@ -7,6 +7,7 @@ using KaizokuBackend.Services.Helpers;
 using KaizokuBackend.Services.Import;
 using KaizokuBackend.Services.Jobs;
 using KaizokuBackend.Services.Settings;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.IO;
@@ -15,11 +16,13 @@ using System.Runtime;
 namespace KaizokuBackend.Controllers
 {
     /// <summary>
-    /// Controller for handling setup wizard operations
+    /// Controller for handling setup wizard operations.
+    /// Accessible without auth when no users exist (bootstrap mode), otherwise requires admin.
     /// </summary>
     [ApiController]
     [Route("api/setup")]
     [Produces("application/json")]
+    [Authorize(Policy = "RequireAdmin")]
     public class SetupWizardController : ControllerBase
     {
         private readonly ILogger _logger;

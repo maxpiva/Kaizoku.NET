@@ -1,9 +1,11 @@
-﻿using KaizokuBackend.Models;
+using KaizokuBackend.Models;
 using KaizokuBackend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace KaizokuBackend.Hubs
 {
+    [Authorize]
     public class ProgressHub : Hub
     {
         private readonly ILogger<ProgressHub> _logger;
@@ -13,7 +15,8 @@ namespace KaizokuBackend.Hubs
         }
         public override Task OnConnectedAsync()
         {
-            _logger.LogInformation($"SignalR Client connected: {Context.ConnectionId}");
+            var userId = Context.User?.FindFirst("UserId")?.Value ?? "unknown";
+            _logger.LogInformation($"SignalR Client connected: {Context.ConnectionId} (User: {userId})");
             return base.OnConnectedAsync();
         }
 
@@ -22,8 +25,5 @@ namespace KaizokuBackend.Hubs
             _logger.LogInformation($"SignalR Client disconnected: {Context.ConnectionId}");
             return base.OnDisconnectedAsync(exception);
         }
-
-
-
     }
 }

@@ -3,12 +3,14 @@ using KaizokuBackend.Extensions;
 using KaizokuBackend.Services.Downloads;
 using KaizokuBackend.Services.Images;
 using KaizokuBackend.Services.Images.Providers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KaizokuBackend.Controllers
 {
     [ApiController]
     [Route("api/image")]
+    [Authorize]
     [Produces("image/png","image/jpeg","image/gif","image/bmp","image/tiff","image/webp","image/jxl","image/jp2","image/avif","image/heic")]
     public class ImagesController : ControllerBase
     {
@@ -23,6 +25,7 @@ namespace KaizokuBackend.Controllers
             _logger = logger;
         }
         [HttpGet("{key?}")]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status304NotModified)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]

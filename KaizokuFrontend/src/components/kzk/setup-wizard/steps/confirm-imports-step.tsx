@@ -97,21 +97,23 @@ const VirtualizedImportList = React.memo(function VirtualizedImportList({
         if (prev.path !== next.path) return false;
         if (prev.series && next.series) {
           for (let j = 0; j < prev.series.length; j++) {
-            if (!prev.series[j] || !next.series[j]) return false;
+            const prevS = prev.series[j];
+            const nextS = next.series[j];
+            if (!prevS || !nextS) return false;
             // Only preferred changed
             if (
-              prev.series[j].id === next.series[j].id &&
-              prev.series[j].title === next.series[j].title &&
-              prev.series[j].provider === next.series[j].provider &&
-              prev.series[j].preferred !== next.series[j].preferred
+              prevS.id === nextS.id &&
+              prevS.title === nextS.title &&
+              prevS.provider === nextS.provider &&
+              prevS.preferred !== nextS.preferred
             ) {
               continue;
             }
             // If any other property changed, reset
             if (
-              prev.series[j].id !== next.series[j].id ||
-              prev.series[j].title !== next.series[j].title ||
-              prev.series[j].provider !== next.series[j].provider
+              prevS.id !== nextS.id ||
+              prevS.title !== nextS.title ||
+              prevS.provider !== nextS.provider
             ) {
               return false;
             }
@@ -884,8 +886,10 @@ function useDualImportState(globalImports: ImportInfo[], onAnyImportChange: (upd
       const pSeries = p.series || [];
       if (gSeries.length !== pSeries.length) return true;
       for (let j = 0; j < gSeries.length; j++) {
-        if (!gSeries[j] || !pSeries[j]) return true;
-        if (gSeries[j].id !== pSeries[j].id) return true;
+        const gS = gSeries[j];
+        const pS = pSeries[j];
+        if (!gS || !pS) return true;
+        if (gS.id !== pS.id) return true;
       }
     }
     return false;

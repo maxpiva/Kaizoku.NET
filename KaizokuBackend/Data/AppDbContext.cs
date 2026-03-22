@@ -1,12 +1,13 @@
 using KaizokuBackend.Models;
 using KaizokuBackend.Models.Database;
+using KaizokuBackend.Models.Dto;
+using KaizokuBackend.Models.Enums;
 using Mihon.ExtensionsBridge.Models.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chapter = KaizokuBackend.Models.Chapter;
-using KaizokuBackend.Models.Enums;
 
 namespace KaizokuBackend.Data
 {
@@ -67,7 +68,6 @@ namespace KaizokuBackend.Data
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
-            int a = 1;
         }
 
         public DbSet<SeriesEntity> Series { get; set; }
@@ -79,6 +79,15 @@ namespace KaizokuBackend.Data
         public DbSet<JobEntity> Jobs { get; set; }
         public DbSet<EnqueueEntity> Queues { get; set; }
         public DbSet<LatestSerieEntity> LatestSeries { get; set; }
+
+        // Auth & Multi-user entities
+        public DbSet<UserEntity> Users { get; set; }
+        public DbSet<UserPermissionEntity> UserPermissions { get; set; }
+        public DbSet<UserSessionEntity> UserSessions { get; set; }
+        public DbSet<UserPreferencesEntity> UserPreferences { get; set; }
+        public DbSet<InviteLinkEntity> InviteLinks { get; set; }
+        public DbSet<PermissionPresetEntity> PermissionPresets { get; set; }
+        public DbSet<MangaRequestEntity> MangaRequests { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -307,6 +316,107 @@ namespace KaizokuBackend.Data
                     .HasDatabaseName("IX_Enqueue_JobType_ExtraKey");
                 entity.HasIndex(e => e.GroupKey).HasDatabaseName("IX_Enqueue_GroupKey");
                 entity.HasIndex(e => e.FinishedDate).HasDatabaseName("IX_Enqueue_FinishedDate");
+            });
+
+            // ─── Auth & Multi-user entities ────────────────────────────────
+
+            modelBuilder.Entity<UserEntity>(entity =>
+            {
+                entity.HasKey(u => u.Id);
+                entity.Property(u => u.Username).UseCollation("BINARY").IsRequired();
+                entity.Property(u => u.Email).UseCollation("BINARY").IsRequired();
+                entity.Property(u => u.DisplayName).UseCollation("BINARY").IsRequired();
+                entity.Property(u => u.PasswordHash).UseCollation("BINARY").IsRequired();
+                entity.Property(u => u.Salt).UseCollation("BINARY").IsRequired();
+                entity.Property(u => u.Role).IsRequired().HasConversion<int>();
+                entity.Property(u => u.AvatarPath).UseCollation("BINARY").IsRequired(false);
+                entity.Property(u => u.CreatedAt).IsRequired();
+                entity.Property(u => u.UpdatedAt).IsRequired();
+                entity.Property(u => u.LastLoginAt).IsRequired(false);
+                entity.Property(u => u.IsActive).IsRequired();
+                entity.HasIndex(u => u.Username).IsUnique().HasDatabaseName("IX_User_Username");
+                entity.HasIndex(u => u.Email).IsUnique().HasDatabaseName("IX_User_Email");
+                entity.HasOne(u => u.Permissions)
+                    .WithOne(p => p.User)
+                    .HasForeignKey<UserPermissionEntity>(p => p.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(u => u.Preferences)
+                    .WithOne(p => p.User)
+                    .HasForeignKey<UserPreferencesEntity>(p => p.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasMany(u => u.Sessions)
+                    .WithOne(s => s.User)
+                    .HasForeignKey(s => s.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<UserPermissionEntity>(entity =>
+            {
+                entity.HasKey(p => p.UserId);
+            });
+
+            modelBuilder.Entity<UserSessionEntity>(entity =>
+            {
+                entity.HasKey(s => s.Id);
+                entity.Property(s => s.RefreshToken).UseCollation("BINARY").IsRequired();
+                entity.Property(s => s.IpAddress).UseCollation("BINARY").IsRequired(false);
+                entity.Property(s => s.UserAgent).UseCollation("BINARY").IsRequired(false);
+                entity.Property(s => s.ExpiresAt).IsRequired();
+                entity.Property(s => s.CreatedAt).IsRequired();
+                entity.Property(s => s.IsRevoked).IsRequired();
+                entity.HasIndex(s => s.RefreshToken).HasDatabaseName("IX_UserSession_RefreshToken");
+                entity.HasIndex(s => s.UserId).HasDatabaseName("IX_UserSession_UserId");
+                entity.HasIndex(s => new { s.UserId, s.IsRevoked }).HasDatabaseName("IX_UserSession_UserId_IsRevoked");
+            });
+
+            modelBuilder.Entity<UserPreferencesEntity>(entity =>
+            {
+                entity.HasKey(p => p.UserId);
+                entity.Property(p => p.Theme).UseCollation("BINARY").IsRequired();
+                entity.Property(p => p.DefaultLanguage).UseCollation("BINARY").IsRequired();
+                entity.Property(p => p.CardSize).UseCollation("BINARY").IsRequired();
+                entity.Property(p => p.NsfwVisibility).IsRequired().HasConversion<int>();
+            });
+
+            modelBuilder.Entity<InviteLinkEntity>(entity =>
+            {
+                entity.HasKey(i => i.Id);
+                entity.Property(i => i.Code).UseCollation("BINARY").IsRequired();
+                entity.Property(i => i.ExpiresAt).IsRequired();
+                entity.Property(i => i.MaxUses).IsRequired();
+                entity.Property(i => i.UsedCount).IsRequired();
+                entity.Property(i => i.IsActive).IsRequired();
+                entity.HasIndex(i => i.Code).IsUnique().HasDatabaseName("IX_InviteLink_Code");
+                entity.HasIndex(i => i.IsActive).HasDatabaseName("IX_InviteLink_IsActive");
+                entity.HasOne(i => i.CreatedByUser).WithMany().HasForeignKey(i => i.CreatedByUserId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(i => i.PermissionPreset).WithMany().HasForeignKey(i => i.PermissionPresetId).OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<PermissionPresetEntity>(entity =>
+            {
+                entity.HasKey(p => p.Id);
+                entity.Property(p => p.Name).UseCollation("BINARY").IsRequired();
+                entity.Property(p => p.IsDefault).IsRequired();
+                entity.HasIndex(p => p.Name).HasDatabaseName("IX_PermissionPreset_Name");
+                entity.HasIndex(p => p.IsDefault).HasDatabaseName("IX_PermissionPreset_IsDefault");
+                entity.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<MangaRequestEntity>(entity =>
+            {
+                entity.HasKey(r => r.Id);
+                entity.Property(r => r.Title).UseCollation("BINARY").IsRequired();
+                entity.Property(r => r.Description).UseCollation("BINARY").IsRequired(false);
+                entity.Property(r => r.ThumbnailUrl).UseCollation("BINARY").IsRequired(false);
+                entity.Property(r => r.ProviderData).UseCollation("BINARY").IsRequired(false);
+                entity.Property(r => r.Status).IsRequired().HasConversion<int>();
+                entity.Property(r => r.ReviewNote).UseCollation("BINARY").IsRequired(false);
+                entity.Property(r => r.ReviewedAt).IsRequired(false);
+                entity.Property(r => r.CreatedAt).IsRequired();
+                entity.HasIndex(r => r.Status).HasDatabaseName("IX_MangaRequest_Status");
+                entity.HasIndex(r => r.RequestedByUserId).HasDatabaseName("IX_MangaRequest_RequestedByUserId");
+                entity.HasOne(r => r.RequestedByUser).WithMany().HasForeignKey(r => r.RequestedByUserId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(r => r.ReviewedByUser).WithMany().HasForeignKey(r => r.ReviewedByUserId).OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

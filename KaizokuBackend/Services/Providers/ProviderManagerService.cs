@@ -131,6 +131,9 @@ namespace KaizokuBackend.Services.Providers
                         v.IsStorage = existing.IsStorage;
                         v.IsDead = existing.IsDead;
                         v.IsBroken = existing.IsBroken;
+                        v.LastHealthCheckUtc = existing.LastHealthCheckUtc;
+                        v.LastHealthCheckPassed = existing.LastHealthCheckPassed;
+                        v.LastHealthCheckError = existing.LastHealthCheckError;
                         v.IsInstaled = true;
                         v.ActiveEntry = repo.ActiveEntry;
                         v.Repositories = new List<ExtensionRepositoryDto>() { repoview };

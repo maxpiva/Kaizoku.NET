@@ -6,6 +6,7 @@ namespace KaizokuBackend.Models.Dto;
 // [Schema] // Controller I/O Model
 public class LinkedSeriesDto : SeriesSummaryBase
 {
+    [JsonPropertyName("providerId")]
     public string ProviderId { get; set; } = "";
     [JsonPropertyName("linkedIds")]
     public List<string> LinkedIds { get; set; } = new List<string>();
