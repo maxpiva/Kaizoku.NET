@@ -119,8 +119,19 @@ namespace KaizokuBackend.Controllers
             try
             {
                 var results = await _searchQueryService.SearchSeriesAsync(keyword, languageList, searchSources, 0.1f, token).ConfigureAwait(false);
+
+                // Guard against populating thumbs with a token that's already been cancelled
+                // (e.g. browser disconnected while search was running)
+                token.ThrowIfCancellationRequested();
+
                 await _thumbs.PopulateThumbsAsync(results, "/api/image/", token).ConfigureAwait(false);
                 return Ok(results);
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or request was cancelled — return partial results gracefully
+                _logger.LogWarning("Search for '{keyword}' was cancelled by the client.", keyword);
+                return Ok(new List<LinkedSeriesDto>());
             }
             catch (Exception ex)
             {

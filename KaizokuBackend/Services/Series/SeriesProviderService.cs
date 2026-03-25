@@ -101,18 +101,38 @@ namespace KaizokuBackend.Services.Series
                 
                 SeriesProviderEntity mi = minfo[chap.MatchInfoId.Value];
                 Chapter? ch = unknown.Chapters.FirstOrDefault(a => Path.GetFileNameWithoutExtension(a.Filename) == chap.Filename);
+
+                if (ch == null)
+                    continue;
+
                 Chapter? dst = mi.Chapters.FirstOrDefault(a => a.Number == chap.ChapterNumber);
-                
-                if (ch != null && dst != null)
+
+                // If the destination provider doesn't have this chapter number yet, create it
+                if (dst == null)
+                {
+                    dst = new Chapter
+                    {
+                        Number = chap.ChapterNumber,
+                        Name = chap.ChapterName,
+                        ShouldDownload = false,
+                        IsDeleted = false,
+                        ProviderUploadDate = ch.ProviderUploadDate,
+                        ProviderIndex = ch.ProviderIndex,
+                        PageCount = ch.PageCount,
+                    };
+                    mi.Chapters.Add(dst);
+                    mi.Chapters = mi.Chapters.OrderBy(a => a.Number).ToList();
+                }
+
                 {
                     decimal? maxChap = mi.Chapters.Max(c => c.Number);
-                    string filename = ArchiveHelperService.MakeFileNameSafe(mi.Provider, mi.Scanlator, mi.Title,
+                    string filename = ArchiveHelperService.MakeFileNameSafe(mi.Provider, mi.Scanlator, series.Title,
                         mi.Language, dst.Number, dst.Name, maxChap);
                     string? extension = Path.GetExtension(ch.Filename);
                     string newFilename = filename + extension;
                     string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");
                     string newPath = Path.Combine(settings.StorageFolder, series.StoragePath, newFilename);
-                    
+
                     if (File.Exists(originalPath))
                     {
                         try
@@ -149,8 +169,20 @@ namespace KaizokuBackend.Services.Series
                 _db.Touch(unknown, c => c.Chapters);
             }
 
+            // Update ContinueAfterChapter for destination providers that received new chapters
             if (update)
             {
+                foreach (SeriesProviderEntity destProvider in minfo.Values.Distinct())
+                {
+                    decimal? maxDownloaded = destProvider.Chapters
+                        .Where(c => !string.IsNullOrEmpty(c.Filename) && !c.IsDeleted)
+                        .Max(c => c.Number);
+                    if (maxDownloaded.HasValue && maxDownloaded > destProvider.ContinueAfterChapter)
+                    {
+                        destProvider.ContinueAfterChapter = maxDownloaded;
+                    }
+                }
+
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 await series.SaveImportSeriesSnapshotToDirectoryAsync(Path.Combine(settings.StorageFolder, series.StoragePath),
                     _logger, token);

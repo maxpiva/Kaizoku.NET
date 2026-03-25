@@ -1,30 +1,67 @@
 "use client";
 
-import React, { useMemo, memo } from 'react';
-import { useQueue, useRemoveFromQueue, useDownloadProgress } from '@/lib/api/hooks/useQueue';
-import { useCompletedDownloadsWithCount, useWaitingDownloadsWithCount, useFailedDownloadsWithCount, useManageErrorDownload } from '@/lib/api/hooks/useDownloads';
+import React, { useMemo, memo, useCallback, useState } from 'react';
+import { useDownloadProgress } from '@/lib/api/hooks/useQueue';
+import {
+  useCompletedDownloadsWithCount,
+  useWaitingDownloadsWithCount,
+  useFailedDownloadsWithCount,
+  useManageErrorDownload,
+  useRemoveDownload,
+  useClearDownloadsByStatus,
+  useRetryAllFailedDownloads,
+  useDownloadsMetrics,
+} from '@/lib/api/hooks/useDownloads';
 import { useSettings } from '@/lib/api/hooks/useSettings';
 import { useSearch } from '@/contexts/search-context';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Trash2, Download, AlertTriangle, CheckCircle, Clock, Smile, Calendar, ExternalLink, RotateCcw } from 'lucide-react';
-import { ProgressStatus, QueueStatus, type DownloadInfo, type DownloadInfoList, ErrorDownloadAction } from '@/lib/api/types';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
+  Trash2,
+  Download,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Smile,
+  Calendar,
+  ExternalLink,
+  RotateCcw,
+  X,
+  Activity,
+  Layers,
+} from 'lucide-react';
+import {
+  ProgressStatus,
+  QueueStatus,
+  type DownloadInfo,
+  ErrorDownloadAction,
+} from '@/lib/api/types';
 import Image from 'next/image';
-import type { QueueItem } from '@/lib/api/services/queueService';
 import { JobsPanel } from '@/components/kzk/jobs/jobs-panel';
-import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
+import { formatThumbnailUrl } from '@/lib/utils/thumbnail';
 
-// Extended queue item interface that includes both static queue items and real-time downloads
-interface ExtendedQueueItem {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ActiveDownloadItem {
   id: string;
   seriesTitle: string;
   chapterTitle: string;
   thumbnailUrl?: string;
-  status: string;
-  progress?: number;
-  // Optional fields for real-time downloads
+  status: 'downloading' | 'completed' | 'error' | 'queued';
+  progress: number;
   provider?: string;
   scanlator?: string;
   language?: string;
@@ -32,594 +69,488 @@ interface ExtendedQueueItem {
   pageCount?: number;
   message?: string;
   errorMessage?: string;
-  isRealTime?: boolean;
-  // Original queue item fields
-  mangaId?: number;
-  chapterIndex?: number;
-  retries: number;
-  url?: string; // DownloadInfo has url property
+  url?: string;
 }
 
-// Download Card Component - Shared UI for all download panels
-const DownloadCard = memo(({ item }: { item: ExtendedQueueItem | DownloadInfo }) => {
-  // Helper function to normalize UTC date strings
-  const normalizeUtcString = (dateString: string) => {
-    return dateString.includes('Z') || dateString.includes('+') || dateString.includes('-', 10) 
-      ? dateString 
-      : dateString + 'Z';
-  };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  // Check if this is a scheduled download in the future (only for DownloadInfo items)
-  const isScheduledForFuture = (() => {
-    if ('seriesTitle' in item) return false; // ExtendedQueueItem doesn't have scheduledDateUTC
-    
-    const scheduledDate = new Date(normalizeUtcString(item.scheduledDateUTC));
-    const currentTime = new Date();
-    return !item.downloadDateUTC && scheduledDate > currentTime;
-  })();
+function normalizeUtcString(dateString: string): string {
+  return dateString.includes('Z') ||
+    dateString.includes('+') ||
+    dateString.includes('-', 10)
+    ? dateString
+    : dateString + 'Z';
+}
 
-  // Get scheduled date for display (only for DownloadInfo items)
-  const scheduledDate = (() => {
-    if ('seriesTitle' in item || !isScheduledForFuture) return null;
-    return new Date(normalizeUtcString(item.scheduledDateUTC));
-  })();
+function getStatusIcon(status: string, isScheduledForFuture: boolean) {
+  if (isScheduledForFuture) {
+    return <Calendar className="h-4 w-4 text-amber-500 flex-shrink-0" />;
+  }
+  switch (status) {
+    case 'downloading':
+      return <Download className="h-4 w-4 text-blue-500 animate-pulse flex-shrink-0" />;
+    case 'completed':
+      return <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />;
+    case 'error':
+      return <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />;
+    case 'waiting':
+      return <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />;
+    default:
+      return <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
+  }
+}
 
-  // Get download date for completed items (only for DownloadInfo items)
-  const downloadDate = (() => {
-    if ('seriesTitle' in item || !item.downloadDateUTC) return null;
-    return new Date(normalizeUtcString(item.downloadDateUTC));
-  })();
+// ---------------------------------------------------------------------------
+// Confirmation Dialog
+// ---------------------------------------------------------------------------
 
-  // Determine display data based on item type
-  const displayData = 'seriesTitle' in item ? {
-    seriesTitle: item.seriesTitle,
-    chapterTitle: item.chapterTitle,
-    thumbnailUrl: item.thumbnailUrl,
-    status: item.status,
-    retries: item.retries,
-    progress: item.progress,
-    provider: item.provider,
-    scanlator: item.scanlator,
-    chapterNumber: item.chapterNumber,
-    errorMessage: item.errorMessage,
-    url: item.url, // DownloadInfo has url property
-  } : {
-    seriesTitle: item.title,
-    chapterTitle: item.chapterTitle || `Chapter ${item.chapter}`,
-    thumbnailUrl: item.thumbnailUrl, // DownloadInfo has thumbnailUrl property
-    status: item.status === QueueStatus.WAITING ? 'waiting' :
-            item.status === QueueStatus.RUNNING ? 'downloading' :
-            item.status === QueueStatus.COMPLETED ? 'completed' :
-            item.status === QueueStatus.FAILED ? 'error' : 'unknown',
-    progress: undefined,
-    provider: item.provider,
-    scanlator: item.scanlator,
-    chapterNumber: item.chapter,
-    retries: item.retries,
-    url: item.url,
-    errorMessage: undefined
-  };
+interface ConfirmDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirmVariant?: 'destructive' | 'default';
+  onConfirm: () => void;
+  isPending?: boolean;
+}
 
-  const getStatusIcon = (status: string) => {
-    // Special case for future scheduled downloads
-    if (isScheduledForFuture) {
-      return <Calendar className="h-4 w-4 text-yellow-500" />;
-    }
-    
-    switch (status) {
-      case 'downloading':
-        return <Download className="h-4 w-4 text-blue-500 animate-pulse" />;
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'error':
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
-      case 'waiting':
-        return <Clock className="h-4 w-4 text-yellow-500" />;
-      default:
-        return <Clock className="h-4 w-4 text-gray-500" />;
-    }
-  };
+const ConfirmDialog = memo(
+  ({ open, onOpenChange, title, description, confirmLabel, confirmVariant = 'destructive', onConfirm, isPending = false }: ConfirmDialogProps) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 mt-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>Cancel</Button>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={isPending}>
+            {isPending ? 'Working…' : confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ),
+);
+ConfirmDialog.displayName = 'ConfirmDialog';
 
+// ---------------------------------------------------------------------------
+// Metrics Summary Bar
+// ---------------------------------------------------------------------------
+
+const MetricsSummary = memo(() => {
+  const { data: metrics } = useDownloadsMetrics();
+  const active = metrics?.downloads ?? 0;
+  const queued = metrics?.queued ?? 0;
+  const failed = metrics?.failed ?? 0;
+
+  return (
+    <div className="flex flex-wrap justify-center gap-2 mb-3">
+      <div className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-sm">
+        <Activity className="h-4 w-4 text-blue-500" />
+        <span className="font-medium text-blue-500">{active}</span>
+        <span className="text-muted-foreground hidden sm:inline">active</span>
+      </div>
+      <div className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-sm">
+        <Clock className="h-4 w-4 text-amber-500" />
+        <span className="font-medium text-amber-500">{queued}</span>
+        <span className="text-muted-foreground hidden sm:inline">queued</span>
+      </div>
+      <div className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-sm">
+        <AlertTriangle className="h-4 w-4 text-red-500" />
+        <span className="font-medium text-red-500">{failed}</span>
+        <span className="text-muted-foreground hidden sm:inline">failed</span>
+      </div>
+    </div>
+  );
+});
+MetricsSummary.displayName = 'MetricsSummary';
+
+// ---------------------------------------------------------------------------
+// Tab Header Bar
+// ---------------------------------------------------------------------------
+
+const TabHeader = memo(({ title, count, totalCount, children }: { title: string; count: number; totalCount?: number; children?: React.ReactNode }) => (
+  <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+    <div className="flex items-center gap-2">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <Badge variant="secondary" className="text-xs">{count}</Badge>
+      {totalCount !== undefined && totalCount > count && (
+        <>
+          <span className="text-xs text-muted-foreground">of</span>
+          <Badge variant="outline" className="text-xs">{totalCount}</Badge>
+        </>
+      )}
+    </div>
+    {children && <div className="flex items-center gap-2 flex-wrap">{children}</div>}
+  </div>
+));
+TabHeader.displayName = 'TabHeader';
+
+// ---------------------------------------------------------------------------
+// Empty / Loading States
+// ---------------------------------------------------------------------------
+
+const EmptyState = memo(({ icon, message }: { icon: React.ReactNode; message: string }) => (
+  <div className="flex items-center justify-center py-16">
+    <div className="text-center text-muted-foreground">
+      <div className="flex justify-center mb-4 opacity-40">{icon}</div>
+      <p className="text-sm">{message}</p>
+    </div>
+  </div>
+));
+EmptyState.displayName = 'EmptyState';
+
+const LoadingState = memo(() => (
+  <div className="flex items-center justify-center py-16">
+    <div className="text-muted-foreground text-sm">Loading…</div>
+  </div>
+));
+LoadingState.displayName = 'LoadingState';
+
+// ---------------------------------------------------------------------------
+// Active Download Card (real-time, no controls)
+// ---------------------------------------------------------------------------
+
+const ActiveDownloadCard = memo(({ item }: { item: ActiveDownloadItem }) => {
+  const isDownloading = item.status === 'downloading';
   return (
     <Card className="transition-all duration-200 flex-shrink-0">
-      <CardHeader className="pb-2 p-2">
+      <div className="p-2">
         <div className="flex items-start gap-3">
-          <Image
-            src={formatThumbnailUrl(displayData.thumbnailUrl)}
-            alt={displayData.seriesTitle}
-            width={60}
-            height={80}
+          <Image src={formatThumbnailUrl(item.thumbnailUrl)} alt={item.seriesTitle} width={60} height={80}
             className="rounded-md object-cover flex-shrink-0"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.src = '/kaizoku.net.png';
-            }}
-          />
+            onError={(e) => { (e.target as HTMLImageElement).src = '/kaizoku.net.png'; }} />
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base line-clamp-2 leading-tight">
-              {displayData.seriesTitle}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-              {displayData.chapterTitle}
-            </p>
-            <div className='flex items-center gap-2 mt-1'>
-              {(displayData.provider || displayData.scanlator) && (
-                displayData.url ? (
-                  <p
-                    className="text-sm text-muted-foreground flex items-center gap-1 cursor-pointer hover:bg-accent/80 transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (displayData.url) {
-                        window.open(displayData.url, '_blank', 'noopener,noreferrer');
-                      }
-                    }}
-                    title="Click to open the chapter in the source"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    {displayData.provider}
-                    {(displayData.provider !== displayData.scanlator && displayData.scanlator) ? ` • ${displayData.scanlator}` : ''}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {displayData.provider}
-                    {(displayData.provider !== displayData.scanlator && displayData.scanlator) ? ` • ${displayData.scanlator}` : ''}
-                  </p>
-                )
-              )}
-              {getStatusIcon(displayData.status)}
-              {isScheduledForFuture && scheduledDate && (
-              <div className="text-xs text-muted-foreground font-medium gap-1">
-                {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
-              )}
-              {displayData.status === 'completed' && downloadDate && (
-                <div className="text-xs text-muted-foreground font-medium">
-                  {downloadDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {displayData.status === 'downloading' && displayData.progress !== undefined && (
-                <span className="text-sm text-muted-foreground font-medium">{displayData.progress}%</span>
-              )}
-              {displayData.errorMessage && (
-                <p className="text-xs text-red-600 mt-2 bg-red-50 p-1 rounded">{displayData.errorMessage}</p>
-              )}
-              {displayData.retries> 0 && (
-                <div className="text-xs text-orange-600 font-medium ml-auto w-auto">
-                Retries: {displayData.retries}
-                </div>
-            )}
-            </div>
-            {/* Show scheduled time for future scheduled downloads */}
-            {displayData.status === 'downloading' && displayData.progress !== undefined && (
-              <Progress value={displayData.progress} className="mt-1 w-full h-2" />
-            )}
-          </div>
-        </div>
-      </CardHeader>
-    </Card>
-  );
-});
-
-DownloadCard.displayName = 'DownloadCard';
-
-// Error Download Card Component - Special card with Delete and Retry buttons
-const ErrorDownloadCard = memo(({ item }: { item: DownloadInfo }) => {
-  const manageErrorDownloadMutation = useManageErrorDownload();
-
-  // Helper function to normalize UTC date strings
-  const normalizeUtcString = (dateString: string) => {
-    return dateString.includes('Z') || dateString.includes('+') || dateString.includes('-', 10) 
-      ? dateString 
-      : dateString + 'Z';
-  };
-
-  // Get download date for completed items
-  const downloadDate = item.downloadDateUTC ? new Date(normalizeUtcString(item.downloadDateUTC)) : null;
-
-  const handleDelete = () => {
-    manageErrorDownloadMutation.mutate({ 
-      id: item.id, 
-      action: ErrorDownloadAction.Delete 
-    });
-  };
-
-  const handleRetry = () => {
-    manageErrorDownloadMutation.mutate({ 
-      id: item.id, 
-      action: ErrorDownloadAction.Retry 
-    });
-  };
-
-  return (
-    <Card className="transition-all duration-200 flex-shrink-0 relative">
-      {/* Action buttons positioned at top right */}
-      <div className="absolute top-2 right-2 z-10 flex gap-1">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleRetry}
-          disabled={manageErrorDownloadMutation.isPending}
-          className="h-6 w-6 p-0"
-          title="Retry download"
-        >
-          <RotateCcw className="h-3 w-3" />
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleDelete}
-          disabled={manageErrorDownloadMutation.isPending}
-          className="h-6 w-6 p-0 hover:bg-red-50 hover:border-red-300"
-          title="Delete download"
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      </div>
-
-      <CardHeader className="pb-2 p-2"> {/* Add right padding for buttons */}
-        <div className="flex items-start gap-3">
-          <Image
-            src={formatThumbnailUrl(item.thumbnailUrl)}
-            alt={item.title}
-            width={60}
-            height={80}
-            className="rounded-md object-cover flex-shrink-0"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.src = '/kaizoku.net.png';
-            }}
-          />
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-base line-clamp-2 leading-tight">
-              {item.title}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-              {item.chapterTitle || `Chapter ${item.chapter}`}
-            </p>
-            <div className='flex items-center gap-2 mt-1'>
+            <p className="text-sm font-semibold line-clamp-2 leading-tight">{item.seriesTitle}</p>
+            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.chapterTitle}</p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               {(item.provider || item.scanlator) && (
                 item.url ? (
-                  <p
-                    className="text-sm text-muted-foreground flex items-center gap-1 cursor-pointer hover:bg-accent/80 transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (item.url) {
-                        window.open(item.url, '_blank', 'noopener,noreferrer');
-                      }
-                    }}
-                    title="Click to open the chapter in the source"
-                  >
+                  <button type="button" className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors"
+                    onClick={() => item.url && window.open(item.url, '_blank', 'noopener,noreferrer')} title="Open chapter source">
                     <ExternalLink className="h-3 w-3" />
-                    {item.provider}
-                    {(item.provider !== item.scanlator && item.scanlator) ? ` • ${item.scanlator}` : ''}
-                  </p>
+                    {item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}
+                  </button>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {item.provider}
-                    {(item.provider !== item.scanlator && item.scanlator) ? ` • ${item.scanlator}` : ''}
+                  <p className="text-xs text-muted-foreground">
+                    {item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}
                   </p>
                 )
               )}
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-              {downloadDate && (
-                <div className="text-xs text-muted-foreground font-medium">
-                  {downloadDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
-              {item.retries > 0 && (
-                <div className="text-xs text-orange-600 font-medium ml-auto w-auto">
-                  Retries: {item.retries}
-                </div>
-              )}
+              <Download className="h-3.5 w-3.5 text-blue-500 animate-pulse flex-shrink-0" />
+              {isDownloading && item.progress > 0 && <span className="text-xs text-muted-foreground font-medium">{item.progress}%</span>}
             </div>
+            {isDownloading && item.progress > 0 && <Progress value={item.progress} className="mt-1.5 h-1.5" />}
+            {item.errorMessage && (
+              <p className="text-xs text-red-600 mt-1.5 bg-red-50 dark:bg-red-950/30 px-1.5 py-1 rounded">{item.errorMessage}</p>
+            )}
           </div>
-        </div>
-      </CardHeader>
-    </Card>
-  );
-});
-
-ErrorDownloadCard.displayName = 'ErrorDownloadCard';
-
-// Active Downloads Panel - Existing functionality moved here
-const ActiveDownloadsPanel = memo(() => {
-  const { data: queueItems, isLoading } = useQueue();
-  const { downloads, downloadCount } = useDownloadProgress();
-  const { debouncedSearchTerm } = useSearch();
-
-  // Helper function to convert ProgressStatus to string
-  const getStatusFromProgressStatus = (status: ProgressStatus): string => {
-    switch (status) {
-      case ProgressStatus.Started:
-      case ProgressStatus.InProgress:
-        return 'downloading';
-      case ProgressStatus.Completed:
-        return 'completed';
-      case ProgressStatus.Failed:
-        return 'error';
-      default:
-        return 'queued';
-    }
-  };
-
-  // Combine static queue items with real-time downloads
-  const allItems = useMemo(() => {
-    const staticItems: ExtendedQueueItem[] = (queueItems || []).map(item => ({
-      ...item,
-      retries: 0, // Static queue items don't have retries
-      isRealTime: false
-    }));
-    
-    const realTimeDownloads: ExtendedQueueItem[] = downloads.map(download => ({
-      id: download.id,
-      seriesTitle: download.cardInfo.title,
-      chapterTitle: download.cardInfo.chapterName,
-      thumbnailUrl: download.cardInfo.thumbnailUrl,
-      status: getStatusFromProgressStatus(download.status),
-      progress: Math.round(download.percentage),
-      provider: download.cardInfo.provider,
-      scanlator: download.cardInfo.scanlator,
-      language: download.cardInfo.language,
-      chapterNumber: download.cardInfo.chapterNumber,
-      pageCount: download.cardInfo.pageCount,
-      message: download.message,
-      errorMessage: download.errorMessage,
-      retries: 0, // Real-time downloads don't have retries exposed
-      isRealTime: true
-    }));
-
-    return [...realTimeDownloads, ...staticItems];
-  }, [queueItems, downloads]);
-
-  return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="p-3 pb-0 flex-shrink-0">
-        <CardTitle className="text-md items-center flex">
-          Active Downloads
-          {downloadCount > 0 && (
-            <Badge variant="secondary" className="ml-2 text-xs">{downloadCount}</Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        ) : allItems.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-muted-foreground">
-              <Download className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No active downloads</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-            {allItems.map((item) => (
-              <DownloadCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-ActiveDownloadsPanel.displayName = 'ActiveDownloadsPanel';
-
-// Completed Downloads Panel
-const CompletedDownloadsPanel = memo(() => {
-  const { data: settings } = useSettings();
-  const { debouncedSearchTerm } = useSearch();
-  const limit = settings?.numberOfSimultaneousDownloads || 10;
-  
-  const { data: completedDownloadsData, isLoading } = useCompletedDownloadsWithCount(
-    limit, 
-    debouncedSearchTerm.trim() || undefined, // Pass search term to server
-    {
-      refetchInterval: 5000, // Poll every 5 seconds
-      refetchIntervalInBackground: true,
-      staleTime: 2000,
-    }
-  );
-
-  const memoizedDownloads = useMemo(() => completedDownloadsData?.downloads || [], [completedDownloadsData?.downloads]);
-  const totalCount = completedDownloadsData?.totalCount || 0;
-
-  return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="p-3 pb-0 flex-shrink-0">
-        <CardTitle className="text-md items-center flex">
-          Latest Downloads
-          <Badge variant="secondary"  className="ml-2 text-xs">
-            {memoizedDownloads.length}
-          </Badge>
-          {totalCount > memoizedDownloads.length && (
-            <>&nbsp;&nbsp;
-              <span className="text-sm text-muted-foreground">of</span><Badge variant="secondary" className="ml-2 text-xs">{totalCount}</Badge>
-            </>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-auto p-2">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        ) : memoizedDownloads.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-muted-foreground">
-              <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No completed downloads</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-            {memoizedDownloads.map((download) => (
-              <DownloadCard key={`${download.title}-${download.chapter}-${download.provider}-${download.scheduledDateUTC}`} item={download} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-CompletedDownloadsPanel.displayName = 'CompletedDownloadsPanel';
-
-// Scheduled Downloads Panel
-const ScheduledDownloadsPanel = memo(() => {
-  const { data: settings } = useSettings();
-  const { debouncedSearchTerm } = useSearch();
-  const limit = settings?.numberOfSimultaneousDownloads || 10;
-  
-  const { data: scheduledDownloadsData, isLoading } = useWaitingDownloadsWithCount(
-    limit,
-    debouncedSearchTerm.trim() || undefined, // Pass search term to server
-    {
-      refetchInterval: 5000, // Poll every 5 seconds
-      refetchIntervalInBackground: true,
-      staleTime: 2000,
-    }
-  );
-
-  const memoizedDownloads = useMemo(() => scheduledDownloadsData?.downloads || [], [scheduledDownloadsData?.downloads]);
-  const totalCount = scheduledDownloadsData?.totalCount || 0;
-
-  return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="p-3 pb-0 flex-shrink-0">
-        <CardTitle className="text-md items-center flex">
-          Scheduled Downloads
-          <Badge variant="secondary"  className="ml-2 text-xs">
-            {memoizedDownloads.length}
-          </Badge>
-          {totalCount > memoizedDownloads.length && (
-            <>&nbsp;&nbsp;
-              <span className="text-sm text-muted-foreground">of</span><Badge variant="secondary" className="ml-2 text-xs">{totalCount}</Badge>
-            </>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-auto p-2">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        ) : memoizedDownloads.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-muted-foreground">
-              <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No scheduled downloads</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-            {memoizedDownloads.map((download) => (
-              <DownloadCard key={`${download.title}-${download.chapter}-${download.provider}-${download.scheduledDateUTC}`} item={download} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-ScheduledDownloadsPanel.displayName = 'ScheduledDownloadsPanel';
-
-// Error Downloads Panel
-const ErrorDownloadsPanel = memo(() => {
-  const { data: settings } = useSettings();
-  const { debouncedSearchTerm } = useSearch();
-  const limit = settings?.numberOfSimultaneousDownloads || 10;
-  
-  const { data: errorDownloadsData, isLoading } = useFailedDownloadsWithCount(
-    limit,
-    debouncedSearchTerm.trim() || undefined, // Pass search term to server
-    {
-      refetchInterval: 30000, // Poll every 30 seconds
-      refetchIntervalInBackground: true,
-      staleTime: 15000,
-    }
-  );
-
-  const memoizedDownloads = useMemo(() => errorDownloadsData?.downloads || [], [errorDownloadsData?.downloads]);
-  const totalCount = errorDownloadsData?.totalCount || 0;
-
-  return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="p-3 pb-0 flex-shrink-0">
-        <CardTitle className="text-md items-center flex">
-          Error Downloads
-          <Badge variant="secondary"  className="ml-2 text-xs">
-            {memoizedDownloads.length}
-          </Badge>
-          {totalCount > memoizedDownloads.length && (
-            <>&nbsp;&nbsp;
-              <span className="text-sm text-muted-foreground">of</span><Badge variant="secondary" className="ml-2 text-xs">{totalCount}</Badge>
-            </>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-auto p-2">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        ) : memoizedDownloads.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-muted-foreground">
-              <Smile className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No failed downloads</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
-            {memoizedDownloads.map((download) => (
-              <ErrorDownloadCard key={`${download.title}-${download.chapter}-${download.provider}-${download.scheduledDateUTC}`} item={download} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-ErrorDownloadsPanel.displayName = 'ErrorDownloadsPanel';
-
-export default function Queue() {
-  const { downloads, downloadCount } = useDownloadProgress();
-  const { debouncedSearchTerm } = useSearch();
-
-  return (
-    <div className="flex flex-col p-2">
-      {/* Five horizontal panels, each taking exactly 16% of the available height with 20% space remaining */}
-      <div className="flex-1 flex flex-col gap-3 min-h-0">
-        {/* Panel 1: Active Downloads - 16% height */}
-        <div className="h-71.5 min-h-0">
-          <ActiveDownloadsPanel />
-        </div>
-
-        {/* Panel 2: Completed Downloads - 16% height */}
-        <div className="h-71.5 min-h-0">
-          <CompletedDownloadsPanel />
-        </div>
-
-        {/* Panel 3: Scheduled Downloads - 16% height */}
-        <div className="h-71.5 min-h-0">
-          <ScheduledDownloadsPanel />
-        </div>
-
-        {/* Panel 4: Error Downloads - 16% height */}
-        <div className="h-71.5 min-h-0">
-          <ErrorDownloadsPanel />
-        </div>
-
-        {/* Panel 5: Jobs - 16% height */}
-        <div className="min-h-0">
-          <JobsPanel />
         </div>
       </div>
+    </Card>
+  );
+});
+ActiveDownloadCard.displayName = 'ActiveDownloadCard';
+
+// ---------------------------------------------------------------------------
+// Removable Download Card (queued / completed — has X button)
+// ---------------------------------------------------------------------------
+
+const RemovableDownloadCard = memo(({ item }: { item: DownloadInfo }) => {
+  const removeDownload = useRemoveDownload();
+
+  const isScheduledForFuture = useMemo(() => {
+    const scheduledDate = new Date(normalizeUtcString(item.scheduledDateUTC));
+    return !item.downloadDateUTC && scheduledDate > new Date();
+  }, [item.scheduledDateUTC, item.downloadDateUTC]);
+
+  const scheduledDate = useMemo(() => (isScheduledForFuture ? new Date(normalizeUtcString(item.scheduledDateUTC)) : null), [isScheduledForFuture, item.scheduledDateUTC]);
+  const downloadDate = useMemo(() => (item.downloadDateUTC ? new Date(normalizeUtcString(item.downloadDateUTC)) : null), [item.downloadDateUTC]);
+  const statusString = item.status === QueueStatus.WAITING ? 'waiting' : item.status === QueueStatus.COMPLETED ? 'completed' : 'unknown';
+
+  const handleRemove = useCallback((e: React.MouseEvent) => { e.stopPropagation(); removeDownload.mutate(item.id); }, [item.id, removeDownload]);
+  const handleExternalLink = useCallback((e: React.MouseEvent) => { e.stopPropagation(); if (item.url) window.open(item.url, '_blank', 'noopener,noreferrer'); }, [item.url]);
+
+  return (
+    <Card className="transition-all duration-200 flex-shrink-0 relative group">
+      <button type="button" onClick={handleRemove} disabled={removeDownload.isPending} title="Remove from queue"
+        className="absolute top-1.5 right-1.5 z-10 h-5 w-5 rounded-sm flex items-center justify-center bg-background/80 border border-border opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-all duration-150 disabled:pointer-events-none disabled:opacity-50">
+        <X className="h-3 w-3" />
+      </button>
+      <div className="p-2 pr-7">
+        <div className="flex items-start gap-3">
+          <Image src={formatThumbnailUrl(item.thumbnailUrl)} alt={item.title} width={60} height={80}
+            className="rounded-md object-cover flex-shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).src = '/kaizoku.net.png'; }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold line-clamp-2 leading-tight">{item.title}</p>
+            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.chapterTitle || `Chapter ${item.chapter}`}</p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {(item.provider || item.scanlator) && (
+                item.url ? (
+                  <button type="button" className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors" onClick={handleExternalLink} title="Open chapter source">
+                    <ExternalLink className="h-3 w-3" />
+                    {item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}
+                  </button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}</p>
+                )
+              )}
+              {getStatusIcon(statusString, isScheduledForFuture)}
+              {isScheduledForFuture && scheduledDate && <span className="text-xs text-muted-foreground font-medium">{scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+              {statusString === 'completed' && downloadDate && <span className="text-xs text-muted-foreground font-medium">{downloadDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+              {item.retries > 0 && <span className="text-xs text-orange-600 font-medium ml-auto">Retries: {item.retries}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+});
+RemovableDownloadCard.displayName = 'RemovableDownloadCard';
+
+// ---------------------------------------------------------------------------
+// Error Download Card (retry + delete buttons)
+// ---------------------------------------------------------------------------
+
+const ErrorDownloadCard = memo(({ item }: { item: DownloadInfo }) => {
+  const manageErrorDownload = useManageErrorDownload();
+  const downloadDate = useMemo(() => (item.downloadDateUTC ? new Date(normalizeUtcString(item.downloadDateUTC)) : null), [item.downloadDateUTC]);
+  const handleRetry = useCallback(() => manageErrorDownload.mutate({ id: item.id, action: ErrorDownloadAction.Retry }), [item.id, manageErrorDownload]);
+  const handleDelete = useCallback(() => manageErrorDownload.mutate({ id: item.id, action: ErrorDownloadAction.Delete }), [item.id, manageErrorDownload]);
+  const handleExternalLink = useCallback((e: React.MouseEvent) => { e.stopPropagation(); if (item.url) window.open(item.url, '_blank', 'noopener,noreferrer'); }, [item.url]);
+
+  return (
+    <Card className="transition-all duration-200 flex-shrink-0 relative group">
+      <div className="absolute top-1.5 right-1.5 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <button type="button" onClick={handleRetry} disabled={manageErrorDownload.isPending} title="Retry download"
+          className="h-5 w-5 rounded-sm flex items-center justify-center bg-background/80 border border-border hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 dark:hover:bg-blue-950/40 dark:hover:border-blue-700 transition-colors disabled:pointer-events-none disabled:opacity-50">
+          <RotateCcw className="h-3 w-3" />
+        </button>
+        <button type="button" onClick={handleDelete} disabled={manageErrorDownload.isPending} title="Delete download"
+          className="h-5 w-5 rounded-sm flex items-center justify-center bg-background/80 border border-border hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors disabled:pointer-events-none disabled:opacity-50">
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="p-2 pr-14">
+        <div className="flex items-start gap-3">
+          <Image src={formatThumbnailUrl(item.thumbnailUrl)} alt={item.title} width={60} height={80}
+            className="rounded-md object-cover flex-shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).src = '/kaizoku.net.png'; }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold line-clamp-2 leading-tight">{item.title}</p>
+            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.chapterTitle || `Chapter ${item.chapter}`}</p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {(item.provider || item.scanlator) && (
+                item.url ? (
+                  <button type="button" className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors" onClick={handleExternalLink} title="Open chapter source">
+                    <ExternalLink className="h-3 w-3" />
+                    {item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}
+                  </button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{item.provider}{item.provider !== item.scanlator && item.scanlator ? ` · ${item.scanlator}` : ''}</p>
+                )
+              )}
+              <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+              {downloadDate && <span className="text-xs text-muted-foreground font-medium">{downloadDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+              {item.retries > 0 && <span className="text-xs text-orange-600 font-medium ml-auto">Retries: {item.retries}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+});
+ErrorDownloadCard.displayName = 'ErrorDownloadCard';
+
+// ---------------------------------------------------------------------------
+// Tab Panels
+// ---------------------------------------------------------------------------
+
+const ActiveTabPanel = memo(() => {
+  const { downloads, downloadCount } = useDownloadProgress();
+  const activeItems = useMemo<ActiveDownloadItem[]>(() => downloads.map((d) => ({
+    id: d.id, seriesTitle: d.cardInfo.title, chapterTitle: d.cardInfo.chapterName, thumbnailUrl: d.cardInfo.thumbnailUrl,
+    status: d.status === ProgressStatus.Started || d.status === ProgressStatus.InProgress ? 'downloading' : d.status === ProgressStatus.Completed ? 'completed' : 'error',
+    progress: Math.round(d.percentage), provider: d.cardInfo.provider, scanlator: d.cardInfo.scanlator,
+    language: d.cardInfo.language, chapterNumber: d.cardInfo.chapterNumber, pageCount: d.cardInfo.pageCount,
+    message: d.message, errorMessage: d.errorMessage, url: d.cardInfo.url,
+  })), [downloads]);
+
+  return (
+    <div>
+      <TabHeader title="Active Downloads" count={downloadCount} />
+      {activeItems.length === 0 ? <EmptyState icon={<Download className="h-12 w-12" />} message="No active downloads right now" /> : (
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
+          {activeItems.map((item) => <ActiveDownloadCard key={item.id} item={item} />)}
+        </div>
+      )}
+    </div>
+  );
+});
+ActiveTabPanel.displayName = 'ActiveTabPanel';
+
+const QueuedTabPanel = memo(() => {
+  const { data: settings } = useSettings();
+  const { debouncedSearchTerm } = useSearch();
+  const limit = settings?.numberOfSimultaneousDownloads || 10;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const { data, isLoading } = useWaitingDownloadsWithCount(limit, debouncedSearchTerm.trim() || undefined, { refetchInterval: 5000, refetchIntervalInBackground: true, staleTime: 2000 });
+  const clearDownloads = useClearDownloadsByStatus();
+  const downloads = useMemo(() => data?.downloads ?? [], [data?.downloads]);
+  const totalCount = data?.totalCount ?? 0;
+  const handleClearAll = useCallback(() => { clearDownloads.mutate(QueueStatus.WAITING, { onSuccess: () => setConfirmOpen(false) }); }, [clearDownloads]);
+
+  return (
+    <div>
+      <TabHeader title="Queued Downloads" count={downloads.length} totalCount={totalCount}>
+        {downloads.length > 0 && (
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 hover:bg-destructive/10 hover:border-destructive/50 hover:text-destructive"
+            onClick={() => setConfirmOpen(true)} disabled={clearDownloads.isPending}>
+            <Trash2 className="h-3 w-3" /> Clear All Queued
+          </Button>
+        )}
+      </TabHeader>
+      {isLoading ? <LoadingState /> : downloads.length === 0 ? <EmptyState icon={<Clock className="h-12 w-12" />} message="No downloads in queue" /> : (
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
+          {downloads.map((item) => <RemovableDownloadCard key={`${item.title}-${item.chapter}-${item.provider}-${item.scheduledDateUTC}`} item={item} />)}
+        </div>
+      )}
+      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Clear All Queued Downloads?"
+        description={`This will permanently remove all ${totalCount || downloads.length} queued download${(totalCount || downloads.length) !== 1 ? 's' : ''}. This action cannot be undone.`}
+        confirmLabel="Clear All" onConfirm={handleClearAll} isPending={clearDownloads.isPending} />
+    </div>
+  );
+});
+QueuedTabPanel.displayName = 'QueuedTabPanel';
+
+const CompletedTabPanel = memo(() => {
+  const { data: settings } = useSettings();
+  const { debouncedSearchTerm } = useSearch();
+  const limit = settings?.numberOfSimultaneousDownloads || 10;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const { data, isLoading } = useCompletedDownloadsWithCount(limit, debouncedSearchTerm.trim() || undefined, { refetchInterval: 5000, refetchIntervalInBackground: true, staleTime: 2000 });
+  const clearDownloads = useClearDownloadsByStatus();
+  const downloads = useMemo(() => data?.downloads ?? [], [data?.downloads]);
+  const totalCount = data?.totalCount ?? 0;
+  const handleClearHistory = useCallback(() => { clearDownloads.mutate(QueueStatus.COMPLETED, { onSuccess: () => setConfirmOpen(false) }); }, [clearDownloads]);
+
+  return (
+    <div>
+      <TabHeader title="Completed Downloads" count={downloads.length} totalCount={totalCount}>
+        {downloads.length > 0 && (
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 hover:bg-destructive/10 hover:border-destructive/50 hover:text-destructive"
+            onClick={() => setConfirmOpen(true)} disabled={clearDownloads.isPending}>
+            <Trash2 className="h-3 w-3" /> Clear History
+          </Button>
+        )}
+      </TabHeader>
+      {isLoading ? <LoadingState /> : downloads.length === 0 ? <EmptyState icon={<CheckCircle className="h-12 w-12" />} message="No completed downloads" /> : (
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
+          {downloads.map((item) => <RemovableDownloadCard key={`${item.title}-${item.chapter}-${item.provider}-${item.scheduledDateUTC}`} item={item} />)}
+        </div>
+      )}
+      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Clear Download History?"
+        description={`This will permanently remove all ${totalCount || downloads.length} completed download record${(totalCount || downloads.length) !== 1 ? 's' : ''}. This action cannot be undone.`}
+        confirmLabel="Clear History" onConfirm={handleClearHistory} isPending={clearDownloads.isPending} />
+    </div>
+  );
+});
+CompletedTabPanel.displayName = 'CompletedTabPanel';
+
+const ErrorsTabPanel = memo(() => {
+  const { data: settings } = useSettings();
+  const { debouncedSearchTerm } = useSearch();
+  const limit = settings?.numberOfSimultaneousDownloads || 10;
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [confirmRetryAllOpen, setConfirmRetryAllOpen] = useState(false);
+  const { data, isLoading } = useFailedDownloadsWithCount(limit, debouncedSearchTerm.trim() || undefined, { refetchInterval: 30000, refetchIntervalInBackground: true, staleTime: 15000 });
+  const clearDownloads = useClearDownloadsByStatus();
+  const retryAllFailed = useRetryAllFailedDownloads();
+  const downloads = useMemo(() => data?.downloads ?? [], [data?.downloads]);
+  const totalCount = data?.totalCount ?? 0;
+  const handleClearAll = useCallback(() => { clearDownloads.mutate(QueueStatus.FAILED, { onSuccess: () => setConfirmClearOpen(false) }); }, [clearDownloads]);
+  const handleRetryAll = useCallback(() => { retryAllFailed.mutate(undefined, { onSuccess: () => setConfirmRetryAllOpen(false) }); }, [retryAllFailed]);
+  const isBulkPending = clearDownloads.isPending || retryAllFailed.isPending;
+
+  return (
+    <div>
+      <TabHeader title="Failed Downloads" count={downloads.length} totalCount={totalCount}>
+        {downloads.length > 0 && (
+          <>
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 dark:hover:bg-blue-950/40 dark:hover:border-blue-700"
+              onClick={() => setConfirmRetryAllOpen(true)} disabled={isBulkPending}>
+              <RotateCcw className="h-3 w-3" /> Retry All
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 hover:bg-destructive/10 hover:border-destructive/50 hover:text-destructive"
+              onClick={() => setConfirmClearOpen(true)} disabled={isBulkPending}>
+              <Trash2 className="h-3 w-3" /> Clear All Errors
+            </Button>
+          </>
+        )}
+      </TabHeader>
+      {isLoading ? <LoadingState /> : downloads.length === 0 ? <EmptyState icon={<Smile className="h-12 w-12" />} message="No failed downloads — great work!" /> : (
+        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
+          {downloads.map((item) => <ErrorDownloadCard key={`${item.title}-${item.chapter}-${item.provider}-${item.scheduledDateUTC}`} item={item} />)}
+        </div>
+      )}
+      <ConfirmDialog open={confirmRetryAllOpen} onOpenChange={setConfirmRetryAllOpen} title="Retry All Failed Downloads?"
+        description={`This will re-queue all ${totalCount || downloads.length} failed download${(totalCount || downloads.length) !== 1 ? 's' : ''} for another attempt.`}
+        confirmLabel="Retry All" confirmVariant="default" onConfirm={handleRetryAll} isPending={retryAllFailed.isPending} />
+      <ConfirmDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen} title="Clear All Failed Downloads?"
+        description={`This will permanently delete all ${totalCount || downloads.length} failed download record${(totalCount || downloads.length) !== 1 ? 's' : ''}. This action cannot be undone.`}
+        confirmLabel="Clear All" onConfirm={handleClearAll} isPending={clearDownloads.isPending} />
+    </div>
+  );
+});
+ErrorsTabPanel.displayName = 'ErrorsTabPanel';
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function Queue() {
+  const { downloadCount } = useDownloadProgress();
+  const { data: metrics } = useDownloadsMetrics();
+  const queuedCount = metrics?.queued ?? 0;
+  const failedCount = metrics?.failed ?? 0;
+
+  return (
+    <div className="flex flex-col p-2 gap-3">
+      <MetricsSummary />
+      <Tabs defaultValue="active" className="w-full">
+        <div className="flex justify-center">
+        <TabsList className="mb-1 flex-wrap h-auto gap-1 w-full sm:w-auto">
+          <TabsTrigger value="active" className="gap-1.5 text-xs sm:text-sm">
+            <Activity className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Active</span>
+            {downloadCount > 0 && <Badge variant="secondary" className="text-xs px-1 py-0 h-4 min-w-[18px]">{downloadCount}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="queued" className="gap-1.5 text-xs sm:text-sm">
+            <Clock className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Queued</span>
+            {queuedCount > 0 && <Badge variant="secondary" className="text-xs px-1 py-0 h-4 min-w-[18px]">{queuedCount}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="completed" className="gap-1.5 text-xs sm:text-sm">
+            <CheckCircle className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Completed</span>
+          </TabsTrigger>
+          <TabsTrigger value="errors" className="gap-1.5 text-xs sm:text-sm">
+            <AlertTriangle className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Errors</span>
+            {failedCount > 0 && <Badge variant="destructive" className="text-xs px-1 py-0 h-4 min-w-[18px]">{failedCount}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="jobs" className="gap-1.5 text-xs sm:text-sm">
+            <Layers className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Jobs</span>
+          </TabsTrigger>
+        </TabsList>
+        </div>
+        <TabsContent value="active"><ActiveTabPanel /></TabsContent>
+        <TabsContent value="queued"><QueuedTabPanel /></TabsContent>
+        <TabsContent value="completed"><CompletedTabPanel /></TabsContent>
+        <TabsContent value="errors"><ErrorsTabPanel /></TabsContent>
+        <TabsContent value="jobs"><JobsPanel /></TabsContent>
+      </Tabs>
     </div>
   );
 }

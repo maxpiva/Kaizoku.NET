@@ -124,4 +124,27 @@ export const downloadsService = {
     
     return apiClient.patch<void>(`/api/downloads?${params.toString()}`);
   },
+
+  /**
+   * Remove a single download from the queue (waiting, completed, or failed - not running)
+   */
+  async removeDownload(id: string): Promise<void> {
+    return apiClient.delete<void>(`/api/downloads/${id}`);
+  },
+
+  /**
+   * Clear all downloads with a given status
+   */
+  async clearDownloadsByStatus(status: QueueStatus): Promise<{ cleared: number }> {
+    const params = new URLSearchParams();
+    params.append('status', status.toString());
+    return apiClient.delete<{ cleared: number }>(`/api/downloads/clear?${params.toString()}`);
+  },
+
+  /**
+   * Retry all failed downloads
+   */
+  async retryAllFailedDownloads(): Promise<{ retried: number }> {
+    return apiClient.post<{ retried: number }>('/api/downloads/retry-all');
+  },
 };

@@ -25,8 +25,9 @@ namespace KaizokuBackend.Services.Providers
         private readonly SettingsService _settingsService;
         private readonly ILogger<ProviderCacheService> _logger;
         
-        private static List<ProviderStorageEntity>? _providers = [];
-        private static List<string> _languages = [];
+        private static volatile List<ProviderStorageEntity>? _providers = [];
+        private static volatile List<string> _languages = [];
+        private static readonly SemaphoreSlim _cacheLock = new(1, 1);
 
         public ProviderCacheService(AppDbContext db, JobBusinessService jobBusinessService,
             SettingsService settingsService, MihonBridgeService mihon, ILogger<ProviderCacheService> logger)
@@ -39,13 +40,30 @@ namespace KaizokuBackend.Services.Providers
         }
 
         /// <summary>
-        /// Gets cached providers
+        /// Gets cached providers. Uses a semaphore to prevent thundering-herd
+        /// when multiple concurrent requests trigger cache population.
         /// </summary>
         public async Task<List<ProviderStorageEntity>> GetCachedProvidersAsync(CancellationToken token = default)
         {
             if (_providers == null || _providers.Count == 0)
             {
-                await RefreshCacheAsync(false, token).ConfigureAwait(false);
+                await _cacheLock.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    // Double-check after acquiring the lock
+                    if (_providers == null || _providers.Count == 0)
+                    {
+                        await RefreshCacheAsync(false, token).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to refresh provider cache. Returning empty provider list.");
+                }
+                finally
+                {
+                    _cacheLock.Release();
+                }
             }
             return _providers ?? [];
         }
@@ -59,7 +77,22 @@ namespace KaizokuBackend.Services.Providers
         {
             if (_providers == null || _providers.Count == 0)
             {
-                await RefreshCacheAsync(false, token).ConfigureAwait(false);
+                await _cacheLock.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (_providers == null || _providers.Count == 0)
+                    {
+                        await RefreshCacheAsync(false, token).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to refresh provider cache. Returning empty language list.");
+                }
+                finally
+                {
+                    _cacheLock.Release();
+                }
             }
             return _languages ?? [];
         }
@@ -79,18 +112,9 @@ namespace KaizokuBackend.Services.Providers
 
             foreach (var provider in storages)
             {
-                if (languageSet.Count == 0)
+                if (languageSet.Count == 0 || provider.Language == "all" || languageSet.Contains(provider.Language))
                 {
-                    if (!result.Contains(provider))
-                        result.Add(provider);
-                }
-                else
-                {
-                    if (provider.Language == "all" || languageSet.Contains(provider.Language))
-                    {
-                        if (!result.Contains(provider))
-                            result.Add(provider);
-                    }
+                    result.Add(provider); // HashSet.Add already handles duplicates
                 }
             }
             return result.ToList();
@@ -150,9 +174,25 @@ namespace KaizokuBackend.Services.Providers
                     }
                     ProviderStorageEntity storage = new ProviderStorageEntity();
                     storage.MihonProviderId = entry.GetMihonProviderId(source);
-                    ISourceInterop? interop = await _mihon.SourceFromProviderIdAsync(storage.MihonProviderId, token).ConfigureAwait(false);
+                    ISourceInterop? interop = null;
+                    try
+                    {
+                        interop = await _mihon.SourceFromProviderIdAsync(storage.MihonProviderId, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to load source interop for provider {ProviderId} (package: {Package}). " +
+                            "Marking as broken — the extension may need to be rebuilt or updated.",
+                            storage.MihonProviderId, package);
+                    }
                     storage.FillProviderStorage(entry, extension, source, interop, repoName, entry.RepositoryId);
-                    if (storage.Language == "all")
+                    if (interop == null)
+                    {
+                        // Extension failed to load — mark as broken so it's skipped in searches
+                        storage.IsBroken = true;
+                        storage.IsEnabled = false;
+                    }
+                    else if (storage.Language == "all")
                         storage.IsEnabled = true;
                     else if (prefLanguages.Contains(storage.Language, StringComparer.InvariantCultureIgnoreCase))
                         storage.IsEnabled = true;
@@ -181,8 +221,15 @@ namespace KaizokuBackend.Services.Providers
             bool commit = false;
             foreach (string package in packages)
             {
-                RepositoryGroup? grp = extensions.FirstOrDefault(a => a.GetActiveEntry().Extension.Package.Equals(package, StringComparison.OrdinalIgnoreCase));
-                commit |= await ReconcileLocalAsync(package, settings.PreferredLanguages, grp, storages, onlinerepos, token).ConfigureAwait(false);
+                try
+                {
+                    RepositoryGroup? grp = extensions.FirstOrDefault(a => a.GetActiveEntry().Extension.Package.Equals(package, StringComparison.OrdinalIgnoreCase));
+                    commit |= await ReconcileLocalAsync(package, settings.PreferredLanguages, grp, storages, onlinerepos, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to reconcile extension package '{Package}'. Skipping — other extensions will continue loading.", package);
+                }
             }
             if (commit)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
@@ -191,35 +238,45 @@ namespace KaizokuBackend.Services.Providers
             commit = false;
             foreach (ProviderStorageEntity storage in storages)
             {
-                var combo = extensions.FindSource(storage.MihonProviderId);
-                if (combo.Group == null)
+                try
                 {
-                    if (storage.IsEnabled)
+                    var combo = extensions.FindSource(storage.MihonProviderId);
+                    if (combo.Group == null)
                     {
-                        var onlinecombo = onlinerepos.FindSource(storage.MihonProviderId);
-                        if (onlinecombo.Extension == null && !storage.IsDead)
+                        if (storage.IsEnabled)
                         {
-                            storage.IsDead = true;
-                            storage.IsEnabled = false;
-                            commit = true;
-                            await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                        }
-                        else if (onlinecombo.Extension != null)
-                        {
-                            var repoGroup = await _mihon.AddExtensionAsync(onlinecombo.Extension,false, token).ConfigureAwait(false);
-                            if (repoGroup != null)
+                            var onlinecombo = onlinerepos.FindSource(storage.MihonProviderId);
+                            if (onlinecombo.Extension == null && !storage.IsDead)
                             {
-                                commit |= await ReconcileLocalAsync(storage.SourcePackageName!, settings.PreferredLanguages, repoGroup, storages, onlinerepos, token).ConfigureAwait(false);                               
-                            }
-                            else
-                            {
+                                storage.IsDead = true;
                                 storage.IsEnabled = false;
-                                storage.IsBroken = true;
                                 commit = true;
+                                await _db.SaveChangesAsync(token).ConfigureAwait(false);
                             }
-
+                            else if (onlinecombo.Extension != null)
+                            {
+                                var repoGroup = await _mihon.AddExtensionAsync(onlinecombo.Extension,false, token).ConfigureAwait(false);
+                                if (repoGroup != null)
+                                {
+                                    commit |= await ReconcileLocalAsync(storage.SourcePackageName!, settings.PreferredLanguages, repoGroup, storages, onlinerepos, token).ConfigureAwait(false);
+                                }
+                                else
+                                {
+                                    storage.IsEnabled = false;
+                                    storage.IsBroken = true;
+                                    commit = true;
+                                }
+                            }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to reconcile online provider '{ProviderId}'. Marking as broken.",
+                        storage.MihonProviderId);
+                    storage.IsEnabled = false;
+                    storage.IsBroken = true;
+                    commit = true;
                 }
             }
             if (commit)
@@ -299,6 +356,7 @@ namespace KaizokuBackend.Services.Providers
             
             bool hasEnabledProviders = _providers.Any(p => p.IsActive);
             await _jobBusinessService.ManageExtensionUpdatesAsync(hasEnabledProviders, token).ConfigureAwait(false);
+            await _jobBusinessService.ManageHealthCheckJobAsync(hasEnabledProviders, token).ConfigureAwait(false);
         }
 
     

@@ -270,15 +270,56 @@ export const useDownloadsMetrics = (
  */
 export const useManageErrorDownload = () => {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ id, action }: { id: string; action: ErrorDownloadAction }) =>
       downloadsService.manageErrorDownload(id, action),
     onSuccess: () => {
-      // Invalidate and refetch failed downloads to get updated list
       queryClient.invalidateQueries({ queryKey: ['downloads', 'failed'] });
       queryClient.invalidateQueries({ queryKey: ['downloads', 'failed-with-count'] });
       queryClient.invalidateQueries({ queryKey: ['downloads', 'metrics'] });
+    },
+  });
+};
+
+/**
+ * Hook to remove a single download from the queue
+ */
+export const useRemoveDownload = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => downloadsService.removeDownload(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['downloads'] });
+    },
+  });
+};
+
+/**
+ * Hook to clear all downloads with a given status
+ */
+export const useClearDownloadsByStatus = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (status: QueueStatus) => downloadsService.clearDownloadsByStatus(status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['downloads'] });
+    },
+  });
+};
+
+/**
+ * Hook to retry all failed downloads
+ */
+export const useRetryAllFailedDownloads = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => downloadsService.retryAllFailedDownloads(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
   });
 };

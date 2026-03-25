@@ -85,7 +85,8 @@ namespace KaizokuBackend.Services
             
             // Provider Cache and Storage
             services.TryAddScoped<ProviderCacheService>();
-            
+            services.TryAddScoped<ProviderHealthCheckService>();
+
             return services;
         }
 

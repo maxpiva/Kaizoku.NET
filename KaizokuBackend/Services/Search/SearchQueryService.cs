@@ -112,19 +112,30 @@ namespace KaizokuBackend.Services.Search
             var results = new ConcurrentBag<(string Keyword, ProviderStorageEntity Storage, MangaList Result)>();
             var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
 
+            // Overall search timeout — prevents the entire operation from running unbounded
+            using var overallCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            overallCts.CancelAfter(TimeSpan.FromSeconds(60));
+            var overallToken = overallCts.Token;
+
             await Parallel.ForEachAsync(
                 sources,
-                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = overallToken },
                 async (source, ct) =>
                 {
-                    //Try to match 3 times, for providers that are slow or have temporary issues
-                    int retries = 3;
-                    do
+                    // Bail out early if the caller was already cancelled
+                    ct.ThrowIfCancellationRequested();
+
+                    // Try up to 3 times for providers that have temporary issues
+                    for (int attempt = 0; attempt < 3; attempt++)
                     {
                         try
                         {
-                            var src = await _mihon.SourceFromProviderIdAsync(source.ps.MihonProviderId).ConfigureAwait(false);
-                            var searchResult = await src.SearchAsync(1, source.keyword, ct).ConfigureAwait(false);
+                            // Per-provider timeout: 15 seconds covering init + search
+                            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                            var src = await _mihon.SourceFromProviderIdAsync(source.ps.MihonProviderId, timeoutCts.Token).ConfigureAwait(false);
+                            var searchResult = await src.SearchAsync(1, source.keyword, timeoutCts.Token).ConfigureAwait(false);
                             if (searchResult != null && searchResult.Mangas.Count > 0)
                             {
                                 // Remove duplicates within the same source
@@ -140,18 +151,19 @@ namespace KaizokuBackend.Services.Search
                                 break;
                             }
                         }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            _logger.LogWarning("Provider {Name} timed out on attempt {Attempt}/3.", source.ps.Name, attempt + 1);
+                        }
                         catch (HttpRequestException r)
                         {
-                            _logger.LogWarning("Error searching provider {Name}: Http Error {StatusCode}.", source.ps.Name, r.StatusCode);
+                            _logger.LogWarning("Error searching provider {Name} (attempt {Attempt}/3): Http Error {StatusCode}.", source.ps.Name, attempt + 1, r.StatusCode);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error searching provider {Name}: {Message}", source.ps.Name, ex.Message);
+                            _logger.LogError(ex, "Error searching provider {Name} (attempt {Attempt}/3): {Message}", source.ps.Name, attempt + 1, ex.Message);
                         }
-
-                        retries++;
-                    } while (retries < 3);
-
+                    }
                 }).ConfigureAwait(false);
 
 
@@ -213,15 +225,27 @@ namespace KaizokuBackend.Services.Search
                 var results = new ConcurrentBag<(string providerId, string lang, MangaList)>();
                 var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
 
+                // Overall search timeout — prevents the entire operation from running unbounded
+                using var overallCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                overallCts.CancelAfter(TimeSpan.FromSeconds(60));
+                var overallToken = overallCts.Token;
+
                 await Parallel.ForEachAsync(
                     sourceDict.Keys,
-                    new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
+                    new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = overallToken },
                     async (providerId, ct) =>
                     {
+                        // Bail out early if the caller (e.g. HTTP request) was already cancelled
+                        ct.ThrowIfCancellationRequested();
+
                         try
                         {
-                            var src = await _mihon.SourceFromProviderIdAsync(providerId).ConfigureAwait(false);
-                            var searchResult = await src.SearchAsync(1, keyword, ct).ConfigureAwait(false);
+                            // Per-provider timeout: 15 seconds covering init + search
+                            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                            var src = await _mihon.SourceFromProviderIdAsync(providerId, timeoutCts.Token).ConfigureAwait(false);
+                            var searchResult = await src.SearchAsync(1, keyword, timeoutCts.Token).ConfigureAwait(false);
                             if (searchResult != null && searchResult.Mangas.Count > 0)
                             {
                                 // Remove duplicates within the same source
@@ -235,6 +259,10 @@ namespace KaizokuBackend.Services.Search
                                 searchResult.Mangas = uniqueSeries;
                                 results.Add((providerId, src.Language, searchResult));
                             }
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            _logger.LogWarning("Provider {Name} timed out after 15s, skipping.", sourceDict[providerId].Name);
                         }
                         catch (HttpRequestException r)
                         {
@@ -250,16 +278,15 @@ namespace KaizokuBackend.Services.Search
                 var allSeries = new List<(ParsedManga Manga, string ProviderId, string Language)>();
                 foreach (var (providerId, lang, result) in results)
                 {
-                   
+
                     allSeries.AddRange(result.Mangas.Select(m => (m, providerId, lang)));
                 }
-                foreach(var n in allSeries)
-                {
-                    if (!string.IsNullOrEmpty(n.Manga.ThumbnailUrl))
-                    {
-                        await _thumb.AddUrlAsync(n.Manga.ThumbnailUrl, n.ProviderId, token).ConfigureAwait(false);
-                    }
-                }
+                // Batch-register all thumbnail URLs in a single DB round-trip
+                var thumbUrls = allSeries
+                    .Where(n => !string.IsNullOrEmpty(n.Manga.ThumbnailUrl))
+                    .Select(n => (n.Manga.ThumbnailUrl, (string?)n.ProviderId))
+                    .ToList();
+                await _thumb.AddUrlsBatchAsync(thumbUrls, token).ConfigureAwait(false);
                 var linked = allSeries.FindAndLinkSimilarSeries(threshold);
 
 
@@ -272,10 +299,15 @@ namespace KaizokuBackend.Services.Search
 
                 var finalResults = linked.DistinctBy(a => a.MihonId).OrderByLevenshteinDistance(a => a.Title, keyword).ToList();
 
-                // Cache results for 30 seconds
-                _memoryCache.Set(cacheKey, finalResults, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
+                // Cache results for 5 minutes — search results don't go stale quickly
+                _memoryCache.Set(cacheKey, finalResults, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) });
 
                 return finalResults;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Search for '{keyword}' was cancelled (client disconnect or overall timeout).", keyword);
+                return [];
             }
             catch (Exception ex)
             {

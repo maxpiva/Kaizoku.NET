@@ -28,7 +28,11 @@ public static class DownloadsExtensions
                 ProviderName = sp.Provider,
                 ComicUploadDateUTC = chapter.DateUpload.DateTime,
                 Title = s.Title,
-                SeriesTitle = sp.Title,
+                // Prefer the series-level title for filenames since provider titles may be
+                // truncated by the source (e.g. "Long Title..."). The series title is the
+                // consolidated/user-chosen title which should always be the full version.
+                // Fall back to provider title only if series title is empty.
+                SeriesTitle = !string.IsNullOrEmpty(s.Title) ? s.Title : sp.Title,
                 Url = chapter.RealUrl,
                 Language = sp.Language,
                 ThumbnailUrl = string.IsNullOrEmpty(sp.ThumbnailUrl) ? s.ThumbnailUrl : sp.ThumbnailUrl,

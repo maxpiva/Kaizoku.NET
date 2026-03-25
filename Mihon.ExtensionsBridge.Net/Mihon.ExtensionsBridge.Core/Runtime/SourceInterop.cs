@@ -55,8 +55,10 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
         /// <summary>
         /// Cached filter list for catalogue queries. Populated on first access.
+        /// Thread-safe via lock to prevent concurrent initialization from parallel searches.
         /// </summary>
-        public eu.kanade.tachiyomi.source.model.FilterList _cachedList = null;
+        private volatile eu.kanade.tachiyomi.source.model.FilterList? _cachedList;
+        private readonly object _filterLock = new();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SourceInterop"/> class.
@@ -117,6 +119,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
         /// <summary>
         /// Ensures the catalogue filter list is populated and cached.
+        /// Uses double-checked locking to be safe under concurrent parallel searches.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown when the source does not support catalogue operations.</exception>
         private void PopulateFilterList()
@@ -126,7 +129,10 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
             if (_cachedList == null)
             {
-                _cachedList = _catalogueSource.getFilterList();
+                lock (_filterLock)
+                {
+                    _cachedList ??= _catalogueSource.getFilterList();
+                }
             }
         }
         public async Task<T> WrapHttpException<T>(Func<Task<T>> func)

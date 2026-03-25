@@ -205,7 +205,7 @@ namespace KaizokuBackend.Extensions
             var ret = path;
             foreach (var kvp in ReversePathCharacterMap)
                 ret = ret.Replace(kvp.Key, kvp.Value);
-            ret = ret.Replace("\u2026", "..."); // … ? ...
+            ret = ret.Replace("\u2026", "..."); // ï¿½ ? ...
             return ret.Trim();
         }
 

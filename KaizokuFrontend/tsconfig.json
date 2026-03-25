@@ -55,6 +55,8 @@
     ".next/static/**/*",
     ".next/server/**/*",
     ".next/cache/**/*",
-    "build-test/**/*"
+    "build-test/**/*",
+    "public/sw.js",
+    ".eslintrc.cjs"
   ]
 }

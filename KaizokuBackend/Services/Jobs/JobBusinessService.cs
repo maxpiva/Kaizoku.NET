@@ -74,6 +74,35 @@ namespace KaizokuBackend.Services.Jobs
 
         #endregion
 
+        #region Health Check Management
+
+        public async Task ManageHealthCheckJobAsync(bool enable, CancellationToken token = default)
+        {
+            string key = nameof(JobType.HealthCheckSources);
+            string groupKey = nameof(JobType.HealthCheckSources);
+
+            if (!enable)
+            {
+                await _jobManagement.DisableRecurringJobAsync(JobType.HealthCheckSources, key, token)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                // Run health checks every 6 hours
+                await _jobManagement.ScheduleRecurringJobAsync(
+                    JobType.HealthCheckSources,
+                    (string?)null,
+                    key,
+                    groupKey,
+                    false,
+                    TimeSpan.FromHours(6),
+                    Priority.Low,
+                    token).ConfigureAwait(false);
+            }
+        }
+
+        #endregion
+
         #region Source Management
 
         public async Task ManageSourceJobAsync(ProviderStorageEntity provider, bool enable, bool runNow = false, 

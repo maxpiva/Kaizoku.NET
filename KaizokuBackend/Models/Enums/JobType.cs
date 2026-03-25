@@ -11,5 +11,6 @@ public enum JobType
     Download,
     UpdateExtensions,
     UpdateAllSeries,
-    DailyUpdate
+    DailyUpdate,
+    HealthCheckSources
 }

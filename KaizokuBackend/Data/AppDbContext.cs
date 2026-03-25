@@ -67,7 +67,6 @@ namespace KaizokuBackend.Data
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
-            int a = 1;
         }
 
         public DbSet<SeriesEntity> Series { get; set; }

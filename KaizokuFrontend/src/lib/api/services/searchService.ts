@@ -21,7 +21,7 @@ export const searchService = {
    * @param params Search parameters containing keyword, optional languages, and optional search sources
    * @returns Promise resolving to list of linked series
    */
-  async searchSeries(params: SearchParams): Promise<LinkedSeries[]> {
+  async searchSeries(params: SearchParams, options?: { signal?: AbortSignal }): Promise<LinkedSeries[]> {
     const searchParams = new URLSearchParams({
       keyword: params.keyword,
       ...(params.languages && { languages: params.languages }),
@@ -34,7 +34,7 @@ export const searchService = {
       });
     }
 
-    return apiClient.get<LinkedSeries[]>(`/api/search?${searchParams.toString()}`);
+    return apiClient.get<LinkedSeries[]>(`/api/search?${searchParams.toString()}`, { signal: options?.signal });
   },
 
   /**

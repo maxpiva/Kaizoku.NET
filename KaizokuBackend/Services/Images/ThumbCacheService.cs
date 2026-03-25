@@ -207,6 +207,52 @@ namespace KaizokuBackend.Services.Images
             EtagCacheEntity? cac = await AddInternalUrlAsync(url, mihonProviderId, token).ConfigureAwait(false);
             return cac?.Url;
         }
+
+        /// <summary>
+        /// Batch-registers multiple thumbnail URLs in a single DB round-trip.
+        /// Skips URLs that already exist in the cache or have no matching image provider.
+        /// </summary>
+        public async Task AddUrlsBatchAsync(IEnumerable<(string Url, string? MihonProviderId)> urls, CancellationToken token = default)
+        {
+            var validUrls = urls
+                .Where(u => !string.IsNullOrEmpty(u.Url) && GetProviderForUrl(u.Url) != null)
+                .DistinctBy(u => u.Url)
+                .ToList();
+
+            if (validUrls.Count == 0)
+                return;
+
+            try
+            {
+                var urlStrings = validUrls.Select(u => u.Url).ToList();
+                var existingUrls = await _db.ETagCache
+                    .Where(e => urlStrings.Contains(e.Url))
+                    .Select(e => e.Url)
+                    .ToListAsync(token).ConfigureAwait(false);
+
+                var existingSet = new HashSet<string>(existingUrls, StringComparer.OrdinalIgnoreCase);
+                var newEntries = validUrls
+                    .Where(u => !existingSet.Contains(u.Url))
+                    .Select(u => new EtagCacheEntity
+                    {
+                        Key = Guid.NewGuid().ToString("N"),
+                        Url = u.Url,
+                        MihonProviderId = u.MihonProviderId,
+                        NextUpdateUTC = DateTime.UtcNow.Add(GetCacheDuration())
+                    })
+                    .ToList();
+
+                if (newEntries.Count > 0)
+                {
+                    await _db.ETagCache.AddRangeAsync(newEntries, token).ConfigureAwait(false);
+                    await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error batch-adding {Count} cache entries: {Message}", validUrls.Count, ex.Message);
+            }
+        }
      
         private async Task<EtagCacheEntity?> AddInternalUrlAsync(string url, string? mihonProviderId, CancellationToken token = default)
         {
