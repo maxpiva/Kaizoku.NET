@@ -30,4 +30,10 @@ public class ExtensionDto : IThumb
     public bool AutoUpdate { get; set; } = true;
     [JsonPropertyName("onlineRepositories")]
     public List<ExtensionRepositoryDto> Repositories { get; set; } = [];
+    [JsonPropertyName("lastHealthCheckUtc")]
+    public DateTime? LastHealthCheckUtc { get; set; }
+    [JsonPropertyName("lastHealthCheckPassed")]
+    public bool? LastHealthCheckPassed { get; set; }
+    [JsonPropertyName("lastHealthCheckError")]
+    public string? LastHealthCheckError { get; set; }
 }

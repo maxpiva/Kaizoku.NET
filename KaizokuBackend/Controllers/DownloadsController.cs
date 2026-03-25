@@ -94,5 +94,70 @@ namespace KaizokuBackend.Controllers
                 return StatusCode(500, new { error = "An error occurred while managing the download." });
             }
         }
+
+        /// <summary>
+        /// Remove a single download from the queue (waiting, completed, or failed)
+        /// </summary>
+        [HttpDelete("{id:guid}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> RemoveDownloadAsync(Guid id, CancellationToken token = default)
+        {
+            try
+            {
+                bool removed = await _downloadCommand.RemoveDownloadAsync(id, token).ConfigureAwait(false);
+                return removed ? Ok() : NotFound(new { error = "Download not found or is currently running." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error removing download {Id}: {Message}", id, ex.Message);
+                return StatusCode(500, new { error = "An error occurred while removing the download." });
+            }
+        }
+
+        /// <summary>
+        /// Clear all downloads with a given status
+        /// </summary>
+        [HttpDelete("clear")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<int>> ClearDownloadsByStatusAsync([FromQuery] QueueStatus status, CancellationToken token = default)
+        {
+            try
+            {
+                if (status == QueueStatus.Running)
+                    return BadRequest(new { error = "Cannot clear running downloads." });
+
+                int count = await _downloadCommand.ClearDownloadsByStatusAsync(status, token).ConfigureAwait(false);
+                return Ok(new { cleared = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing downloads with status {Status}: {Message}", status, ex.Message);
+                return StatusCode(500, new { error = "An error occurred while clearing downloads." });
+            }
+        }
+
+        /// <summary>
+        /// Retry all failed downloads
+        /// </summary>
+        [HttpPost("retry-all")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<int>> RetryAllFailedDownloadsAsync(CancellationToken token = default)
+        {
+            try
+            {
+                int count = await _downloadCommand.RetryAllFailedDownloadsAsync(token).ConfigureAwait(false);
+                return Ok(new { retried = count });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrying failed downloads: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while retrying failed downloads." });
+            }
+        }
     }
 }

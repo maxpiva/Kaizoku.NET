@@ -89,7 +89,7 @@ namespace KaizokuBackend.Services.Helpers
                         continue;
                     // Now check if the filename should be changed
                     string prefix = $"[{sp.Provider}][{sp.Language}]";
-                    string safeName = MakeFileNameSafe(sp.Provider, sp.Scanlator, sp.Title, sp.Language, chap.Number, chap.Name, sp.ChapterCount);
+                    string safeName = MakeFileNameSafe(sp.Provider, sp.Scanlator, series.Title, sp.Language, chap.Number, chap.Name, sp.ChapterCount);
                     string extension = Path.GetExtension(chap.Filename) ?? ".cbz";
                     string newFileName = safeName + extension;
                     if (!chap.Filename.StartsWith(prefix))

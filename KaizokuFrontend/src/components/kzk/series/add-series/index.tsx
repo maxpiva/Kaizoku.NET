@@ -57,29 +57,31 @@ export interface AddSeriesProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-export function AddSeries({ 
-  title, 
-  existingSources, 
-  seriesId, 
+export function AddSeries({
+  title,
+  existingSources,
+  seriesId,
   triggerButton,
   open: controlledOpen,
-  onOpenChange 
+  onOpenChange,
 }: AddSeriesProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
-  
+
   // Use controlled or internal state
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = onOpenChange || setInternalOpen;
     // Determine if this is Add Sources mode
   const isAddSourcesMode = !!(title && existingSources && seriesId);
-  
+
   // Dialog/Drawer content
-  const dialogTitle = isAddSourcesMode ? `Add New Sources to '${title}'` : "Add new series";
-  const dialogDescription = isAddSourcesMode 
+  const dialogTitle = isAddSourcesMode
+    ? `Add New Sources to '${title}'`
+    : "Add new series";
+  const dialogDescription = isAddSourcesMode
     ? "Search and add new sources to your Series."
     : "Search for and add new series to your library.";
-  
+
   const triggerElement = triggerButton || <AddSeriesButton />;
   if (isDesktop) {
     return (
@@ -88,15 +90,18 @@ export function AddSeries({
           {triggerElement}
         </DialogTrigger>
         <DialogContent
-          className="w-[95vw] max-w-4xl max-h-[90dvh] overflow-y-auto"
+          className="w-[95vw] max-w-4xl max-h-[85vh] overflow-y-auto p-0"
           onInteractOutside={(e) => {
             e.preventDefault();
           }}
-        >          <DialogHeader>
+        >
+          <DialogHeader className="px-5 pt-5 pb-0">
             <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>
-              {dialogDescription}            </DialogDescription>
+              {dialogDescription}
+            </DialogDescription>
           </DialogHeader>
+          <div className="px-5 pb-5">
           <AddSeriesSteps
             onFinish={() => setOpen(false)}
             title={title}
@@ -104,21 +109,22 @@ export function AddSeries({
             seriesId={seriesId}
             isAddSourcesMode={isAddSourcesMode}
           />
+          </div>
         </DialogContent>
       </Dialog>
     );
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
+    <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         {triggerElement}
       </DrawerTrigger>
-      <DrawerContent className="max-h-[90dvh]">
+      <DrawerContent className="max-h-[92dvh] flex flex-col">
         <DrawerHeader className="text-left pb-2">
           <DrawerTitle>{dialogTitle}</DrawerTitle>
         </DrawerHeader>
-        <div className="mb-4 px-3 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))]" data-vaul-no-drag>
           <AddSeriesSteps
             onFinish={() => setOpen(false)}
             title={title}

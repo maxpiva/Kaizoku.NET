@@ -7,13 +7,46 @@ import { cn } from "@/lib/utils"
 
 const Drawer = ({
   shouldScaleBackground = true,
+  handleOnly = true,
+  open,
+  onOpenChange,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
-  <DrawerPrimitive.Root
-    shouldScaleBackground={shouldScaleBackground}
-    {...props}
-  />
-)
+}: React.ComponentProps<typeof DrawerPrimitive.Root>) => {
+  // Prevent pull-to-refresh and block interactions behind the drawer
+  React.useEffect(() => {
+    if (!open) return
+    const html = document.documentElement
+    const prevOverscroll = html.style.overscrollBehavior
+    html.style.overscrollBehavior = "none"
+
+    // Create an invisible blocker behind the drawer (z-49) but above page
+    // content. This prevents stray touch/click events from reaching elements
+    // behind the overlay — especially during the close animation when the
+    // overlay may fade before the user lifts their finger.
+    const blocker = document.createElement("div")
+    blocker.setAttribute("data-drawer-event-blocker", "")
+    blocker.style.cssText = "position:fixed;inset:0;z-index:49;pointer-events:auto;"
+    document.body.appendChild(blocker)
+
+    return () => {
+      html.style.overscrollBehavior = prevOverscroll
+      // Keep blocker alive during the close animation (300ms)
+      setTimeout(() => {
+        if (blocker.parentNode) blocker.remove()
+      }, 300)
+    }
+  }, [open])
+
+  return (
+    <DrawerPrimitive.Root
+      shouldScaleBackground={shouldScaleBackground}
+      handleOnly={handleOnly}
+      open={open}
+      onOpenChange={onOpenChange}
+      {...props}
+    />
+  )
+}
 Drawer.displayName = "Drawer"
 
 const DrawerTrigger = DrawerPrimitive.Trigger
@@ -29,6 +62,9 @@ const DrawerOverlay = React.forwardRef<
   <DrawerPrimitive.Overlay
     ref={ref}
     className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    // Block all touch events from reaching the page behind the overlay
+    onTouchStart={(e) => e.stopPropagation()}
+    onTouchMove={(e) => e.stopPropagation()}
     {...props}
   />
 ))
@@ -44,11 +80,14 @@ const DrawerContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
+        "overscroll-contain touch-manipulation",
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
+      <DrawerPrimitive.Handle
+        className="relative mt-4 !bg-muted !w-[100px] !h-2 rounded-full cursor-grab active:cursor-grabbing"
+      />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>

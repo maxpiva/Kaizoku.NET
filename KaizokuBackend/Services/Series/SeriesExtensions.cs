@@ -5,6 +5,7 @@ using KaizokuBackend.Services.Import.Models;
 using KaizokuBackend.Services.Bridge;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Action = KaizokuBackend.Models.Action;
 using Mihon.ExtensionsBridge.Models.Extensions;
@@ -917,7 +918,38 @@ public static class SeriesExtensions
 
     public static void FillSeriesFromProviderSeriesDetails(this DbSeriesEntity dbSeries, ProviderSeriesDetails consolidatedSeries, decimal? startFromChapter)
     {
-        dbSeries.Title = consolidatedSeries.Title;
+        // Resolve the best title, guarding against truncated provider titles (ending with "...").
+        // The storage path folder name is set at creation time from the full correct title,
+        // so it's the authoritative source of truth when all provider titles are truncated.
+        string newTitle = consolidatedSeries.Title;
+        bool newTitleTruncated = newTitle.EndsWith("...") || newTitle.EndsWith("\u2026");
+        bool existingTitleTruncated = dbSeries.Title.EndsWith("...") || dbSeries.Title.EndsWith("\u2026");
+
+        if (newTitleTruncated)
+        {
+            if (!existingTitleTruncated && !string.IsNullOrEmpty(dbSeries.Title))
+            {
+                // Existing title is good, keep it
+            }
+            else if (!string.IsNullOrEmpty(dbSeries.StoragePath))
+            {
+                // Both titles are truncated — recover from storage path folder name
+                string folderName = Path.GetFileName(dbSeries.StoragePath.TrimEnd(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (!string.IsNullOrEmpty(folderName))
+                {
+                    string recoveredTitle = folderName.RestoreOriginalPathCharacters();
+                    if (recoveredTitle.Length > newTitle.Length)
+                        dbSeries.Title = recoveredTitle;
+                    // else keep whatever we have
+                }
+            }
+            // else keep existing title as-is
+        }
+        else
+        {
+            dbSeries.Title = newTitle;
+        }
         dbSeries.Description = consolidatedSeries.Description ?? string.Empty;
         dbSeries.ThumbnailUrl = consolidatedSeries.ThumbnailUrl ?? string.Empty;
         dbSeries.Artist = consolidatedSeries.Artist ?? string.Empty;

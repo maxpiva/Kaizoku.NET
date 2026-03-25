@@ -38,6 +38,9 @@ public class ProviderStorageEntity : ProviderSummaryBase
     public bool IsEnabled { get; set; } = true;
     public bool IsBroken { get; set; } = false;
     public bool IsDead { get; set; } = false;
+    public DateTime? LastHealthCheckUtc { get; set; }
+    public bool? LastHealthCheckPassed { get; set; }
+    public string? LastHealthCheckError { get; set; }
 
     /// <summary>
     /// Provider is truly usable: enabled by user, not broken, and not dead.

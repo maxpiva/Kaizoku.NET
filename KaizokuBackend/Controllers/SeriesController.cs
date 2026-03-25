@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace KaizokuBackend.Controllers
 {
     [ApiController]
-    [Route("api/serie")]
+    [Route("api/series")]
     public class SeriesController : ControllerBase
     {
         private readonly ILogger _logger;
@@ -93,6 +93,23 @@ namespace KaizokuBackend.Controllers
             {
                 _logger.LogError(ex, "Error cleanup series: {Message}", ex.Message);
                 return StatusCode(500, $"Error cleanup series.");
+            }
+        }
+
+        [HttpPost("rename")]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(500)]
+        public async Task<ActionResult> RenameSeriesFilesAsync([FromQuery] Guid g, CancellationToken token = default)
+        {
+            try
+            {
+                await _archiveService.RenameSeriesFilesAsync(g, token).ConfigureAwait(false);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error renaming series files: {Message}", ex.Message);
+                return StatusCode(500, "Error renaming series files.");
             }
         }
 

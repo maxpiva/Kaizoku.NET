@@ -123,6 +123,16 @@ namespace KaizokuBackend.Services.Series
         }
 
         /// <summary>
+        /// Renames all chapter files for a series to use the correct title from the selected title source
+        /// </summary>
+        /// <param name="seriesId">The series ID to rename files for</param>
+        /// <param name="token">Cancellation token</param>
+        public async Task RenameSeriesFilesAsync(Guid seriesId, CancellationToken token = default)
+        {
+            await _archiveHelper.UpdateTitleAndAddComicInfoAsync(seriesId, true, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Updates all series titles and comic info files
         /// </summary>
         /// <param name="jobInfo">Job information for progress reporting</param>

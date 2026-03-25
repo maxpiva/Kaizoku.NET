@@ -171,6 +171,7 @@ export interface ImportInfo {
 }
 
 export interface SmallSeries {
+  id?: string;
   mihonId?: string;
   mihonProviderId?: string;
   bridgeItemInfo?: string;
@@ -258,6 +259,18 @@ export interface Provider {
   activeEntry: number;
   autoUpdate: boolean;
   onlineRepositories: ExtensionRepository[];
+  lastHealthCheckUtc?: string;
+  lastHealthCheckPassed?: boolean;
+  lastHealthCheckError?: string;
+}
+
+export interface ProviderHealthResult {
+  mihonProviderId: string;
+  name?: string;
+  language?: string;
+  passed: boolean;
+  error?: string;
+  checkedAtUtc: string;
 }
 
 export interface ExtensionRepository {

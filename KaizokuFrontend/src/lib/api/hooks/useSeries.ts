@@ -48,7 +48,8 @@ export const useSeriesById = (id: string, enabled = true) => {
     queryKey: ['series', 'detail', id],
     queryFn: () => seriesService.getSeriesById(id),
     enabled: enabled && !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 0, // Always refetch on navigation to avoid stale data race conditions
+    retry: 3, // More retries for transient failures during client-side navigation
   });
 };
 
@@ -167,6 +168,20 @@ export const useCleanupSeries = () => {
       void queryClient.invalidateQueries({ queryKey: ['series', 'detail', id] });
       // Also invalidate library query in case this affects the series list
       void queryClient.invalidateQueries({ queryKey: ['series', 'library'] });
+    },
+  });
+};
+
+/**
+ * Hook to rename series files to use the correct selected title
+ */
+export const useRenameSeriesFiles = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => seriesService.renameSeriesFiles(id),
+    onSuccess: (_, id) => {
+      void queryClient.invalidateQueries({ queryKey: ['series', 'detail', id] });
     },
   });
 };

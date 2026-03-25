@@ -7,6 +7,7 @@ export class ProgressHub {
   private connection: any = null;
   private listeners: ((progress: ProgressState) => void)[] = [];
   private isInitialized = false;
+  private isInitializing = false; // Guard against concurrent ensureConnection calls
   private signalR: any = null;
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
@@ -24,7 +25,8 @@ export class ProgressHub {
   private async ensureConnection(): Promise<void> {
     if (typeof window === 'undefined') {
       return;
-    }    if (!this.isInitialized) {
+    }    if (!this.isInitialized && !this.isInitializing) {
+      this.isInitializing = true;
       const signalR = await this.loadSignalR();
       if (!signalR) return;
 
@@ -50,6 +52,7 @@ export class ProgressHub {
 
       this.setupVisibilityHandling();
       this.isInitialized = true;
+      this.isInitializing = false;
     }
   }
 

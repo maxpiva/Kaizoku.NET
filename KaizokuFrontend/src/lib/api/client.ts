@@ -26,8 +26,22 @@ class KaizokuApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }    // Handle empty responses properly
+      // Try to extract error message from response body
+      let errorMessage = `API Error: ${response.status} ${response.statusText}`;
+      try {
+        const errorText = await response.text();
+        if (errorText) {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.error) errorMessage = errorJson.error;
+          else if (errorJson.message) errorMessage = errorJson.message;
+        }
+      } catch {
+        // Ignore parse errors, use default message
+      }
+      throw new Error(errorMessage);
+    }
+
+    // Handle empty responses properly
     const contentLength = response.headers.get('content-length');
     const contentType = response.headers.get('content-type');
     
@@ -81,8 +95,8 @@ class KaizokuApiClient {
     }
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, options?: { signal?: AbortSignal }): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', signal: options?.signal });
   }
   async post<T>(endpoint: string, data?: unknown, _options?: { params?: Record<string, unknown> }): Promise<T> {
     return this.request<T>(endpoint, {

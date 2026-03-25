@@ -1,6 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.jlleitschuh.gradle.ktlint.KtlintPlugin
 
@@ -46,20 +45,12 @@ subprojects {
     }
 
     tasks {
-
-        withType<KotlinCompile>().configureEach {
-            kotlinOptions.freeCompilerArgs += "-Xcontext-receivers"
-            kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
-
-        }
-        
         withType<KotlinJvmCompile> {
             if (plugins.hasPlugin(KtlintPlugin::class)) {
                 dependsOn("ktlintFormat")
             }
             compilerOptions {
                 jvmTarget = JvmTarget.fromTarget(libs.versions.jvmTarget.get())
-                freeCompilerArgs.add("-Xcontext-receivers")
                 freeCompilerArgs.add("-opt-in=kotlinx.serialization.ExperimentalSerializationApi")
             }
         }

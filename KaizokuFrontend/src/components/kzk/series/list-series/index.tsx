@@ -25,18 +25,18 @@ const LAST_CHANGE_COLORS = [
 ];
 
 // Function to get the ring color based on days since last change
-function getLastChangeRingColor(lastChangeUTC?: string): string | null {
-  if (!lastChangeUTC) return null;
+function getLastChangeRingColor(lastChangeUTC?: string | null): string | undefined {
+  if (!lastChangeUTC) return undefined;
 
   const now = new Date();
   const lastChange = new Date(lastChangeUTC);
   const diffTime = now.getTime() - lastChange.getTime();
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-  // Return color index based on days (0-30), or null if over 31 days
-  if (diffDays < 0 || diffDays > 31) return null;
+  // Return color index based on days (0-30), or undefined if over 31 days
+  if (diffDays < 0 || diffDays > 31) return undefined;
   const colorIndex = Math.min(diffDays, 30);
-  return LAST_CHANGE_COLORS[colorIndex] || null;
+  return LAST_CHANGE_COLORS[colorIndex] || undefined;
 }
 export interface ListSeriesProps {
   filterFn?: (series: SeriesInfo) => boolean;
@@ -122,10 +122,32 @@ export function ListSeries({ filterFn, sortFn, cardWidth = "w-40", cardWidthOpti
     <TooltipProvider delayDuration={2000}>
       <div className="flex flex-wrap gap-4 grid-auto-fit" ref={gridRef}>
         {isLoading ? (
-          <div>Loading...</div>
+          <>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div
+                key={i}
+                className={`relative ${cardWidth} rounded-md overflow-hidden`}
+                style={{ aspectRatio: "4/6" }}
+              >
+                <div className="w-full h-full skeleton-shimmer rounded-md" />
+              </div>
+            ))}
+          </>
         ) : filteredLibrary === undefined || filteredLibrary?.length === 0 ? (
-          <div>
-            {debouncedSearchTerm.trim() ? `No series found matching "${debouncedSearchTerm}"` : 'No series found'}
+          <div className="flex flex-col items-center justify-center w-full py-16 text-center gap-4">
+            <div className="rounded-full bg-muted p-5">
+              <svg className="h-10 w-10 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-base font-medium text-foreground">
+                {debouncedSearchTerm.trim() ? `No results for "${debouncedSearchTerm}"` : "No series found"}
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {debouncedSearchTerm.trim() ? "Try a different search term." : "Add some manga to get started."}
+              </p>
+            </div>
           </div>
         ) : (
           <>

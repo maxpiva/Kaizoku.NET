@@ -1,8 +1,7 @@
 "use client";
 
-import React from 'react';
-import KzkHeader from "@/components/kzk/layout/header";
-import KzkSidebar from "@/components/kzk/layout/sidebar";
+import React from "react";
+import { PageLayout } from "@/components/kzk/layout/page-layout";
 
 export default function ProvidersLayout({
   children,
@@ -10,14 +9,6 @@ export default function ProvidersLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen w-full flex-col bg-muted/40">
-      <KzkSidebar />
-      <div className="flex flex-col sm:gap-4 sm:py-4 sm:pl-14">
-        <KzkHeader />
-        <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-          {children}
-        </main>
-      </div>
-    </div>
+    <PageLayout mainClassName="p-4 pb-16 sm:px-6 sm:py-4 sm:pb-4 overflow-y-auto">{children}</PageLayout>
   );
 }

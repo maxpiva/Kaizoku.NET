@@ -142,11 +142,8 @@ namespace KaizokuBackend.Services.Downloads
 
             try
             {
-                lock (_lock)
-                {
-                    if (!Directory.Exists(_tempFolder))
-                        Directory.CreateDirectory(_tempFolder);
-                }
+                // Directory.CreateDirectory is already thread-safe (no-ops if exists)
+                Directory.CreateDirectory(_tempFolder);
 
                 if (File.Exists(tempZipPath))
                     File.Delete(tempZipPath);
@@ -354,6 +351,71 @@ namespace KaizokuBackend.Services.Downloads
                 _db.Queues.Remove(delete);
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Removes a single download from the queue (non-running only)
+        /// </summary>
+        public async Task<bool> RemoveDownloadAsync(Guid id, CancellationToken token = default)
+        {
+            var entity = await _db.Queues.FirstOrDefaultAsync(a => a.Id == id && a.JobType == JobType.Download && a.Status != QueueStatus.Running, token).ConfigureAwait(false);
+            if (entity == null)
+                return false;
+
+            _db.Queues.Remove(entity);
+            await _db.SaveChangesAsync(token).ConfigureAwait(false);
+            _logger.LogInformation("Removed download {Id} with status {Status}", id, entity.Status);
+            return true;
+        }
+
+        /// <summary>
+        /// Clears all downloads with a given status (non-running only)
+        /// </summary>
+        public async Task<int> ClearDownloadsByStatusAsync(QueueStatus status, CancellationToken token = default)
+        {
+            if (status == QueueStatus.Running)
+                return 0;
+
+            var downloads = await _db.Queues
+                .Where(a => a.JobType == JobType.Download && a.Status == status)
+                .ToListAsync(token).ConfigureAwait(false);
+
+            int count = downloads.Count;
+            if (count > 0)
+            {
+                _db.Queues.RemoveRange(downloads);
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                _logger.LogInformation("Cleared {Count} downloads with status {Status}", count, status);
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Retries all failed downloads by resetting their retry count and rescheduling
+        /// </summary>
+        public async Task<int> RetryAllFailedDownloadsAsync(CancellationToken token = default)
+        {
+            var failedDownloads = await _db.Queues
+                .Where(a => a.JobType == JobType.Download && a.Status == QueueStatus.Failed)
+                .ToListAsync(token).ConfigureAwait(false);
+
+            int count = 0;
+            foreach (var d in failedDownloads)
+            {
+                if (string.IsNullOrEmpty(d.JobParameters))
+                    continue;
+
+                ChapterDownload? ch = JsonSerializer.Deserialize<ChapterDownload>(d.JobParameters);
+                if (ch == null)
+                    continue;
+
+                ch.Retries = 0;
+                await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
+                count++;
+            }
+
+            _logger.LogInformation("Retried {Count} failed downloads", count);
+            return count;
         }
 
         /// <summary>

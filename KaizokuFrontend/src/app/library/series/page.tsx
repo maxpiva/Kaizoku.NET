@@ -2,7 +2,7 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState, useEffect, useMemo, memo, useRef, Suspense } from "react";
-import { useSeriesById, useSetProviderMatch, useDeleteSeries, useUpdateSeries, useVerifyIntegrity, useCleanupSeries } from "@/lib/api/hooks/useSeries";
+import { useSeriesById, useSetProviderMatch, useDeleteSeries, useUpdateSeries, useVerifyIntegrity, useCleanupSeries, useRenameSeriesFiles } from "@/lib/api/hooks/useSeries";
 import { useDownloadsForSeries } from "@/lib/api/hooks/useDownloads";
 import { seriesService } from "@/lib/api/services/seriesService";
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,13 +21,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Download, Plus, Power, Search, Trash2, Pause, Play, ExternalLink, ShieldCheck, AlertTriangle, CheckCircle, Clock, Calendar } from "lucide-react";
+import { Download, Plus, Power, Search, Trash2, Pause, Play, ExternalLink, ShieldCheck, AlertTriangle, CheckCircle, Clock, Calendar, FileText } from "lucide-react";
 import Image from 'next/image';
 import { SeriesStatus, QueueStatus, ArchiveResult, type ProviderExtendedInfo, type DownloadInfo, type ProviderMatch, type ExistingSource, type SeriesExtendedInfo, type SeriesIntegrityResult, type ArchiveIntegrityResult } from "@/lib/api/types";
 import { useSeriesContext } from "@/contexts/series-context";
 import ReactCountryFlag from "react-country-flag";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { getStatusDisplay } from "@/lib/utils/series-status";
+
 import { ProviderMatchDialog } from "@/components/dialogs/provider-match-dialog";
 import { AddSeries } from "@/components/kzk/series/add-series";
 import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
@@ -46,7 +47,8 @@ const ProviderCard = ({ provider,
   onDisabledChange,
   onDeleteProvider,
   onFromChapterChange,
-  deletedProviderStates
+  deletedProviderStates,
+  canEdit = true,
 }: {
   provider: ProviderExtendedInfo;
   useCover: boolean;
@@ -60,6 +62,7 @@ const ProviderCard = ({ provider,
   onDeleteProvider: (providerId: string) => void;
   onFromChapterChange: (providerId: string, value: string) => void;
   deletedProviderStates: Record<string, boolean>;
+  canEdit?: boolean;
 }) => {
   const [isEnabled, setIsEnabled] = useState(!provider.isDisabled && !provider.isUninstalled);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -167,213 +170,190 @@ const ProviderCard = ({ provider,
   };
   
   return (
-    <Card className={`transition-all overflow-hidden bg-secondary ${provider.isDisabled ? "bg-opacity-50" : ""}`}>
-      <div className="p-3 space-y-2 min-w-0 overflow-hidden relative">
-        {/* Action buttons - mobile/tablet: top row, desktop: top-right absolute */}
-        <div className="flex flex-wrap gap-2 justify-end mb-2 lg:absolute lg:top-3 lg:right-3 lg:mb-0 lg:z-10">
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Delete</span>
-          </Button>
-
-          {!provider.isUnknown && !provider.isUninstalled && (
-            <Button className="opacity-100"
-              variant={isEnabled ? "destructive" : "default"}
-              size="sm"
-              onClick={handleEnableDisable}
-            >
-              <Power className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">{isEnabled ? "Disable" : "Enable"}</span>
-            </Button>
-          )}
-
-          {provider.isUnknown && (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleMatch}
-              disabled={isLoadingMatch}
-            >
-              <Search className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">{isLoadingMatch ? "Loading..." : "Match Source"}</span>
-            </Button>
-          )}
-        </div>
-
-        {/* Continue After Chapter input - mobile/tablet: below buttons, desktop: top-right */}
-        {!provider.isUnknown && (
-          <div className="flex flex-wrap items-center gap-2 justify-end mb-2 lg:mt-1 lg:absolute lg:top-12 lg:right-3 lg:mb-0 z-10">
-            <span className="text-muted-foreground text-sm">Continue After Chapter:</span>
-            <Input
-              type="number"
-              step="0.1"
-              value={localFromChapter}
-              onChange={(e) => setLocalFromChapter(e.target.value)}
-              placeholder="Start"
-              className="h-8 w-24 text-sm bg-background text-right tabular-nums font-mono"
-              disabled={provider.isDisabled}
-              onBlur={handleFromChapterBlur}
-              onKeyDown={handleFromChapterKeyDown}
+    <Card className={`transition-all overflow-hidden bg-secondary ${provider.isDisabled ? "opacity-60" : ""}`}>
+      <div className="px-3 py-2 min-w-0 overflow-hidden">
+        <div className="flex gap-3 min-w-0">
+          {/* Small provider thumbnail */}
+          <div className="flex-shrink-0 hidden sm:block">
+            <img
+              src={formatThumbnailUrl(provider.thumbnailUrl)}
+              alt={provider.title}
+              className="w-12 h-16 object-cover rounded border"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (target.src !== window.location.origin + '/kaizoku.net.png') {
+                  target.src = '/kaizoku.net.png';
+                }
+              }}
             />
           </div>
-        )}
 
-        {/* Header section with thumbnail and info */}
-        <div className="flex flex-col md:flex-row items-start gap-3 relative min-w-0 overflow-hidden">
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-3 flex-1 min-w-0 overflow-hidden w-full">
-            {/* Provider Thumbnail */}
-            <div className="flex-shrink-0 w-full md:w-auto flex justify-center md:justify-start">
-              <img
-                src={formatThumbnailUrl(provider.thumbnailUrl)}
-                alt={provider.title} style={{ aspectRatio: '4/6' }}
-                className="h-48 md:h-68 max-w-[160px] md:max-w-none object-cover rounded border"
-              />
+          {/* Content area */}
+          <div className="flex-1 min-w-0 overflow-hidden">
+            {/* Title row */}
+            <div className="text-sm font-medium truncate min-w-0 leading-tight" title={provider.title}>
+              {provider.title}
             </div>
 
-            <div className="flex-1 space-y-2 min-w-0 overflow-hidden w-full text-center md:text-left">              <div className="min-w-0 overflow-hidden">
-              <CardTitle className="text-lg truncate">{provider.title}</CardTitle>
-              { provider.url ? (
-              <div className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:bg-accent/80 transition-colors overflow-hidden flex-wrap"
-                     onClick={(e) => {
+            {/* Row 1: Provider identity + chapter info */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 mt-0.5">
+              {/* Provider name with optional link */}
+              {provider.url ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
+                  onClick={(e) => {
                     e.stopPropagation();
-                    if (provider.url) {
-                      window.open(provider.url, '_blank', 'noopener,noreferrer');
-                    }
+                    window.open(provider.url, '_blank', 'noopener,noreferrer');
                   }}
-                  title="Click to open in the source"
-                ><ExternalLink className="h-4 w-4 flex-shrink-0" />
-                <span className="text-lg truncate min-w-0">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
-                <ReactCountryFlag
-                  countryCode={getCountryCodeForLanguage(provider.lang)}
-                  svg
-                  style={{ width: '20px', height: '15px', borderRadius: '2px', border: '1px solid #ccc' }}
-                  title={provider.lang.toUpperCase()}
-                />       
-                <Badge variant="default" className={`ml-2 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
-                  {getStatusDisplay(provider.status).text}
-                </Badge>
-                </div>
-       
+                  title="Open in source"
+                >
+                  <span className="truncate">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
+                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                </button>
               ) : (
-                 <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0 overflow-hidden flex-wrap justify-center md:justify-start">
-                <span className="text-lg truncate min-w-0">{provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}</span>
-                <ReactCountryFlag
-                  countryCode={getCountryCodeForLanguage(provider.lang)}
-                  svg
-                  style={{ width: '20px', height: '15px', borderRadius: '2px', border: '1px solid #ccc' }}
-                  title={provider.lang.toUpperCase()}
-                />
-                <Badge variant="default" className={`ml-2 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
-                  {getStatusDisplay(provider.status).text}
-                </Badge>
-                </div>
+                <span className="text-xs text-muted-foreground truncate">
+                  {provider.provider}{(provider.provider != provider.scanlator && provider.scanlator) ? ` • ${provider.scanlator}` : ''}
+                </span>
               )}
-            </div>{/* Stats grid */}
-              <div className="flex flex-wrap gap-2 mt-1 text-sm min-w-0 overflow-hidden justify-center md:justify-start">
-                <div className="min-w-0 overflow-hidden">
-                  <Badge variant="primary">
-                    {provider.chapterList}
-                  </Badge>
-                  {provider.lastChapter && (
-                    <span className="inline-flex flex-wrap items-center gap-1">
-                      <span className="text-muted-foreground">
-                        Last: <Badge variant="primary">{provider.lastChapter}</Badge>
-                      </span>
-                      {provider.lastChangeUTC && (
-                        <span className="font-medium">
-                          {(() => {
-                            const utcString = provider.lastChangeUTC.includes('Z') || provider.lastChangeUTC.includes('+') || provider.lastChangeUTC.includes('-', 10)
-                              ? provider.lastChangeUTC
-                              : provider.lastChangeUTC + 'Z';
-                            const date = new Date(utcString);
-                            return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                          })()}
-                        </span>
-                      )}
 
+              <ReactCountryFlag
+                countryCode={getCountryCodeForLanguage(provider.lang)}
+                svg
+                style={{ width: '16px', height: '12px', borderRadius: '2px', border: '1px solid #ccc', flexShrink: 0 }}
+                title={provider.lang.toUpperCase()}
+              />
+
+              <Badge variant="default" className={`text-xs px-1.5 py-0 flex-shrink-0 ${getStatusDisplay(provider.status).color}`}>
+                {getStatusDisplay(provider.status).text}
+              </Badge>
+
+              {provider.isUninstalled && (
+                <Badge variant="destructive" className="text-xs px-1.5 py-0 flex-shrink-0">
+                  <AlertTriangle className="h-3 w-3 mr-0.5" />
+                  Uninstalled
+                </Badge>
+              )}
+
+              <span className="text-xs text-muted-foreground flex-shrink-0">Ch. {provider.chapterList}</span>
+
+              {provider.lastChapter && (
+                <span className="text-xs text-muted-foreground flex-shrink-0">
+                  Last: <span className="font-medium text-foreground/80">{provider.lastChapter}</span>
+                  {provider.lastChangeUTC && (
+                    <span className="ml-1 text-foreground/60">
+                      {(() => {
+                        const utcString = provider.lastChangeUTC.includes('Z') || provider.lastChangeUTC.includes('+') || provider.lastChangeUTC.includes('-', 10)
+                          ? provider.lastChangeUTC
+                          : provider.lastChangeUTC + 'Z';
+                        return new Date(utcString).toLocaleDateString();
+                      })()}
                     </span>
                   )}
-
-                </div>
-              </div>
-
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm min-w-0 overflow-hidden">
-                {provider.author && (
-                  <div className="min-w-0 overflow-hidden">
-                    <span className="text-muted-foreground">Author:</span>
-                    <span className="ml-2 font-medium truncate">{provider.author}</span>
-                  </div>
-                )}
-                {provider.artist && (
-                  <div className="min-w-0 overflow-hidden">
-                    <span className="text-muted-foreground">Artist:</span>
-                    <span className="ml-2 font-medium truncate">{provider.artist}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1 mt-1 min-w-0 overflow-hidden justify-center md:justify-start">
-                {provider.genre && provider.genre.length > 0 && (
-                  provider.genre.map((genre) => (
-                    <Badge key={genre} variant="primary" className="text-xs flex-shrink-0">
-                      {genre}
-                    </Badge>
-                  ))
-                )}
-              </div>
-              <div className="min-w-0 overflow-hidden mt-1">
-                {provider.description && (
-                  <p className="text-sm line-clamp-4 break-words overflow-hidden">{provider.description}</p>
-                )}
-              </div>
-              {/* Switches */}              {!provider.isUnknown && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Switch
-                      id={`storage-${provider.id}`}
-                      checked={useStorage}
-                      onCheckedChange={(checked) => onUseStorageChange(provider.id, checked)}
-                      disabled={provider.isDisabled}
-                      className="flex-shrink-0"
-                    />
-                    <Label htmlFor={`storage-${provider.id}`} className="text-sm font-medium truncate">
-                      Use as Permanent Source
-                    </Label>
-                  </div>                <div className="flex items-center gap-2 min-w-0">                  <Switch
-                    id={`cover-${provider.id}`}
-                    checked={useCover}
-                    onCheckedChange={hasUnknownThumbnail ? undefined : (checked) => onUseCoverChange(provider.id, checked)}
-                    disabled={provider.isDisabled || hasUnknownThumbnail}
-                    className="flex-shrink-0"
-                  />
-                    <Label htmlFor={`cover-${provider.id}`} className="text-sm font-medium truncate">
-                      Use Cover
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Switch
-                      id={`title-${provider.id}`}
-                      checked={useTitle}
-                      onCheckedChange={(checked) => onUseTitleChange(provider.id, checked)}
-                      disabled={provider.isDisabled}
-                      className="flex-shrink-0"
-                    />
-                    <Label htmlFor={`title-${provider.id}`} className="text-sm font-medium truncate">
-                      Use Title
-                    </Label>
-                  </div>
-
-                </div>
+                </span>
               )}
-
-
             </div>
-          </div>        </div>
+
+            {/* Row 2: Controls — compact inline layout */}
+            {canEdit && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 min-w-0">
+                {!provider.isUnknown && (
+                  <>
+                    <label className="inline-flex items-center gap-1 cursor-pointer flex-shrink-0">
+                      <Switch
+                        id={`storage-${provider.id}`}
+                        checked={useStorage}
+                        onCheckedChange={(checked) => onUseStorageChange(provider.id, checked)}
+                        disabled={provider.isDisabled}
+                        className="flex-shrink-0 scale-75"
+                      />
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">Perm</span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-1 cursor-pointer flex-shrink-0">
+                      <Switch
+                        id={`cover-${provider.id}`}
+                        checked={useCover}
+                        onCheckedChange={hasUnknownThumbnail ? undefined : (checked) => onUseCoverChange(provider.id, checked)}
+                        disabled={provider.isDisabled || hasUnknownThumbnail}
+                        className="flex-shrink-0 scale-75"
+                      />
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">Cover</span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-1 cursor-pointer flex-shrink-0">
+                      <Switch
+                        id={`title-${provider.id}`}
+                        checked={useTitle}
+                        onCheckedChange={(checked) => onUseTitleChange(provider.id, checked)}
+                        disabled={provider.isDisabled}
+                        className="flex-shrink-0 scale-75"
+                      />
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">Title</span>
+                    </label>
+
+                    <div className="inline-flex items-center gap-1 flex-shrink-0">
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">After:</span>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={localFromChapter}
+                        onChange={(e) => setLocalFromChapter(e.target.value)}
+                        placeholder="0"
+                        className="h-6 w-16 text-[11px] bg-background text-right tabular-nums font-mono"
+                        disabled={provider.isDisabled}
+                        onBlur={handleFromChapterBlur}
+                        onKeyDown={handleFromChapterKeyDown}
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex-1" />
+
+                {/* Action buttons — always inline */}
+                <div className="inline-flex items-center gap-1 flex-shrink-0">
+                  {!provider.isUnknown && !provider.isUninstalled && (
+                    <Button
+                      variant={isEnabled ? "destructive" : "default"}
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px]"
+                      onClick={handleEnableDisable}
+                    >
+                      <Power className="h-3 w-3" />
+                      <span className="hidden sm:inline ml-1">{isEnabled ? "Disable" : "Enable"}</span>
+                    </Button>
+                  )}
+
+                  {provider.isUnknown && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px]"
+                      onClick={handleMatch}
+                      disabled={isLoadingMatch}
+                    >
+                      <Search className="h-3 w-3" />
+                      <span className="hidden sm:inline ml-1">{isLoadingMatch ? "..." : "Match"}</span>
+                    </Button>
+                  )}
+
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-1.5 text-[11px]"
+                    onClick={handleDelete}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    <span className="hidden sm:inline ml-1">Delete</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
       {/* Provider Match Dialog */}
       <ProviderMatchDialog
         open={matchDialogOpen}
@@ -392,7 +372,8 @@ const ProviderCard = ({ provider,
             <h3 className="text-lg font-semibold mb-2">Confirm Delete</h3>
             <p className="text-muted-foreground mb-4">
               Are you sure you want to delete this source? This action cannot be undone.
-            </p>            <div className="flex gap-2 justify-end">
+            </p>
+            <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={handleDeleteCancel}>
                 Cancel
               </Button>
@@ -660,8 +641,8 @@ const DownloadsPanel = memo(({ seriesId, isDeleting }: { seriesId: string; isDel
 
   if (downloadsError) {
     return (
-      <Card className="lg:col-span-1 flex flex-col overflow-hidden min-w-0">
-        <CardHeader className="pl-4 pr-4 pt-4 pb-0">
+      <Card className="flex flex-col overflow-hidden min-w-0 lg:max-h-[600px]">
+        <CardHeader className="pl-4 pr-4 pt-4 pb-0 flex-shrink-0">
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5 flex-shrink-0" />
             <span className="truncate">Latest Downloads</span>
@@ -678,8 +659,8 @@ const DownloadsPanel = memo(({ seriesId, isDeleting }: { seriesId: string; isDel
   }
 
   return (
-    <Card className="lg:col-span-1 flex flex-col overflow-hidden min-w-0">
-      <CardHeader className="pl-4 pr-4 pt-4 pb-0">
+    <Card className="flex flex-col overflow-hidden min-w-0 lg:max-h-[600px]">
+      <CardHeader className="pl-4 pr-4 pt-4 pb-0 flex-shrink-0">
         <CardTitle className="flex items-center gap-2 flex-wrap">
           <Download className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">Latest Downloads</span>
@@ -733,13 +714,15 @@ function SeriesPageContent() {
   const { setSeriesTitle } = useSeriesContext();
   const queryClient = useQueryClient();
 
+
   // Track deletion state to prevent loops
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const { data: series, isLoading, error } = useSeriesById(seriesId || '', !isDeleting);
+  const { data: series, isLoading, error, refetch } = useSeriesById(seriesId || '', !isDeleting);
   const deleteSeries = useDeleteSeries();
   const updateSeriesMutation = useUpdateSeries();
   const verifyIntegrity = useVerifyIntegrity();
+  const renameFiles = useRenameSeriesFiles();
   const cleanupSeries = useCleanupSeries();
   
   // Provider switch state management
@@ -1743,9 +1726,17 @@ function SeriesPageContent() {
 
   if (error || !series) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
         <div className="text-lg text-red-500">
           {error ? "Error loading series" : "Series not found"}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => void refetch()}>
+            Retry
+          </Button>
+          <Button variant="ghost" onClick={() => router.push('/library')}>
+            Back to Library
+          </Button>
         </div>
       </div>
     );
@@ -1765,142 +1756,158 @@ function SeriesPageContent() {
   const visibleProvidersCount = series.providers.filter(provider => !providerDeletedStates[provider.id]).length;
 
   return (<>
-    {/* Three-area layout */}
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 h-full w-full overflow-hidden">          {/* Left Column - Two rows (80% width) */}
-      <div className="lg:col-span-4 space-y-3 min-w-0 overflow-hidden">
-        {/* Top Left: Series Details */}          <Card className="bg-secondary overflow-hidden">
-          <CardHeader className="p-4">
-            <div className="flex flex-col md:flex-row gap-4 min-w-0 overflow-hidden">
-              {/* Poster */}
-              <div className="flex-shrink-0 mx-auto md:mx-0">
-                <img src={formatThumbnailUrl(displayThumbnail)}
-                  alt={displayTitle}
-                  style={{ aspectRatio: '4/6' }}
-                  className="h-64 md:h-96 object-cover rounded-lg border"
-                />
+    {/* New layout: full-width hero, then sources + downloads side-by-side */}
+    <div className="space-y-3 w-full">
+
+      {/* Hero Card - full width, compact */}
+      <Card className="bg-secondary overflow-hidden">
+        <CardHeader className="p-3 sm:p-4">
+          <div className="flex flex-col md:flex-row gap-3 sm:gap-4 min-w-0 overflow-hidden">
+            {/* Poster */}
+            <div className="flex-shrink-0 mx-auto md:mx-0">
+              <img src={formatThumbnailUrl(displayThumbnail)}
+                alt={displayTitle}
+                style={{ aspectRatio: '4/6' }}
+                className="h-40 sm:h-48 md:h-64 object-cover rounded-lg border"
+              />
+            </div>
+
+            {/* Series Info */}
+            <div className="flex-1 gap-1.5 sm:gap-2 flex flex-col min-w-0 overflow-hidden">
+              {/* Title + Status Badge Row */}
+              <div className="flex items-start justify-between gap-2 min-w-0">
+                <CardTitle className="text-lg sm:text-xl lg:text-2xl line-clamp-2 min-w-0 leading-tight">{displayTitle}</CardTitle>
+                <Badge className={'text-xs sm:text-sm flex-shrink-0 ' + statusDisplay.color}>
+                  {statusDisplay.text}
+                </Badge>
               </div>
-              {/* Series Info */}
-              <div className="flex-1 gap-2 flex flex-col min-w-0 overflow-hidden">
-                {/* Title + Status Badge Row */}
-                <div className="flex items-start justify-between gap-2 min-w-0">
-                  <CardTitle className="text-xl lg:text-2xl truncate min-w-0">{displayTitle}</CardTitle>
-                  <Badge className={'text-base flex-shrink-0 ' + statusDisplay.color}>
-                    {statusDisplay.text}
-                  </Badge>
-                </div>
-                <div className="min-w-0 overflow-hidden">
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 text-sm min-w-0">
-                    <Badge variant="primary">
-                      {series.chapterList}
-                    </Badge>
-                    {series.lastChapter && (
-                      <span className="inline-flex flex-wrap items-center gap-1">
-                        <span className="text-muted-foreground">
-                          Last: <Badge variant="primary">{series.lastChapter}</Badge>
-                        </span>
-                        {series.lastChangeUTC && (
-                          <span className="font-medium">
-                            {new Date(series.lastChangeUTC).toLocaleDateString()} {new Date(series.lastChangeUTC).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
 
-                      </span>
-                    )}
-                  </div>
-                </div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm min-w-0 overflow-hidden">
-                  {series.author && (
-                    <div className="min-w-0 overflow-hidden">
-                      <span className="text-muted-foreground">Author:</span>
-                      <span className="ml-2 font-medium truncate">{series.author}</span>
-                    </div>
-                  )}
-                  {series.artist && (
-                    <div className="min-w-0 overflow-hidden">
-                      <span className="text-muted-foreground">Artist:</span>
-                      <span className="ml-2 font-medium truncate">{series.artist}</span>
-                    </div>
-                  )}
-                </div>
-
-                {series.genre && series.genre.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1 min-w-0 overflow-hidden">
-                    {series.genre.map((genre) => (
-                      <Badge key={genre} variant="primary" className="text-sm flex-shrink-0">
-                        {genre}
-                      </Badge>
-                    ))}
-                  </div>
+              {/* Chapter info row — plain text, no bubbles */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm min-w-0 text-muted-foreground">
+                <span className="font-medium text-foreground">Ch. {series.chapterList}</span>
+                {series.lastChapter && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span>Last: <span className="font-medium text-foreground">{series.lastChapter}</span></span>
+                  </>
                 )}
+                {series.lastChangeUTC && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="text-foreground/70">
+                      {new Date(series.lastChangeUTC).toLocaleDateString()} {new Date(series.lastChangeUTC).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </>
+                )}
+              </div>
 
-                  {/* Description - Flexible area that fills available space */}
-                  {series.description && (
-                    <div className="flex-1 min-w-0 overflow-hidden">
-                      <p className="text-sm mt-1 break-words">{series.description}</p>
-                    </div>
-                  )}
+              {/* Author / Artist — one compact line */}
+              {(series.author || series.artist) && (
+                <div className="text-sm text-muted-foreground min-w-0 truncate">
+                  {series.author && <span><span className="text-foreground/60">By</span> <span className="font-medium text-foreground">{series.author}</span></span>}
+                  {series.author && series.artist && <span className="mx-1.5 opacity-40">·</span>}
+                  {series.artist && <span><span className="text-foreground/60">Art by</span> <span className="font-medium text-foreground">{series.artist}</span></span>}
+                </div>
+              )}
 
-                  {/* Bottom Row: Path + Action Buttons */}
-                  <div className="mt-auto pt-2 flex flex-col lg:flex-row lg:items-end gap-2 min-w-0">
-                    {/* Series Path Display */}
-                    {series.path && (
-                      <div className="min-w-0 overflow-hidden flex-1">
-                        <div className="bg-background border border-input rounded-md px-3 py-2 text-sm font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden">
-                          {series.path}
-                        </div>
-                      </div>
-                    )}
+              {/* Genre tags — smaller on mobile */}
+              {series.genre && series.genre.length > 0 && (
+                <div className="flex flex-wrap gap-1 min-w-0 overflow-hidden">
+                  {series.genre.map((genre) => (
+                    <span key={genre} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border flex-shrink-0">
+                      {genre}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-                    {/* Action Buttons - Delete, Verify, and Pause/Resume Downloads */}
-                    <div className="flex flex-wrap gap-2 justify-center md:justify-end flex-shrink-0">
-                  {/* Delete Series Button */}
+              {/* Description - clamped */}
+              {series.description && (
+                <div className="min-w-0 overflow-hidden hidden sm:block">
+                  <p className="text-sm line-clamp-2 md:line-clamp-3 break-words text-muted-foreground">{series.description}</p>
+                </div>
+              )}
+
+              {/* Path — hidden on mobile */}
+              {series.path && (
+                <div className="min-w-0 overflow-hidden flex-1 hidden sm:block">
+                  <div className="bg-background border border-input rounded-md px-2 py-1 text-xs font-mono text-muted-foreground break-all shadow-sm w-full overflow-hidden">
+                    {series.path}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-auto pt-1 justify-center sm:justify-start flex-shrink-0">
                   <Button
                     variant="destructive"
                     size="sm"
+                    className="h-8 text-xs sm:text-sm"
                     onClick={handleDeleteSeriesClick}
                   >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    <span className="hidden sm:inline">Delete Series</span>
-                    <span className="sm:hidden">Delete</span>
+                    <Trash2 className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Delete</span>
                   </Button>
 
-                  {/* Verify Integrity Button */}
                   <Button
                     variant="default"
                     size="sm"
+                    className="h-8 text-xs sm:text-sm"
                     onClick={handleVerifyIntegrityClick}
                     disabled={verifyIntegrity.isPending}
                   >
-                    <ShieldCheck className="h-4 w-4 mr-1" />
-                    {verifyIntegrity.isPending ? "..." : "Verify"}
+                    <ShieldCheck className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">{verifyIntegrity.isPending ? "..." : "Verify"}</span>
                   </Button>
 
-                  {/* Pause/Resume Downloads Button */}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-8 text-xs sm:text-sm"
+                    onClick={async () => {
+                      if (!seriesId) return;
+                      try {
+                        await renameFiles.mutateAsync(seriesId);
+                        setShowVerifySuccessDialog(true);
+                      } catch {
+                        // Error handled by mutation
+                      }
+                    }}
+                    disabled={renameFiles.isPending}
+                  >
+                    <FileText className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">{renameFiles.isPending ? "..." : "Rename"}</span>
+                  </Button>
+
                   <Button
                     variant={pausedDownloads ? "default" : "destructive"}
                     size="sm"
+                    className="h-8 text-xs sm:text-sm"
                     onClick={handlePausedDownloadsToggle}
-                    className="flex items-center gap-2"
                   >
                     {pausedDownloads ? (
                       <>
-                        <Play className="h-4 w-4" />
-                        <span className="hidden sm:inline">Resume Downloads</span>
-                        <span className="sm:hidden">Resume</span>
+                        <Play className="h-4 w-4 sm:mr-1" />
+                        <span className="hidden sm:inline">Resume</span>
                       </>
                     ) : (
                       <>
-                        <Pause className="h-4 w-4" />
-                        <span className="hidden sm:inline">Pause Downloads</span>
-                        <span className="sm:hidden">Pause</span>
+                        <Pause className="h-4 w-4 sm:mr-1" />
+                        <span className="hidden sm:inline">Pause</span>
                       </>
                     )}
                   </Button>
-                    </div>
-                  </div>
-              </div>
-            </div>            </CardHeader>
-        </Card>          {/* Bottom Left: Providers */}
-        <Card className="overflow-hidden">
+                </div>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Below hero: Sources (2/3) + Downloads (1/3) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 w-full">
+
+        {/* Sources section — spans 2 columns */}
+        <Card className="overflow-hidden lg:col-span-2">
           <CardHeader className="p-4 pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2">
@@ -1921,43 +1928,47 @@ function SeriesPageContent() {
             </div>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="space-y-2 min-w-0 overflow-hidden">              {series.providers
-            .filter(provider => !providerDeletedStates[provider.id]) // Filter out deleted providers
-            .map((provider) => {
-              const switches = providerSwitches[provider.id] || { useTitle: false, useCover: false, useStorage: false };
-              const isDisabled = provider.isUninstalled ? true : (providerDisabledStates[provider.id] ?? provider.isDisabled);
-              const currentFromChapter = providerFromChapters[provider.id] ?? provider.fromChapter?.toString() ?? "";
+            <div className="space-y-2 min-w-0">
+              {series.providers
+                .filter(provider => !providerDeletedStates[provider.id])
+                .map((provider) => {
+                  const switches = providerSwitches[provider.id] || { useTitle: false, useCover: false, useStorage: false };
+                  const isDisabled = provider.isUninstalled ? true : (providerDisabledStates[provider.id] ?? provider.isDisabled);
+                  const currentFromChapter = providerFromChapters[provider.id] ?? provider.fromChapter?.toString() ?? "";
 
-              // Create updated provider object with current disabled state
-              const updatedProvider = {
-                ...provider,
-                isDisabled: isDisabled
-              };
+                  const updatedProvider = {
+                    ...provider,
+                    isDisabled: isDisabled
+                  };
 
-              return (                <ProviderCard
-                  key={provider.id}
-                  provider={updatedProvider}
-                  seriesId={series.id}
-                  useCover={switches.useCover}
-                  useTitle={switches.useTitle}
-                  useStorage={switches.useStorage}
-                  fromChapter={currentFromChapter}
-                  onUseCoverChange={handleUseCoverChange}
-                  onUseTitleChange={handleUseTitleChange}
-                  onUseStorageChange={handleUseStorageChange}
-                  onDisabledChange={handleDisabledChange}
-                  onDeleteProvider={handleDeleteProvider}
-                  onFromChapterChange={handleFromChapterChange}
-                  deletedProviderStates={providerDeletedStates}
-                />
-              );
-            })}
-          </div>
+                  return (
+                    <ProviderCard
+                      key={provider.id}
+                      provider={updatedProvider}
+                      seriesId={series.id}
+                      useCover={switches.useCover}
+                      useTitle={switches.useTitle}
+                      useStorage={switches.useStorage}
+                      fromChapter={currentFromChapter}
+                      onUseCoverChange={handleUseCoverChange}
+                      onUseTitleChange={handleUseTitleChange}
+                      onUseStorageChange={handleUseStorageChange}
+                      onDisabledChange={handleDisabledChange}
+                      onDeleteProvider={handleDeleteProvider}
+                      onFromChapterChange={handleFromChapterChange}
+                      deletedProviderStates={providerDeletedStates}
+                    />
+                  );
+                })}
+            </div>
           </CardContent>
-        </Card>        </div>
+        </Card>
 
-      {/* Right Column: Downloads (20% width) - Using new API */}
-      <DownloadsPanel seriesId={series.id} isDeleting={isDeleting} />
+        {/* Downloads panel — 1 column, scrollable */}
+        <div className="lg:col-span-1">
+          <DownloadsPanel seriesId={series.id} isDeleting={isDeleting} />
+        </div>
+      </div>
     </div>
 
     {/* Delete Series Confirmation Dialog */}

@@ -120,9 +120,17 @@ namespace KaizokuBackend.Services.Background
                 bool save = await CheckStorageStatusAsync(db, settings, lifetime, cancellationToken).ConfigureAwait(false);
                 if (save)
                     await settingsService.SaveSettingsAsync(settings, true, cancellationToken).ConfigureAwait(false);
-                // Cache providers
+                // Cache providers — wrapped in try-catch so broken extensions don't prevent startup
                 _logger.LogInformation("Syncing Mihon Extensions Preferences.");
-                await providerCacheService.RefreshCacheAsync(false, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await providerCacheService.RefreshCacheAsync(false, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Provider cache refresh failed during startup. " +
+                        "Some extensions may be unavailable. The app will continue with a degraded provider set.");
+                }
                 var jobs = await jobManagement.GetRecurringJobsByTypeAsync(JobType.DailyUpdate, cancellationToken).ConfigureAwait(false);
                 if (jobs.Count == 0)
                 {
