@@ -2,7 +2,7 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
-import { useSeriesById, useDeleteSeries, useUpdateSeries, useVerifyIntegrity, useCleanupSeries, useRefreshSeries } from "@/lib/api/hooks/useSeries";
+import { useSeriesById, useDeleteSeries, useUpdateSeries, useVerifyIntegrity, useCleanupSeries, useRefreshSeries, useRenameSeries } from "@/lib/api/hooks/useSeries";
 import { useToast } from "@/hooks/use-toast";
 import { seriesService } from "@/lib/api/services/seriesService";
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Trash2, ShieldCheck } from "lucide-react";
+import { Trash2, ShieldCheck, FolderSync } from "lucide-react";
 import { SeriesStatus, ArchiveResult, type ExistingSource, type SeriesExtendedInfo, type SeriesIntegrityResult } from "@/lib/api/types";
 import { useSeriesContext } from "@/contexts/series-context";
 
@@ -60,6 +60,7 @@ function SeriesPageContent() {
   const verifyIntegrity = useVerifyIntegrity();
   const cleanupSeries = useCleanupSeries();
   const refreshSeries = useRefreshSeries();
+  const renameSeries = useRenameSeries();
   const { toast } = useToast();
   
   // Provider switch state management
@@ -81,6 +82,9 @@ function SeriesPageContent() {
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [verifyResult, setVerifyResult] = useState<SeriesIntegrityResult | null>(null);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+
+  // Rename (fix folder + .cbz names) confirmation dialog state
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
   
   // Track user activity for periodic refresh logic
   const lastActivityRef = useRef<number>(Date.now());
@@ -857,6 +861,46 @@ function SeriesPageContent() {
     }
   };
 
+  // Handler for the rename button — opens a confirmation dialog first, since this
+  // moves files/folders on disk.
+  const handleRenameClick = () => {
+    if (!seriesId) return;
+    setShowRenameDialog(true);
+  };
+
+  // Handler for rename confirmation — renames the series folder + every .cbz to the
+  // canonical naming scheme, then reports the outcome.
+  const handleRenameConfirm = async () => {
+    if (!seriesId) return;
+    setShowRenameDialog(false);
+
+    try {
+      const result = await renameSeries.mutateAsync(seriesId);
+
+      const parts: string[] = [];
+      if (result.folderRenamed) parts.push(`Folder → "${result.newFolder}"`);
+      parts.push(`${result.filesRenamed} file${result.filesRenamed === 1 ? '' : 's'} renamed`);
+      if (result.filesFailed > 0) parts.push(`${result.filesFailed} failed`);
+
+      const nothingChanged = !result.folderRenamed && result.filesRenamed === 0 && result.filesFailed === 0;
+
+      toast({
+        variant: result.filesFailed > 0 ? "destructive" : "success",
+        title: nothingChanged ? "Names already correct" : "Rename complete",
+        description: nothingChanged
+          ? (result.message || "Nothing needed renaming — everything already matches the scheme.")
+          : `${parts.join(' · ')}${result.message ? ` · ${result.message}` : ''}`,
+      });
+    } catch (error) {
+      console.error('Failed to rename series:', error);
+      toast({
+        variant: "destructive",
+        title: "Rename failed",
+        description: "Could not rename the series files. Please try again.",
+      });
+    }
+  };
+
   // Handler for verify success dialog close
   const handleVerifyDialogClose = async () => {
     setShowVerifyDialog(false);
@@ -1138,9 +1182,11 @@ function SeriesPageContent() {
         canManageDownloads={canManageDownloads}
         verifyPending={verifyIntegrity.isPending}
         refreshPending={refreshSeries.isPending}
+        renamePending={renameSeries.isPending}
         onPauseToggle={handlePausedDownloadsToggle}
         onVerify={handleVerifyIntegrityClick}
         onRefresh={handleRefreshClick}
+        onRename={handleRenameClick}
         onDelete={handleDeleteSeriesClick}
       />
 
@@ -1222,6 +1268,51 @@ function SeriesPageContent() {
               <>
                 <Trash2 className="h-4 w-4" />
                 Delete
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Rename (fix folder + .cbz names) Confirmation Dialog */}
+    <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderSync className="h-5 w-5" />
+            Rename Files &amp; Folder
+          </DialogTitle>
+          <DialogDescription>
+            This renames the series folder to <span className="font-medium text-foreground">"{displayTitle}"</span> and
+            renames every downloaded <span className="font-mono">.cbz</span> to the correct
+            <span className="font-mono"> [Source][lang] Title 0000.cbz</span> scheme. Only files downloaded by
+            Rensaio are touched. This moves files on disk — make sure no downloads are running for this series.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowRenameDialog(false)}
+            disabled={renameSeries.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRenameConfirm}
+            disabled={renameSeries.isPending}
+            className="flex items-center gap-2"
+          >
+            {renameSeries.isPending ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
+                Renaming...
+              </>
+            ) : (
+              <>
+                <FolderSync className="h-4 w-4" />
+                Rename
               </>
             )}
           </Button>

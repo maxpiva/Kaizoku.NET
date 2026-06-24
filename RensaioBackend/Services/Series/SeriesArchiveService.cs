@@ -143,6 +143,162 @@ namespace RensaioBackend.Services.Series
         }
 
         /// <summary>
+        /// Renames the series folder to match the current title and renames every downloaded
+        /// .cbz to the canonical "[Provider][lang] Title NNNN" scheme. This repairs archives
+        /// that were saved under an out-of-date name (e.g. a title that was later corrected, or
+        /// a chapter-number padding width that grew) without manual per-file renaming.
+        /// Only the leaf folder is renamed — any existing parent (such as a type subfolder) is kept.
+        /// </summary>
+        /// <param name="seriesId">The series ID to rename.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A summary of what was renamed.</returns>
+        public async Task<SeriesRenameResultDto> RenameSeriesAsync(Guid seriesId, CancellationToken token = default)
+        {
+            SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            Models.Database.SeriesEntity? series = await _db.Series.Include(a => a.Sources)
+                .Where(a => a.Id == seriesId).FirstOrDefaultAsync(token).ConfigureAwait(false);
+
+            if (series == null)
+                throw new ArgumentException("Invalid series Id");
+
+            var result = new SeriesRenameResultDto { OldFolder = series.StoragePath };
+
+            // ── 1. Rename each archive to the canonical scheme (within the current folder) ──
+            string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
+            bool dbChanged = false;
+
+            foreach (SeriesProviderEntity sp in series.Sources)
+            {
+                // Only touch archives we own: Rensaio-downloaded files start with [Provider][lang].
+                // This leaves manually imported / foreign files untouched.
+                string prefix = $"[{sp.Provider}][{sp.Language}]";
+
+                foreach (Chapter chap in sp.Chapters.Where(c => !string.IsNullOrEmpty(c.Filename)))
+                {
+                    if (!chap.Filename!.StartsWith(prefix, StringComparison.Ordinal))
+                        continue;
+
+                    string extension = Path.GetExtension(chap.Filename);
+                    if (string.IsNullOrEmpty(extension))
+                        extension = ".cbz";
+
+                    string newFileName = ArchiveHelperService.MakeFileNameSafe(
+                        sp.Provider, sp.Scanlator, sp.Title, sp.Language,
+                        chap.Number, chap.Name, sp.ChapterCount) + extension;
+
+                    if (string.Equals(newFileName, chap.Filename, StringComparison.Ordinal))
+                        continue;
+
+                    string oldFullPath = Path.Combine(basePath, chap.Filename);
+                    string newFullPath = Path.Combine(basePath, newFileName);
+
+                    if (!File.Exists(oldFullPath))
+                        continue;
+
+                    // Refuse to clobber an unrelated existing file (case-only renames resolve to the
+                    // same path and are allowed to fall through to File.Move).
+                    if (File.Exists(newFullPath) &&
+                        !string.Equals(oldFullPath, newFullPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning("Skipping rename of {Old}: target {New} already exists",
+                            oldFullPath, newFullPath);
+                        result.FilesFailed++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Hashes are keyed by filename, so drop the stale entry before moving.
+                        _hashCache.DeleteChapterHash(series.StoragePath, chap.Filename);
+                        File.Move(oldFullPath, newFullPath);
+                        _logger.LogInformation("Renamed archive {Old} -> {New}", chap.Filename, newFileName);
+                        chap.Filename = newFileName;
+                        _db.Touch(sp, a => a.Chapters);
+                        dbChanged = true;
+                        result.FilesRenamed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to rename archive {Old} to {New}", oldFullPath, newFullPath);
+                        result.FilesFailed++;
+                    }
+                }
+            }
+
+            if (dbChanged)
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+
+            // ── 2. Rename the series folder leaf to match the title (parent structure preserved) ──
+            string parentRel = Path.GetDirectoryName(series.StoragePath) ?? string.Empty;
+            string safeLeaf = series.Title.MakeFolderNameSafe();
+            string desiredRel = SeriesModelExtensions.NormalizeStoragePath(
+                string.IsNullOrEmpty(parentRel) ? safeLeaf : Path.Combine(parentRel, safeLeaf));
+
+            if (!string.Equals(series.StoragePath, desiredRel, StringComparison.Ordinal))
+            {
+                string oldAbs = Path.Combine(settings.StorageFolder, series.StoragePath);
+                string newAbs = Path.Combine(settings.StorageFolder, desiredRel);
+                bool caseOnly = string.Equals(series.StoragePath, desiredRel, StringComparison.OrdinalIgnoreCase);
+
+                if (!Directory.Exists(oldAbs))
+                {
+                    result.Message = "Series folder not found on disk; skipped folder rename.";
+                }
+                else if (!caseOnly && Directory.Exists(newAbs))
+                {
+                    result.Message = $"Target folder '{desiredRel}' already exists; skipped folder rename.";
+                    _logger.LogWarning("Cannot rename folder for series {Id}: target {New} exists", seriesId, newAbs);
+                }
+                else
+                {
+                    try
+                    {
+                        string? parentAbs = Path.GetDirectoryName(newAbs);
+                        if (!string.IsNullOrEmpty(parentAbs) && !Directory.Exists(parentAbs))
+                            Directory.CreateDirectory(parentAbs);
+
+                        if (caseOnly)
+                        {
+                            // Two-step move so case-only renames also work on case-insensitive filesystems.
+                            string tempAbs = newAbs + "__rename_tmp";
+                            Directory.Move(oldAbs, tempAbs);
+                            Directory.Move(tempAbs, newAbs);
+                        }
+                        else
+                        {
+                            Directory.Move(oldAbs, newAbs);
+                        }
+
+                        series.StoragePath = desiredRel;
+                        await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                        result.FolderRenamed = true;
+                        _logger.LogInformation("Renamed series folder {Old} -> {New}", oldAbs, newAbs);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to rename series folder {Old} to {New}", oldAbs, newAbs);
+                        result.Message = "Failed to rename series folder; see logs for details.";
+                    }
+                }
+            }
+
+            result.NewFolder = series.StoragePath;
+
+            // ── 3. Re-sync canonical state to rensaio.json under the final folder ──
+            try
+            {
+                await _stateService.SyncToRensaioJsonAsync(series.Id, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to sync rensaio.json after rename for series {SeriesId}", series.Id);
+            }
+
+            result.Success = true;
+            return result;
+        }
+
+        /// <summary>
         /// Cleans up corrupted series files and marks chapters for re-download
         /// </summary>
         /// <param name="seriesId">The series ID to cleanup</param>
