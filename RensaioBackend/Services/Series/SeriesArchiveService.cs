@@ -169,9 +169,17 @@ namespace RensaioBackend.Services.Series
 
             foreach (SeriesProviderEntity sp in series.Sources)
             {
-                // Only touch archives we own: Rensaio-downloaded files start with [Provider][lang].
-                // This leaves manually imported / foreign files untouched.
-                string prefix = $"[{sp.Provider}][{sp.Language}]";
+                // Only touch archives we own: Rensaio names every file it writes
+                // "[Provider][lang] Title NNNN". Rebuild that prefix with the same provider/
+                // scanlator normalization MakeFileNameSafe applies, so the check still matches when
+                // a scanlator suffix or an escaped character changed the on-disk spelling (e.g.
+                // "[MangaGeko-][en] ..."). Manually imported / foreign files keep their own names.
+                string prefix = ArchiveHelperService.MakeFileNamePrefixSafe(sp.Provider, sp.Scanlator, sp.Language);
+
+                // Pad chapter numbers against the highest chapter present, exactly like the
+                // downloader does — so renaming reproduces the canonical width and repairs padding
+                // that grew (e.g. "5" -> "005" after the series passed 100 chapters).
+                decimal? maxChap = sp.Chapters.Max(c => c.Number);
 
                 foreach (Chapter chap in sp.Chapters.Where(c => !string.IsNullOrEmpty(c.Filename)))
                 {
@@ -182,9 +190,12 @@ namespace RensaioBackend.Services.Series
                     if (string.IsNullOrEmpty(extension))
                         extension = ".cbz";
 
+                    // Use the series-level (canonical) title so files from every source converge on
+                    // the title the user chose via "Use as title" — not each source's own title,
+                    // which would just reproduce the existing name and rename nothing.
                     string newFileName = ArchiveHelperService.MakeFileNameSafe(
-                        sp.Provider, sp.Scanlator, sp.Title, sp.Language,
-                        chap.Number, chap.Name, sp.ChapterCount) + extension;
+                        sp.Provider, sp.Scanlator, series.Title, sp.Language,
+                        chap.Number, chap.Name, maxChap) + extension;
 
                     if (string.Equals(newFileName, chap.Filename, StringComparison.Ordinal))
                         continue;

@@ -411,6 +411,23 @@ namespace RensaioBackend.Services.Helpers
             return safeName;
         }
 
+        /// <summary>
+        /// Builds the leading "[Provider][lang]" portion that <see cref="MakeFileNameSafe"/> writes
+        /// at the start of every archive it names, applying the identical provider/scanlator
+        /// normalization (dash → underscore, scanlator suffix, bracket escaping). Use this to
+        /// recognize Rensaio-named archives — regardless of how a scanlator suffix or escaped
+        /// character changed the on-disk spelling — rather than guessing from the raw provider name.
+        /// </summary>
+        public static string MakeFileNamePrefixSafe(string provider, string? scanlator, string language)
+        {
+            provider = provider.Replace("-", "_");
+            if (scanlator != null && provider != scanlator)
+                provider += "-" + scanlator;
+            provider = provider.Replace("[", "(").Replace("]", ")");
+            string lan = !string.IsNullOrEmpty(language) ? "[" + language.ToLowerInvariant() + "]" : "";
+            return $"[{provider}]{lan}".ReplaceInvalidFilenameAndPathCharacters();
+        }
+
         public static ComicInfo CreateComicInfo(Models.Database.SeriesEntity s, SeriesProviderEntity sp, Chapter chap, int cnt)
         {
             List<string> ratings = Enum.GetNames<AgeRating>().ToList();
