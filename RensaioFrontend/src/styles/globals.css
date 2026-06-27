@@ -566,7 +566,8 @@
   overflow: hidden;
   position: relative;
   padding: 20px 24px;
-  max-height: 84vh;
+  max-height: 84vh; /* fallback for browsers without dvh support */
+  max-height: 84dvh; /* track the visible viewport so mobile browser toolbars can't push the modal off-screen */
   display: flex;
   flex-direction: column;
 }
@@ -695,6 +696,7 @@
 .res-list {
   padding: 6px 0 96px 0; /* extra bottom so last row clears the sticky CTA */
   overflow-y: auto;
+  overscroll-behavior: contain; /* stop touch scroll from chaining to the page behind the modal */
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -711,6 +713,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain; /* stop touch scroll from chaining to the page behind the modal */
   padding-bottom: 96px; /* clearance for sticky CTA */
 }
 .confirm-scroll::-webkit-scrollbar {
