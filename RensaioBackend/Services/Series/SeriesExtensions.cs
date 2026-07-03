@@ -950,7 +950,10 @@ public static class SeriesExtensions
         dbSeries.Artist = consolidatedSeries.Artist ?? string.Empty;
         dbSeries.Author = consolidatedSeries.Author ?? string.Empty;
         dbSeries.Genre = consolidatedSeries.Genre ?? new List<string>();
-        dbSeries.Type = consolidatedSeries.Type;
+        // The entity-list consolidation never carries Type (providers don't store it),
+        // so a null here means "unknown" — keep the value detected at import/search time.
+        if (consolidatedSeries.Type != null)
+            dbSeries.Type = consolidatedSeries.Type;
         dbSeries.StartFromChapter = startFromChapter;
         int normalizedChapterCount = SeriesModelExtensions.ClampChapterCount(consolidatedSeries.ChapterCount);
         if (normalizedChapterCount > dbSeries.ChapterCount)

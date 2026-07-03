@@ -872,18 +872,49 @@ namespace RensaioBackend.Services.Series
 
         private static void UpdateProviderSettings(SeriesExtendedDto series, Models.Database.SeriesEntity dbSeries)
         {
+            SeriesProviderEntity? newTitle = null;
+            SeriesProviderEntity? newCover = null;
             foreach (ProviderExtendedDto p in series.Providers)
             {
                 SeriesProviderEntity? n = dbSeries.Sources.FirstOrDefault(a => a.Id == p.Id);
                 if (n == null)
                     continue;
-                
+
                 n.IsDisabled = p.IsDisabled;
                 n.IsStorage = p.IsStorage;
+                if (p.UseTitle && !n.IsTitle)
+                    newTitle = n;
+                if (p.UseCover && !n.IsCover)
+                    newCover = n;
                 n.IsTitle = p.UseTitle;
                 n.IsCover = p.UseCover;
                 n.IsLocal = p.IsLocal;
                 n.ContinueAfterChapter = p.ContinueAfterChapter;
+            }
+
+            // Title/cover selection is exclusive. A stale or partial DTO can leave several
+            // sources flagged at once, and consolidation would then keep whichever source
+            // enumerates first instead of the user's pick. Keep only one: the source that
+            // just turned on, or for pre-existing duplicates the one matching the current
+            // series value.
+            List<SeriesProviderEntity> titled = dbSeries.Sources.Where(a => a.IsTitle).ToList();
+            if (titled.Count > 1)
+            {
+                SeriesProviderEntity keep = newTitle
+                    ?? titled.FirstOrDefault(a => a.Title == dbSeries.Title)
+                    ?? titled[0];
+                foreach (SeriesProviderEntity sp in titled)
+                    sp.IsTitle = sp == keep;
+            }
+
+            List<SeriesProviderEntity> covered = dbSeries.Sources.Where(a => a.IsCover).ToList();
+            if (covered.Count > 1)
+            {
+                SeriesProviderEntity keep = newCover
+                    ?? covered.FirstOrDefault(a => a.ThumbnailUrl == dbSeries.ThumbnailUrl)
+                    ?? covered[0];
+                foreach (SeriesProviderEntity sp in covered)
+                    sp.IsCover = sp == keep;
             }
         }
 

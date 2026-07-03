@@ -1101,6 +1101,11 @@ function SeriesPageContent() {
       }
     } catch (error) {
       console.error(`Error updating series with complete state:`, error);
+      toast({
+        title: "Failed to save series settings",
+        description: "Your change was not saved. Please try again.",
+        variant: "destructive",
+      });
     }
   };
   
