@@ -39,7 +39,7 @@ export function PageLayout({
         <div className="flex h-dvh w-full flex-col bg-muted/40 overflow-hidden">
           <CommandBar />
           <main
-            className={`flex-1 min-h-0 overscroll-contain ${mainClassName}`}
+            className={`page-shell-main flex-1 min-h-0 overscroll-contain ${mainClassName}`}
           >
             {children}
           </main>

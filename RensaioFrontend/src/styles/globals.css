@@ -552,9 +552,18 @@
   flex-direction: column;
 }
 
+/* The app scrolls inside the page shell's <main>, not the body, so the body
+   scroll lock Radix applies while a dialog is open can't stop touch scrolling
+   from reaching the page behind the modal. react-remove-scroll flags the body
+   with data-scroll-locked whenever a modal is open — lock the shell's scroll
+   container for that duration too. */
+body[data-scroll-locked] .page-shell-main {
+  overflow: hidden !important;
+}
+
 /* The glass command card */
 .cmd-card {
-  background: hsla(240 10% 8% / 0.72);
+  background: hsla(240 10% 8% / 0.9);
   backdrop-filter: blur(28px) saturate(160%);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   border: 1px solid hsla(var(--as-border-strong));
