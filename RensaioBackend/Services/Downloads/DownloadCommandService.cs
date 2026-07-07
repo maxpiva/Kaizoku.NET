@@ -152,7 +152,7 @@ namespace RensaioBackend.Services.Downloads
 
             float step = 100 / (float)(ch.PageCount);
             float acum = 0;
-            int page = 0;
+            int pagesWritten = 0;
             string tempZipPath = Path.Combine(_tempFolder, zipFile);
             bool breaked = false;
 
@@ -175,10 +175,10 @@ namespace RensaioBackend.Services.Downloads
                         {
                             try
                             {
-                                page = pag.Index;
+                                int pageIndex = pag.Index;
                                 ContentTypeStream? image = await _mihon.MihonErrorWrapperAsync(
                                     () => src.GetPageImageAsync(pag, token),
-                                    "Unable to get Page {Page} from Chapter {Chapter}, Series {Title} from {provider}", page + 1, ch.Chapter.ParsedNumber, ch.Title, provider).ConfigureAwait(false);
+                                    "Unable to get Page {Page} from Chapter {Chapter}, Series {Title} from {provider}", pageIndex + 1, ch.Chapter.ParsedNumber, ch.Title, provider).ConfigureAwait(false);
                                 if (image == null)
                                 {
                                     breaked = true;
@@ -188,20 +188,21 @@ namespace RensaioBackend.Services.Downloads
                                 (_, string? ext) = image.GetImageMimeTypeAndExtension();
                                 if (ext == null)
                                 {
-                                    _logger.LogWarning("Page {Page} of chapter {ChapterNumber} of series {SeriesTitle} is not a valid image", page + 1, ch.Chapter.ParsedNumber, ch.Title);
+                                    _logger.LogWarning("Page {Page} of chapter {ChapterNumber} of series {SeriesTitle} is not a valid image", pageIndex + 1, ch.Chapter.ParsedNumber, ch.Title);
                                     ext = ".unk";
                                 }
                                 string fileName = ArchiveHelperService.MakeFileNameSafe(ch.ProviderName, ch.Scanlator, ch.SeriesTitle, ch.Language,
-                                            ch.Chapter.ParsedNumber, ch.ChapterName, maxChap, page + 1, ch.PageCount) + ext;
+                                            ch.Chapter.ParsedNumber, ch.ChapterName, maxChap, pageIndex + 1, ch.PageCount) + ext;
                                 await zipWriter.WriteAsync(fileName, image).ConfigureAwait(false);
+                                pagesWritten++;
                                 acum += step;
-                                message = $"Downloading ({providerName}) {ch.Title} {chapterName} {page}";
+                                message = $"Downloading ({providerName}) {ch.Title} {chapterName} {pageIndex}";
                                 reporter.Report(ProgressStatus.InProgress, (int)acum, message, downloadSummary);
                             }
                             catch (Exception)
                             {
                                 _logger.LogError("Failed to download page {Page} for chapter {ChapterNumber} of series {SeriesTitle}",
-                                    page + 1, ch.Chapter.ParsedNumber, ch.Title);
+                                    pag.Index + 1, ch.Chapter.ParsedNumber, ch.Title);
                                 breaked = true;
                                 break;
                             }
@@ -210,14 +211,14 @@ namespace RensaioBackend.Services.Downloads
                                 break;
                         }
 
-                        if (page == 0)
+                        if (pagesWritten == 0)
                         {
                             breaked = true;
                         }
 
                         if (!breaked)
                         {
-                            using (Stream comicInfo = ArchiveHelperService.CreateComicInfo(ch, page).ToStream())
+                            using (Stream comicInfo = ArchiveHelperService.CreateComicInfo(ch, pagesWritten).ToStream())
                             {
                                 ((ZipWriter)zipWriter).Write("ComicInfo.xml", comicInfo, new ZipWriterEntryOptions { CompressionType = CompressionType.Deflate, ModificationDateTime = DateTime.Now });
                             }
@@ -273,7 +274,7 @@ namespace RensaioBackend.Services.Downloads
                         providerr.Chapters = providerr.Chapters.OrderBy(c => c.Number).ToList();
                     }
 
-                    cha.PageCount = page;
+                    cha.PageCount = pagesWritten;
                     cha.IsDeleted = false;
                     cha.Name = ch.Chapter.Name;
                     cha.Number = ch.Chapter.ParsedNumber;
