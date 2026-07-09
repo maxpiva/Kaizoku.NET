@@ -13,13 +13,13 @@ namespace RensaioBackend.Hubs
         }
         public override Task OnConnectedAsync()
         {
-            _logger.LogInformation($"SignalR Client connected: {Context.ConnectionId}");
+            _logger.LogDebug($"SignalR Client connected: {Context.ConnectionId}");
             return base.OnConnectedAsync();
         }
 
         public override Task OnDisconnectedAsync(Exception? exception)
         {
-            _logger.LogInformation($"SignalR Client disconnected: {Context.ConnectionId}");
+            _logger.LogDebug($"SignalR Client disconnected: {Context.ConnectionId}");
             return base.OnDisconnectedAsync(exception);
         }
 

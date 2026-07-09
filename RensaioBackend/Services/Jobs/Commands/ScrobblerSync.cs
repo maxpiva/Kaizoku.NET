@@ -52,7 +52,9 @@ public class ScrobblerSync : ICommand
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Scrobbler sync failed for user {UserId}", userId);
+                    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(a=>a.Id==userId);
+                    string username = user?.Username ?? userId.ToString();
+                    _logger.LogError(ex, "Scrobbler sync failed for user {username}", username);
                 }
             }
 

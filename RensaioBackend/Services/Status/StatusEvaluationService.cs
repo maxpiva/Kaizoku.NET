@@ -98,8 +98,8 @@ public class StatusEvaluationService
         if (anyDefinitiveEnd)
         {
             _logger.LogInformation(
-                "Series {SeriesId} has a provider reporting definitive end status, clearing alerts",
-                series.Id);
+                "Series {Title} has a provider reporting definitive end status, clearing alerts",
+                series.Title);
             await ClearActiveAlertAsync(HealthStatusTargetType.Series, series.Id, token).ConfigureAwait(false);
             return;
         }
@@ -110,8 +110,8 @@ public class StatusEvaluationService
         if (activeProviders.Count > 0 && activeProviders.All(p => p.LastKnownStatus == SeriesStatus.CANCELLED))
         {
             _logger.LogInformation(
-                "Series {SeriesId} all {Count} active providers report CANCELLED, clearing alerts",
-                series.Id, activeProviders.Count);
+                "Series {Title} all {Count} active providers report CANCELLED, clearing alerts",
+                series.Title, activeProviders.Count);
             await ClearActiveAlertAsync(HealthStatusTargetType.Series, series.Id, token).ConfigureAwait(false);
             return;
         }
@@ -132,8 +132,8 @@ public class StatusEvaluationService
 
         // Diagnostic logging for debugging threshold issues
         _logger.LogDebug(
-            "Evaluating series {SeriesId}: cadence={Cadence:F1}d, daysSince={Days:F1}d, multYellow={Yellow}, multRed={Red}",
-            series.Id, estimatedCadenceDays, daysSinceLastChapter,
+            "Evaluating series {Title}: cadence={Cadence:F1}d, daysSince={Days:F1}d, multYellow={Yellow}, multRed={Red}",
+            series.Title, estimatedCadenceDays, daysSinceLastChapter,
             settings.ReleaseCadenceMultiplierYellow, settings.ReleaseCadenceMultiplierRed);
 
         // Safety guard: skip alert creation if multipliers are zero or negative.
@@ -141,8 +141,8 @@ public class StatusEvaluationService
         if (settings.ReleaseCadenceMultiplierYellow <= 0d || settings.ReleaseCadenceMultiplierRed <= 0d)
         {
             _logger.LogWarning(
-                "Series {SeriesId} has invalid release cadence multipliers (Yellow: {Y}, Red: {R}), skipping alert evaluation",
-                series.Id, settings.ReleaseCadenceMultiplierYellow, settings.ReleaseCadenceMultiplierRed);
+                "Series {Title} has invalid release cadence multipliers (Yellow: {Y}, Red: {R}), skipping alert evaluation",
+                series.Title, settings.ReleaseCadenceMultiplierYellow, settings.ReleaseCadenceMultiplierRed);
             return;
         }
 
@@ -165,8 +165,8 @@ public class StatusEvaluationService
             if (DateTime.UtcNow < suppressionDeadline)
             {
                 _logger.LogDebug(
-                    "Series {SeriesId} alert was dismissed at {ResolvedAt}, suppression active until {Deadline} ({Cadence:F1} days)",
-                    series.Id, lastResolvedAlert.ResolvedAt, suppressionDeadline, estimatedCadenceDays);
+                    "Series {Title} alert was dismissed at {ResolvedAt}, suppression active until {Deadline} ({Cadence:F1} days)",
+                    series.Title, lastResolvedAlert.ResolvedAt, suppressionDeadline, estimatedCadenceDays);
                 return;
             }
         }

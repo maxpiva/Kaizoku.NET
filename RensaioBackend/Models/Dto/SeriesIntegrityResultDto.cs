@@ -8,4 +8,10 @@ public class SeriesIntegrityResultDto
     public bool Success { get; set; }
     [JsonPropertyName("badFiles")]
     public List<ArchiveIntegrityResultDto> BadFiles { get; set; } = [];
+    [JsonPropertyName("seriesName")]
+    public string SeriesName { get; set; }
+    [JsonPropertyName("seriesPath")]
+    public string SeriesPath { get; set; }
+
+
 }

@@ -82,7 +82,7 @@ public class SeriesStateService
             string? seriesFolder = _settings.DirectSettings?.ResolveSeriesAbsolutePath(series.StoragePath);
             if (string.IsNullOrEmpty(seriesFolder))
             {
-                _logger.LogWarning("Cannot resolve series folder for Series {SeriesId} with storage path {StoragePath}", series.Id, series.StoragePath);
+                _logger.LogWarning("Cannot resolve series folder for Series {Title} with storage path {StoragePath}", series.Title, series.StoragePath);
                 return;
             }
 
@@ -122,7 +122,7 @@ public class SeriesStateService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error syncing rensaio.json for series {SeriesId}: {Message}", series.Id, ex.Message);
+            _logger.LogError(ex, "Error syncing rensaio.json for series {Title}: {Message}", series.Title, ex.Message);
         }
     }
 

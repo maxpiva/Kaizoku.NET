@@ -1,3 +1,6 @@
+using Microsoft.EntityFrameworkCore;
+using Mihon.ExtensionsBridge.Core.Extensions;
+using Mihon.ExtensionsBridge.Models;
 using RensaioBackend.Data;
 using RensaioBackend.Extensions;
 using RensaioBackend.Models;
@@ -14,11 +17,9 @@ using RensaioBackend.Services.Providers;
 using RensaioBackend.Services.Search;
 using RensaioBackend.Services.Series;
 using RensaioBackend.Services.Settings;
-using Microsoft.EntityFrameworkCore;
-using Mihon.ExtensionsBridge.Core.Extensions;
-using Mihon.ExtensionsBridge.Models;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using static com.sun.tools.javadoc.JavaScriptScanner;
 using static System.Net.Mime.MediaTypeNames;
 using Action = RensaioBackend.Models.Action;
 
@@ -82,7 +83,7 @@ public class ImportCommandService
         if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)) 
             || (await _jobManagementService.IsJobTypeRunningAsync(JobType.InstallAdditionalExtensions, token).ConfigureAwait(false)))
         {
-            progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
+            await progress.ReportAsync(ProgressStatus.Completed, 100, "Scanning completed successfully.",null, null, token).ConfigureAwait(false);
             return JobResult.Success;
         }            
   
@@ -93,12 +94,12 @@ public class ImportCommandService
             _logger.LogError("Directory not found: {directoryPath}", directoryPath);
             return JobResult.Failed;
         }
-        progress.Report(ProgressStatus.Started, 0, "Scanning Directories...");
+        await progress.ReportAsync(ProgressStatus.Started, 0, "Scanning Directories...", null, null, token).ConfigureAwait(false);
         var seriesDict = new List<ImportSeriesSnapshot>();
         await _scanner.RecurseDirectoryAsync(allseries, repos, seriesDict, directoryPath, directoryPath, progress, token).ConfigureAwait(false);
         HashSet<string> folders = seriesDict.Select(a => a.Path).ToHashSet();
         await SaveImportsAsync(folders, seriesDict, token).ConfigureAwait(false);
-        progress.Report(ProgressStatus.Completed, 100, "Scanning completed successfully.");
+        await progress.ReportAsync(ProgressStatus.Completed, 100, "Scanning completed successfully.").ConfigureAwait(false);
         _logger.LogInformation("Directory scan job completed successfully for path: {directoryPath}", directoryPath);
         return JobResult.Success;
     }
@@ -216,10 +217,10 @@ public class ImportCommandService
             ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
             if ((await _jobManagementService.IsJobTypeRunningAsync(JobType.SearchProviders, token).ConfigureAwait(false)))
             {
-                progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+                await progress.ReportAsync(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.",null, null, token).ConfigureAwait(false);
                 return JobResult.Success;
             }
-            progress.Report(ProgressStatus.InProgress, startPercentage, null);
+            await progress.ReportAsync(ProgressStatus.InProgress, startPercentage, null,null, null, token).ConfigureAwait(false);
             List<RensaioBackend.Models.Database.ImportEntity> imports = await _db.Imports.Where(a => a.Status == ImportStatus.Import).ToListAsync(token).ConfigureAwait(false);
             await ReconcileLanguagesFromImportAsync(imports).ConfigureAwait(false);
         List<ImportProviderSnapshot> importProviderSnapshots = imports.SelectMany(i => i.Info.Series.Providers).ToList();
@@ -230,12 +231,12 @@ public class ImportCommandService
                 float acum = startPercentage;
                 foreach ((TachiyomiExtension text, TachiyomiRepository trepo) in requiredExtensions)
                 {
-                    progress.Report(ProgressStatus.InProgress, (decimal)acum, text.ParsedName() + " " + text.Version);
+                    await progress.ReportAsync(ProgressStatus.InProgress, (decimal)acum, text.ParsedName() + " " + text.Version, null, null, token).ConfigureAwait(false);
                     await _providerManagerService.InstallProviderAsync(text.Package, trepo.Name, false, token).ConfigureAwait(false);
                     acum += step;
                 }
             }
-            progress.Report(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.");
+            await progress.ReportAsync(ProgressStatus.Completed, maxPercentage, "Extensions installed successfully.", null, null, token).ConfigureAwait(false);
             _logger.LogInformation("Extension installation job completed successfully.");
             return JobResult.Success;
         }
@@ -286,7 +287,7 @@ public class ImportCommandService
     {
         _logger.LogInformation("Starting series search job...");
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
-        progress.Report(ProgressStatus.Started, 0, "Starting series search...");
+        await progress.ReportAsync(ProgressStatus.Started, 0, "Starting series search...", null, null, token).ConfigureAwait(false);
         try
         {
             List<RensaioBackend.Models.Database.ImportEntity> imports = await _db.Imports
@@ -294,7 +295,7 @@ public class ImportCommandService
                 .ToListAsync(token).ConfigureAwait(false); ;
             if (imports.Count == 0)
             {
-                progress.Report(ProgressStatus.Completed, 100, "No series to search, process complete");
+                await progress.ReportAsync(ProgressStatus.Completed, 100, "No series to search, process complete", null, null, token).ConfigureAwait(false);
                 return JobResult.Success;
             }
             float step = 100 / (float)imports.Count;
@@ -585,16 +586,16 @@ public class ImportCommandService
                                 import.ContinueAfterChapter = inf.ContinueAfterChapter;
                                 import.ApplyImportSeriesEntry(inf);
                                 acum += step;
-                                progress.Report(ProgressStatus.InProgress, (int)acum,
-                                    $"{import.Info.Title} found in {string.Join(",", series.Select(a => a.Provider).Distinct())}.");
+                                await progress.ReportAsync(ProgressStatus.InProgress, (int)acum,
+                                    $"{import.Info.Title} found in {string.Join(",", series.Select(a => a.Provider).Distinct())}.", null, null, token).ConfigureAwait(false);
                                 success = true;
                             }
                         }
                         if (!success)
                         {
                             acum += step;
-                            progress.Report(ProgressStatus.InProgress, (int)acum,
-                                $"Series {import.Title} not found in available providers");
+                            await progress.ReportAsync(ProgressStatus.InProgress, (int)acum,
+                                $"Series {import.Title} not found in available providers",null, null, token).ConfigureAwait(false);
                             import.Status = ImportStatus.Skip;
                             import.Action = Action.Skip;
                             _logger.LogInformation("Series '{Title}'not found", import.Info.Title);
@@ -607,14 +608,14 @@ public class ImportCommandService
                     _logger.LogError(ex, "Error searching for series: {Title}", import.Info.Title);
                 }
             }
-            progress.Report(ProgressStatus.Completed, 100, $"Search completed for {imports.Count} series");
+            await progress.ReportAsync(ProgressStatus.Completed, 100, $"Search completed for {imports.Count} series", null, null, token).ConfigureAwait(false);
             _logger.LogInformation("Series search job completed successfully for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during series search");
-            progress.Report(ProgressStatus.Failed, 100, $"Series search failed: {ex.Message}");
+            await progress.ReportAsync(ProgressStatus.Failed, 100, $"Series search failed: {ex.Message}", null, null, token).ConfigureAwait(false);
             return JobResult.Failed;
         }
     }
@@ -623,7 +624,7 @@ public class ImportCommandService
     {
         ProgressReporter progress = _reportingService.CreateReporter(jobInfo);
         _logger.LogInformation("Starting series import job...");
-        progress.Report(ProgressStatus.Started, 0, "Starting series import...");
+        await progress.ReportAsync(ProgressStatus.Started, 0, "Starting series import...",null, null, token).ConfigureAwait(false);
         List<RensaioBackend.Models.Database.ImportEntity> imports = await _db.Imports
             .Where(a => a.Status != ImportStatus.DoNotChange)
             .AsNoTracking()
@@ -650,20 +651,20 @@ public class ImportCommandService
                     Guid seriesid = await _seriesCommand.AddSeriesAsync(augmented, token).ConfigureAwait(false);
                 }
                 acum += step;
-                progress.Report(ProgressStatus.InProgress, (int)acum, $"{import.Info.Title} imported.");
+                await progress.ReportAsync(ProgressStatus.InProgress, (int)acum, $"{import.Info.Title} imported.", null, null, token).ConfigureAwait(false);
             }
             SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             settings.IsWizardSetupComplete = true;
             settings.WizardSetupStepCompleted = 0;
             await _settings.SaveSettingsAsync(settings, false, token).ConfigureAwait(false);
-            progress.Report(ProgressStatus.Completed, 100, $"Import completed for {imports.Count} series");
+            await progress.ReportAsync(ProgressStatus.Completed, 100, $"Import completed for {imports.Count} series", null, null, token).ConfigureAwait(false);
             _logger.LogInformation("Import completed for {count} series.", imports.Count);
             return JobResult.Success;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error importing series");
-            progress.Report(ProgressStatus.Failed, 100, "Error importing series");
+            await progress.ReportAsync(ProgressStatus.Failed, 100, "Error importing series", null, null, token).ConfigureAwait(false);
             return JobResult.Failed;
         }
     }

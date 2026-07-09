@@ -778,7 +778,7 @@ public class MigrationService
 
         if (resolvedManga == null)
         {
-            _logger.LogWarning("Failed to enrich metadata for provider {Provider} (SeriesId: {SeriesId}); keeping legacy details.", legacyProvider.Provider, legacyProvider.SeriesId);
+            _logger.LogWarning("Failed to enrich metadata for provider {Provider} (Series: {title}); keeping legacy details.", legacyProvider.Provider, legacyProvider.Title);
         }
         else
         {
@@ -827,7 +827,7 @@ public class MigrationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bridge lookup error for provider {Provider} (SeriesId: {SeriesId}).", legacyProvider.Title, legacyProvider.Provider);
+            _logger.LogError(ex, "Bridge lookup error for provider {Provider} (SeriesId: {title}).", legacyProvider.Title, legacyProvider.Title);
         }
 
         return null;

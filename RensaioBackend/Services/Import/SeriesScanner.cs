@@ -320,7 +320,7 @@ namespace RensaioBackend.Services.Import
                         }
                     }
                     seriesDict.Add(det);
-                    scanProgress.Report(ProgressStatus.InProgress, (decimal)acum, det.Title ?? string.Empty);
+                    await scanProgress.ReportAsync(ProgressStatus.InProgress, (decimal)acum, det.Title ?? string.Empty, null, null, token).ConfigureAwait(false);
                 }
             }
         }

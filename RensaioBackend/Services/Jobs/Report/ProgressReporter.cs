@@ -8,10 +8,10 @@ namespace RensaioBackend.Services.Jobs.Report;
 
 public class ProgressReporter
 {
-    private readonly IReportProgress _report;
+    private readonly JobHubReportService _report;
     public IProgress<ProgressState> Progress { get; }
     public JobInfo Job { get; }
-    public ProgressReporter(IReportProgress report, JobInfo job)
+    public ProgressReporter(JobHubReportService report, JobInfo job)
     {
         _report = report;
         Job = job;
@@ -20,9 +20,9 @@ public class ProgressReporter
             await _report.ReportProgressAsync(state).ConfigureAwait(false);
         });
     }    
-    public void Report(ProgressStatus status, decimal percentage,string? message, DownloadSummary? download = null, string? errorMessage = null)
+    public async Task ReportAsync(ProgressStatus status, decimal percentage,string? message, DownloadSummary? download = null, string? errorMessage = null, CancellationToken token = default)
     {
-        Progress.Report(new ProgressState
+        ProgressState state = new ProgressState
         {
             Id = Job.JobId,
             JobType = Job.JobType,
@@ -31,7 +31,10 @@ public class ProgressReporter
             Message = message ?? "",
             ErrorMessage = errorMessage,
             Download = download?.ToCardInfoDto()
-        });
+        };
+        if (state.Download!=null)
+            await _report.ThumbService.PopulateThumbsAsync(state.Download, token: token);
+        Progress.Report(state);
     }
 
 }

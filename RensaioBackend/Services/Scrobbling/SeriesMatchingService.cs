@@ -446,8 +446,8 @@ public class SeriesMatchingService
 
             if (globalMapping != null && !string.IsNullOrEmpty(globalMapping.ExternalSeriesId))
             {
-                _logger.LogDebug("Found SeriesMapping cascade for series {SeriesId} provider {Provider}: {ExternalId}",
-                    series.Id, provider, globalMapping.ExternalSeriesId);
+                _logger.LogDebug("Found SeriesMapping cascade for series {Title} provider {Provider}: {ExternalId}",
+                    series.Title, provider, globalMapping.ExternalSeriesId);
                 return (globalMapping.ExternalSeriesId, globalMapping.ExternalSeriesTitle);
             }
         }
@@ -471,7 +471,7 @@ public class SeriesMatchingService
                         ExternalMapping? mapping = snapshot.Series.ExternalMappings.FirstOrDefault(m => m.Provider == provider.ToString());
                         if (mapping!=null)
                         {
-                            _logger.LogDebug("Found rensaio.json ExternalMappings cascade for series {SeriesId} provider {Provider}: {ExternalId} {ExternalTitle}",     series.Id, mapping.Provider, mapping.ExternalId, mapping.ExternalTitle);
+                            _logger.LogDebug("Found rensaio.json ExternalMappings cascade for series {Title} ({SeriesId}) provider {Provider}: {ExternalId} {ExternalTitle}",series.Title, series.Id, mapping.Provider, mapping.ExternalId, mapping.ExternalTitle);
                             return (mapping.ExternalId, mapping.ExternalTitle);
                         }
                     }
@@ -479,7 +479,7 @@ public class SeriesMatchingService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to read rensaio.json for ExternalMappings cascade (series {SeriesId})", series.Id);
+                _logger.LogWarning(ex, "Failed to read rensaio.json for ExternalMappings cascade (series {title})", series.Title);
             }
         }
 

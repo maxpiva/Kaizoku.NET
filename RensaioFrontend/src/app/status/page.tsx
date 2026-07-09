@@ -62,8 +62,8 @@ interface SegmentedTabsProps {
 /** Sources / Series segmented control — matches the queue page's filter pills. */
 function SegmentedTabs({ value, onChange, providerCount, seriesCount }: SegmentedTabsProps) {
   const tabs: { id: StatusTab; label: string; count: number }[] = [
-    { id: "providers", label: "Sources", count: providerCount },
     { id: "series", label: "Series", count: seriesCount },
+    { id: "providers", label: "Sources", count: providerCount },
   ];
   return (
     <div className="inline-flex items-center gap-0.5 rounded-full border border-white/[0.06] bg-white/[0.015] px-0.5 py-0.5">
@@ -111,7 +111,7 @@ function PanelSkeleton({ rows }: { rows: number }) {
 }
 
 export default function StatusPage() {
-  const [activeTab, setActiveTab] = useState<StatusTab>("providers");
+  const [activeTab, setActiveTab] = useState<StatusTab>("series");
   const { data: series, isLoading: seriesLoading } = useSeriesStatus();
   const { data: providers, isLoading: providersLoading } = useProviderStatus();
   const { mutate: clearAlert } = useClearAlert();

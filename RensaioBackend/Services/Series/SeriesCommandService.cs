@@ -435,7 +435,7 @@ namespace RensaioBackend.Services.Series
                 .FirstOrDefaultAsync(s => s.Id == serie.SeriesId, token).ConfigureAwait(false);
             if (series == null)
             {
-                _logger.LogWarning("Series {SeriesId} for Provider {SeriesProvider} not found", serie.SeriesId, seriesProvider);
+                _logger.LogWarning("Series {Title} for Provider {SeriesProvider} not found", serie.Title, seriesProvider);
                 return JobResult.Delete;
             }
 
@@ -604,6 +604,8 @@ namespace RensaioBackend.Services.Series
         /// <returns>The number of providers queued for refresh.</returns>
         public async Task<int> RefreshSeriesMetadataAsync(Guid seriesId, CancellationToken token = default)
         {
+            var series = await _db.Series.AsNoTracking().FirstOrDefaultAsync(a=>a.Id==seriesId);
+            string name = series?.Title ?? seriesId.ToString();
             List<SeriesProviderEntity> providers = await _db.SeriesProviders
                 .Where(p => p.SeriesId == seriesId && !p.IsUnknown && !p.IsLocal
                     && !p.IsDisabled && !p.IsUninstalled)
@@ -619,8 +621,8 @@ namespace RensaioBackend.Services.Series
                 queued++;
             }
 
-            _logger.LogInformation("Queued metadata refresh for {count} provider(s) of series {seriesId}",
-                queued, seriesId);
+            _logger.LogInformation("Queued metadata refresh for {count} provider(s) of series {name}",
+                queued, name);
             return queued;
         }
 
@@ -911,11 +913,15 @@ namespace RensaioBackend.Services.Series
         /// <param name="token">Cancellation token.</param>
         public async Task SyncExternalMappingsFromSnapshotAsync(
             Guid seriesId,
+          
             ImportSeriesSnapshot localInfo,
             Guid userId,
             UserLevel userLevel,
             CancellationToken token = default)
         {
+            var series = await _db.Series.AsNoTracking().FirstOrDefaultAsync(a => a.Id == seriesId);
+            string title = series?.Title ?? seriesId.ToString();
+
             var mappings = localInfo?.Series.ExternalMappings;
             if (mappings == null || mappings.Count == 0)
                 return;
@@ -927,8 +933,8 @@ namespace RensaioBackend.Services.Series
 
                 if (!Enum.TryParse<ScrobblerProvider>(mapping.Provider, out var provider))
                 {
-                    _logger.LogWarning("Unknown scrobbler provider '{Provider}' in ExternalMappings for series {SeriesId}",
-                        mapping.Provider, seriesId);
+                    _logger.LogWarning("Unknown scrobbler provider '{Provider}' in ExternalMappings for series {title}",
+                        mapping.Provider, title);
                     continue;
                 }
 
@@ -965,8 +971,8 @@ namespace RensaioBackend.Services.Series
             }
 
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
-            _logger.LogDebug("Synced {Count} ExternalMappings to SeriesMappings for series {SeriesId}",
-                mappings.Count, seriesId);
+            _logger.LogDebug("Synced {Count} ExternalMappings to SeriesMappings for series {title}",
+                mappings.Count, title);
         }
 
         private async Task<Models.Database.SeriesEntity> ConsolidateDBSeriesFromProvidersAsync(Models.Database.SeriesEntity? dbSeries,

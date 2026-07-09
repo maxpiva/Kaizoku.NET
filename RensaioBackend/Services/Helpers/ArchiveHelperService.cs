@@ -200,18 +200,18 @@ namespace RensaioBackend.Services.Helpers
         public async Task UpdateAllTitlesAndAddComicInfoAsync(ProgressReporter reporter, bool onlyDownloadByRensaio = true, CancellationToken token = default)
         {
             _logger.LogInformation("Starting bulk update of all series titles and ComicInfo.xml...");
-            reporter.Report(ProgressStatus.Started,0, "Updating all Series...");
+            await reporter.ReportAsync(ProgressStatus.Started,0, "Updating all Series...", null, null, token).ConfigureAwait(false);
             var allSeries = await _db.Series.Include(s => s.Sources).AsNoTracking().ToListAsync(token);
             float step = 100 / (float)allSeries.Count;
             float acum = 0;
             foreach (var series in allSeries)
             {
-                reporter.Report(ProgressStatus.InProgress, (decimal)acum, $"Updating {series.Title}...");
+                await reporter.ReportAsync(ProgressStatus.InProgress, (decimal)acum, $"Updating {series.Title}...",null, null, token).ConfigureAwait(false);
                 await UpdateTitleAndAddComicInfoAsync(series, onlyDownloadByRensaio, token);
                 acum += step;
             }
             _logger.LogInformation("Completed bulk update of all series titles and ComicInfo.xml.");
-            reporter.Report(ProgressStatus.Completed, (decimal)acum, $"Update Complete.");
+            await reporter.ReportAsync(ProgressStatus.Completed, (decimal)acum, $"Update Complete.",null, null, token).ConfigureAwait(false);
         }
 
         /// <summary>

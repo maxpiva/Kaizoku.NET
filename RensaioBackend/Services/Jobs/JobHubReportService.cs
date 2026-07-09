@@ -1,10 +1,11 @@
+using Microsoft.AspNetCore.SignalR;
 using RensaioBackend.Extensions;
 using RensaioBackend.Hubs;
 using RensaioBackend.Models;
 using RensaioBackend.Models.Database;
+using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Jobs.Models;
 using RensaioBackend.Services.Jobs.Report;
-using Microsoft.AspNetCore.SignalR;
 
 namespace RensaioBackend.Services.Jobs;
 
@@ -14,10 +15,11 @@ namespace RensaioBackend.Services.Jobs;
 public class JobHubReportService : IReportProgress
 {
     private readonly IHubContext<ProgressHub> _hub;
-
-    public JobHubReportService(IHubContext<ProgressHub> hub)
+    public ThumbCacheService ThumbService { get; }
+    public JobHubReportService(IHubContext<ProgressHub> hub, ThumbCacheService thumbService)
     {
         _hub = hub;
+        ThumbService = thumbService;
     }
 
     /// <summary>

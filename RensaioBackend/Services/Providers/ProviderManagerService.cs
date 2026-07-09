@@ -442,14 +442,14 @@ namespace RensaioBackend.Services.Providers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Could not get source interop for {MihonProviderId} when trying to reconnect local providers", mihonProviderId);
+                    _logger.LogWarning(ex, "Could not get source interop for {sourceName} ({mihonProviderId}) when trying to reconnect local providers", sourceName, mihonProviderId);
                     return;
                 }
 
                 foreach (var provider in localProviders)
                 {
-                    _logger.LogInformation("Attempting to reconnect local provider '{Provider}' (SeriesId: {SeriesId}) to source '{Source}'",
-                        provider.Provider, provider.SeriesId, sourceName);
+                    _logger.LogInformation("Attempting to reconnect local provider '{Provider}' (Series: {title}) to source '{Source}'",
+                        provider.Provider, provider.Title, sourceName);
 
                     // Step 1: Try BridgeItemInfo first
                     Manga? manga = null;
@@ -538,13 +538,13 @@ namespace RensaioBackend.Services.Providers
                         provider.Status = (SeriesStatus)(int)manga.Status;
 
                         _db.Touch(provider, sp => sp.Chapters);
-                        _logger.LogInformation("Successfully reconnected local provider '{Provider}' (SeriesId: {SeriesId}) to source '{Source}'",
-                            provider.Provider, provider.SeriesId, sourceName);
+                        _logger.LogInformation("Successfully reconnected local provider '{Provider}' (Series: {Title}) to source '{Source}'",
+                            provider.Provider, provider.Title, sourceName);
                     }
                     else
                     {
-                        _logger.LogWarning("Could not resolve series '{Title}' from provider '{Provider}' (SeriesId: {SeriesId}). Keeping as local provider.",
-                            provider.Title, provider.Provider, provider.SeriesId);
+                        _logger.LogWarning("Could not resolve series '{Title}' from provider '{Provider}' (Series: {Title}). Keeping as local provider.",
+                            provider.Title, provider.Provider, provider.Title);
                     }
                 }
 

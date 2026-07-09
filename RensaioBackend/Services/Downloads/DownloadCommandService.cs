@@ -75,7 +75,8 @@ namespace RensaioBackend.Services.Downloads
         /// <returns>Job result indicating success or failure</returns>
         public async Task<JobResult> DownloadChapterAsync(ChapterDownload ch, JobInfo job, CancellationToken token = default)
         {
-            _logger.LogInformation("Starting download for chapter {ParsedNumber} of series {SeriesTitle} from provider {ProviderName}...", ch.Chapter.ParsedNumber, ch.Title, ch.ProviderName);
+            string providerName = ch.ProviderName ?? ch.MihonProviderId;
+            _logger.LogInformation("Starting download for chapter {ParsedNumber} of series {SeriesTitle} from provider {ProviderName}...", ch.Chapter.ParsedNumber, ch.Title, providerName);
             ProgressReporter reporter = _reportingService.CreateReporter(job);
             DownloadSummary downloadSummary;
 
@@ -92,13 +93,13 @@ namespace RensaioBackend.Services.Downloads
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "Unable to get DownloadChapter from {mihonProviderId}", ch.MihonProviderId);
+                _logger.LogError(e, "Unable to get DownloadChapter from {ProviderName}, series {Title}", providerName, ch.Title);
                 return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
             }
             if (src==null)
             {
-                _logger.LogError("Source for provider ID {ProviderId} not found when downloading chapter {ParsedNumber} of series {SeriesTitle}",
-                    ch.MihonProviderId, ch.Chapter.ParsedNumber, ch.Title);
+                _logger.LogError("Source for provider {ProviderName} not found when downloading chapter {ParsedNumber} of series {SeriesTitle}",
+                    providerName, ch.Chapter.ParsedNumber, ch.Title);
                 return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
             }
             string provider = src.Name + "(" + src.Language + ")";
@@ -119,14 +120,14 @@ namespace RensaioBackend.Services.Downloads
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "Error getting pages from source for provider ID {ProviderId} when downloading chapter {ParsedNumber} of series {SeriesTitle}",
-                    ch.MihonProviderId, ch.Chapter.ParsedNumber, ch.Title);
+                _logger.LogError(e, "Error getting pages from source for provider ID {Provider} when downloading chapter {ParsedNumber} of series {SeriesTitle}",
+                    providerName, ch.Chapter.ParsedNumber, ch.Title);
                 return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
             }
             ch.PageCount = ch.Pages.Count;
             downloadSummary = ch.ToDownloadSummary();
             downloadSummary.PageCount = ch.PageCount;
-            string providerName = ch.ProviderName;
+            providerName = ch.ProviderName;
             if (ch.Scanlator != null)
                 providerName += "-" + ch.Scanlator;
 
@@ -148,7 +149,7 @@ namespace RensaioBackend.Services.Downloads
 
             string zipFile = ArchiveHelperService.MakeFileNameSafe(ch.ProviderName, ch.Scanlator, ch.SeriesTitle, ch.Language, ch.Chapter.ParsedNumber, rchap, maxChap) + ".cbz";
             string message = $"Downloading ({providerName}) {ch.Title} {chapterName}...";
-            reporter.Report(ProgressStatus.Started, 0, message, downloadSummary);
+            await reporter.ReportAsync(ProgressStatus.Started, 0, message, downloadSummary, null, token).ConfigureAwait(false);
 
             float step = 100 / (float)(ch.PageCount);
             float acum = 0;
@@ -197,7 +198,7 @@ namespace RensaioBackend.Services.Downloads
                                 pagesWritten++;
                                 acum += step;
                                 message = $"Downloading ({providerName}) {ch.Title} {chapterName} {pageIndex}";
-                                reporter.Report(ProgressStatus.InProgress, (int)acum, message, downloadSummary);
+                                await reporter.ReportAsync(ProgressStatus.InProgress, (int)acum, message, downloadSummary, null, token).ConfigureAwait(false);
                             }
                             catch (Exception)
                             {
@@ -236,7 +237,7 @@ namespace RensaioBackend.Services.Downloads
                     {
                         _logger.LogError(e, "Failed to delete temporary zip file {TempZipPath}", tempZipPath);
                     }
-                    reporter.Report(ProgressStatus.Failed, (int)acum, message, downloadSummary);
+                    await reporter.ReportAsync(ProgressStatus.Failed, (int)acum, message, downloadSummary,null, token).ConfigureAwait(false);
                     return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
                 }
 
@@ -252,7 +253,7 @@ namespace RensaioBackend.Services.Downloads
                 catch (Exception e)
                 {
                     _logger.LogError(e, "Failed to move downloaded file from {TempZipPath} to {FinalPath}", tempZipPath, finalPath);
-                    reporter.Report(ProgressStatus.Failed, (int)acum, message, downloadSummary);
+                    await reporter.ReportAsync(ProgressStatus.Failed, (int)acum, message, downloadSummary,null, token).ConfigureAwait(false);
                     return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
                 }
 
@@ -262,7 +263,7 @@ namespace RensaioBackend.Services.Downloads
                     if (providerr == null)
                     {
                         _logger.LogWarning("Series Provider {ProviderName} no longer exists.", ch.ProviderName);
-                        reporter.Report(ProgressStatus.Completed, 100, "", downloadSummary);
+                        await reporter.ReportAsync(ProgressStatus.Completed, 100, "", downloadSummary,null, token).ConfigureAwait(false);
                         return JobResult.Failed;
                     }
 
@@ -329,7 +330,7 @@ namespace RensaioBackend.Services.Downloads
                 await _cadenceService.RecalculateCadenceAsync(ch.SeriesId, token).ConfigureAwait(false);
 
                 message = $"Downloading ({providerName}) {ch.Title} {chapterName} completed.";
-                reporter.Report(ProgressStatus.Completed, 100, message, downloadSummary);
+                await reporter.ReportAsync(ProgressStatus.Completed, 100, message, downloadSummary, null, token).ConfigureAwait(false);
                 _logger.LogInformation("Download Complete for chapter {ChapterNumber} of series {SeriesTitle} from provider {ProviderName}...", ch.Chapter.ParsedNumber, ch.Title, ch.ProviderName);
                 return JobResult.Success;
             }
@@ -346,7 +347,7 @@ namespace RensaioBackend.Services.Downloads
                     }
                 }
                 _logger.LogError(e, "Error downloading chapter {ParsedNumber} of series {SeriesTitle}: {Message}", ch.Chapter.ParsedNumber, ch.Title, e.Message);
-                reporter.Report(ProgressStatus.Failed, (int)100, "Error downloading chapter", downloadSummary);
+                await reporter.ReportAsync(ProgressStatus.Failed, (int)100, "Error downloading chapter", downloadSummary, null, token).ConfigureAwait(false);
                 return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
             }
         }

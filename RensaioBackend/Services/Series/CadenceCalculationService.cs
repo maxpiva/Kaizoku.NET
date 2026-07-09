@@ -44,6 +44,7 @@ public class CadenceCalculationService
     /// </summary>
     public async Task<int?> RecalculateCadenceAsync(Guid seriesId, CancellationToken token = default)
     {
+        string? name = null;
         try
         {
             // Step 0: Check if the user has manually set the cadence (indicated by negative value).
@@ -53,11 +54,12 @@ public class CadenceCalculationService
                 .FirstOrDefaultAsync(s => s.Id == seriesId, token)
                 .ConfigureAwait(false);
 
+            name = existingSeries?.Title ?? seriesId.ToString();
             if (existingSeries?.ReleaseCadenceDays.HasValue == true && existingSeries.ReleaseCadenceDays.Value < 0)
             {
                 _logger.LogDebug(
-                    "Series {SeriesId} has user-defined cadence ({Cadence} days), skipping auto-recalculation",
-                    seriesId, Math.Abs(existingSeries.ReleaseCadenceDays.Value));
+                    "Series {Name} has user-defined cadence ({Cadence} days), skipping auto-recalculation",
+                    name,  Math.Abs(existingSeries.ReleaseCadenceDays.Value));
                 return Math.Abs(existingSeries.ReleaseCadenceDays.Value);
             }
 
@@ -82,8 +84,8 @@ public class CadenceCalculationService
             if (rawDates.Count < MinDistinctDates)
             {
                 _logger.LogDebug(
-                    "Queue data insufficient ({Count} dates) for series {SeriesId}, trying provider chapter data",
-                    rawDates.Count, seriesId);
+                    "Queue data insufficient ({Count} dates) for series {Name}, trying provider chapter data",
+                    rawDates.Count, name);
 
                 var providerDates = await ExtractEffectiveDatesFromProvidersAsync(seriesId, token)
                     .ConfigureAwait(false);
@@ -91,16 +93,16 @@ public class CadenceCalculationService
                 if (providerDates.Count >= MinDistinctDates)
                 {
                     _logger.LogDebug(
-                        "Using {Count} dates from provider chapter data for series {SeriesId}",
-                        providerDates.Count, seriesId);
+                        "Using {Count} dates from provider chapter data for series {Name}",
+                        providerDates.Count, name);
                     rawDates = providerDates;
                 }
                 else
                 {
                     _logger.LogDebug(
-                        "Only {Count} dates from queue and {ProviderCount} from providers for series {SeriesId}, need at least {Min}",
-                        rawDates.Count, providerDates.Count, seriesId, MinDistinctDates);
-                    return await FallbackCadenceAsync(seriesId, token).ConfigureAwait(false);
+                        "Only {Count} dates from queue and {ProviderCount} from providers for series {Name}, need at least {Min}",
+                        rawDates.Count, providerDates.Count, name, MinDistinctDates);
+                    return await FallbackCadenceAsync(seriesId, name, token).ConfigureAwait(false);
                 }
             }
 
@@ -108,26 +110,26 @@ public class CadenceCalculationService
             var filteredDates = FilterAndDeduplicateDates(rawDates);
             if (filteredDates.Count < MinDistinctDates)
             {
-                _logger.LogDebug("After filtering, only {Count} dates remain for series {SeriesId}",
-                    filteredDates.Count, seriesId);
-                return await FallbackCadenceAsync(seriesId, token).ConfigureAwait(false);
+                _logger.LogDebug("After filtering, only {Count} dates remain for series {Name}",
+                    filteredDates.Count, name);
+                return await FallbackCadenceAsync(seriesId, name, token).ConfigureAwait(false);
             }
 
             // Step 4: Calculate intervals between consecutive dates (chronological order)
             var intervals = CalculateIntervals(filteredDates);
             if (intervals.Count < 2)
             {
-                _logger.LogDebug("Only {Count} intervals for series {SeriesId}, need at least 2",
-                    intervals.Count, seriesId);
-                return await FallbackCadenceAsync(seriesId, token).ConfigureAwait(false);
+                _logger.LogDebug("Only {Count} intervals for series {Name}, need at least 2",
+                    intervals.Count, name);
+                return await FallbackCadenceAsync(seriesId, name, token).ConfigureAwait(false);
             }
 
             // Step 5: Remove outlier intervals (double releases, skipped releases)
             var cleanedIntervals = RemoveOutlierIntervals(intervals);
             if (cleanedIntervals.Count < 1)
             {
-                _logger.LogDebug("After outlier removal, no intervals remain for series {SeriesId}", seriesId);
-                return await FallbackCadenceAsync(seriesId, token).ConfigureAwait(false);
+                _logger.LogDebug("After outlier removal, no intervals remain for series {Name}", name);
+                return await FallbackCadenceAsync(seriesId, name, token).ConfigureAwait(false);
             }
 
             // Step 6: Compute median interval and map to standard cadence
@@ -144,8 +146,8 @@ public class CadenceCalculationService
                     series.ReleaseCadenceDays = cadenceDays.Value;
                     await _db.SaveChangesAsync(token).ConfigureAwait(false);
                     _logger.LogInformation(
-                        "Computed cadence for series {SeriesId}: {CadenceDays} days (median interval: {MedianInterval:F1})",
-                        seriesId, cadenceDays.Value, medianInterval);
+                        "Computed cadence for series {title}: {CadenceDays} days (median interval: {MedianInterval:F1})",
+                        series.Title, cadenceDays.Value, medianInterval);
                 }
             }
 
@@ -153,7 +155,7 @@ public class CadenceCalculationService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error computing cadence for series {SeriesId}", seriesId);
+            _logger.LogError(ex, "Error computing cadence for series {name}", name ?? seriesId.ToString());
             return null;
         }
     }
@@ -339,7 +341,7 @@ public class CadenceCalculationService
     /// Fallback: if the series is ONGOING, assume maximum cadence (1 month = 30 days).
     /// Otherwise, leave null (no monitoring needed for completed/hiatus series).
     /// </summary>
-    private async Task<int?> FallbackCadenceAsync(Guid seriesId, CancellationToken token = default)
+    private async Task<int?> FallbackCadenceAsync(Guid seriesId, string name, CancellationToken token = default)
     {
         var series = await _db.Series
             .AsNoTracking()
@@ -360,8 +362,8 @@ public class CadenceCalculationService
                 tracked.ReleaseCadenceDays = CadenceMonthly;
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
                 _logger.LogInformation(
-                    "Fallback cadence for ongoing series {SeriesId}: {CadenceDays} days (insufficient data)",
-                    seriesId, CadenceMonthly);
+                    "Fallback cadence for ongoing series {Name}: {CadenceDays} days (insufficient data)",
+                    name, CadenceMonthly);
             }
             return CadenceMonthly;
         }

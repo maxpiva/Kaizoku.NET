@@ -307,6 +307,10 @@ namespace RensaioBackend.Controllers
             try
             {
                 var result = await _providerService.GetMatchAsync(providerId, token).ConfigureAwait(false);
+                if (result?.MatchInfos!=null && result.MatchInfos.Count>0)
+                {
+                    await _thumb.PopulateThumbsAsync(result.MatchInfos, "/api/image/", token).ConfigureAwait(false);
+                }
                 return Ok(result);
             }
             catch (Exception ex)
@@ -405,6 +409,7 @@ namespace RensaioBackend.Controllers
 
                 series = await _commandService.UpdateSeriesAsync(series, token).ConfigureAwait(false);
                 await _thumb.PopulateThumbsAsync(series, "/api/image/", token).ConfigureAwait(false);
+                await _thumb.PopulateThumbsAsync(series.Providers, "/api/image/", token).ConfigureAwait(false);
                 return Ok(series);
             }
             catch (Exception ex)
@@ -445,12 +450,13 @@ namespace RensaioBackend.Controllers
         [ProducesResponseType(500)]
         public async Task<IActionResult> SetSeriesCadenceAsync(Guid id, [FromBody] SetCadenceRequest request, CancellationToken token = default)
         {
+            string name = id.ToString();
             try
             {
                 var series = await _db.Series.FirstOrDefaultAsync(s => s.Id == id, token).ConfigureAwait(false);
                 if (series == null)
                     return NotFound(new { error = "Series not found" });
-
+                name = series.Title;
                 if (request.CadenceDays.HasValue)
                 {
                     if (request.CadenceDays.Value <= 0)
@@ -491,7 +497,7 @@ namespace RensaioBackend.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting cadence for series {SeriesId}: {Message}", id, ex.Message);
+                _logger.LogError(ex, "Error setting cadence for series {name}: {Message}", name, ex.Message);
                 return StatusCode(500, new { error = ex.Message });
             }
         }

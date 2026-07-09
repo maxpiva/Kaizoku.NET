@@ -131,14 +131,15 @@ namespace RensaioBackend.Services.Series
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to sync rensaio.json after integrity verify for series {SeriesId}", series.Id);
+                _logger.LogWarning(ex, "Failed to sync rensaio.json after integrity verify for series {Title}", series.Title);
             }
 
             // Return integrity result for remaining valid chapters
             List<Chapter> validChapters = series.Sources.SelectMany(a => a.Chapters)
                 .Where(a => !string.IsNullOrEmpty(a.Filename)).ToList();
-
-            return GetIntegrityResult(basePath, validChapters);
+            SeriesIntegrityResultDto result = GetIntegrityResult(basePath, validChapters);
+            result.SeriesName = series.Title;
+            return result;
         }
 
         /// <summary>
@@ -159,6 +160,7 @@ namespace RensaioBackend.Services.Series
                 .Where(a => !string.IsNullOrEmpty(a.Filename)).ToList();
             string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
             SeriesIntegrityResultDto sr = GetIntegrityResult(basePath, chaps);
+            sr.SeriesName = series.Title;
             bool update = false;
 
             foreach (ArchiveIntegrityResultDto r in sr.BadFiles)
@@ -228,9 +230,8 @@ namespace RensaioBackend.Services.Series
         /// <returns>Job result</returns>
         public async Task<JobResult> VerifyAllSeriesAsync(JobInfo jobInfo, CancellationToken token = default)
         {
-            var seriesIds = await _db.Series
-                .Select(s => s.Id)
-                .ToListAsync(token)
+            Dictionary<Guid, string> seriesIds = await _db.Series
+                .ToDictionaryAsync(a=>a.Id, a=>a.Title)
                 .ConfigureAwait(false);
 
             _logger.LogInformation("Starting full series integrity verification across {Count} series. This may take a while depending on library size and archive file sizes.", seriesIds.Count);
@@ -248,17 +249,18 @@ namespace RensaioBackend.Services.Series
                 processed++;
                 try
                 {
-                    var result = await VerifyIntegrityAsync(seriesId, false, token).ConfigureAwait(false);
+                    var result = await VerifyIntegrityAsync(seriesId.Key, false, token).ConfigureAwait(false);
                     if (result.BadFiles.Count > 0)
                     {
                         affectedSeries++;
                         totalBadFiles += result.BadFiles.Count;
-                        _logger.LogWarning("Series {SeriesId} has {BadCount} bad file(s)", seriesId, result.BadFiles.Count);
+                        string files = string.Join(", ", result.BadFiles.Select(a => a.Filename));
+                        _logger.LogWarning("Series {SeriesName} at '{Path}' has {BadCount} bad file(s): {files}", result.SeriesName, result.SeriesPath, result.BadFiles.Count, files);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to verify integrity for series {SeriesId}", seriesId);
+                    _logger.LogWarning(ex, "Failed to verify integrity for series {Value}", seriesId.Value);
                 }
 
                 // Log progress every 50 series
@@ -291,7 +293,8 @@ namespace RensaioBackend.Services.Series
         {
             SeriesIntegrityResultDto result = new SeriesIntegrityResultDto
             {
-                BadFiles = []
+                BadFiles = [],
+                SeriesPath =path
             };
 
             foreach (Chapter c in chapters)

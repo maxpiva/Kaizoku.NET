@@ -110,6 +110,8 @@ public sealed class DebouncedScrobblerSyncHostedService : BackgroundService
 
     private async Task ProcessEventAsync(Guid userId, Guid seriesId, CancellationToken token)
     {
+        string name = seriesId.ToString();
+        string username = userId.ToString();
         try
         {
             // Guard against shutdown — don't try to create a scope if the container is being disposed
@@ -122,17 +124,19 @@ public sealed class DebouncedScrobblerSyncHostedService : BackgroundService
 
             // Fetch the series to get the storage path
             var series = await db.Series.FindAsync(new object[] { seriesId }, token);
+            name = series?.Title ?? name;
             if (series == null || string.IsNullOrWhiteSpace(series.StoragePath))
             {
-                _logger.LogWarning("Series {SeriesId} not found or missing storage path, skipping scrobbler sync", seriesId);
+                _logger.LogWarning("Series {name} not found or missing storage path, skipping scrobbler sync", name);
                 return;
             }
 
             // Get the user to resolve username
             var user = await db.Users.FindAsync(new object[] { userId }, token);
+            username = user?.Username ?? username;
             if (user == null)
             {
-                _logger.LogWarning("User {UserId} not found, skipping scrobbler sync", userId);
+                _logger.LogWarning("User {username} not found, skipping scrobbler sync", username);
                 return;
             }
 
@@ -153,8 +157,8 @@ public sealed class DebouncedScrobblerSyncHostedService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to sync scrobbler read state for user {UserId} series {SeriesId}",
-                userId, seriesId);
+                "Failed to sync scrobbler read state for user {username} series {name}",
+                username, name);
         }
     }
 }

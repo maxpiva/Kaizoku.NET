@@ -80,6 +80,7 @@ public class OpdsImageService
 
         if (series == null || string.IsNullOrWhiteSpace(series.StoragePath))
             return (null, null, null);
+        string name = series.Title;
         string seriesStoragePath = series.StoragePath;
         string? archivePath = _settingsService.DirectSettings?.ResolveChapterPath(seriesStoragePath, chapterFilename);
 
@@ -125,7 +126,7 @@ public class OpdsImageService
             // Setup extraction (DB lookup, pages, signals) and fire the task without awaiting it.
             // The state is stored in the coordinator so we can wait for the page signal.
             state = await SetupAndFireExtractionAsync(
-                userKey, seriesId, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+                userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
 
             if (state == null)
                 return (null, null, null);
@@ -219,7 +220,7 @@ public class OpdsImageService
     /// If there is an active extraction for this exact chapter, we wait for it.
     /// </summary>
     public Task EnsureChapterIsLoadedAsync(
-        UserEntity user, Guid seriesId, string language, string chapterFilename, string seriesStoragePath,
+        UserEntity user, Guid seriesId, string title, string language, string chapterFilename, string seriesStoragePath,
         List<string> supportedImageFormats)
     {
         string userKey = OpdsExtractionCoordinator.GetUserKey(user.Username);
@@ -233,7 +234,7 @@ public class OpdsImageService
         string? archivePath = _settingsService.DirectSettings?.ResolveChapterPath(seriesStoragePath, chapterFilename);
         if (archivePath == null)
         {
-            _logger.LogWarning("Archive not found for chapter {Filename} in series {SeriesId}",
+            _logger.LogWarning("Archive not found for chapter {Filename} in series {title}",
                 chapterFilename, seriesId);
             return Task.CompletedTask;
         }
@@ -242,7 +243,7 @@ public class OpdsImageService
         _coordinator.CancelActiveExtraction(userKey);
 
         // Start extraction with the full archive path
-        return StartExtractionAsync(userKey, seriesId, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+        return StartExtractionAsync(userKey, seriesId, title, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -253,12 +254,14 @@ public class OpdsImageService
         UserEntity user, Guid seriesId, string? language, string seriesStoragePath, string userKey,
         List<string> supportedImageFormats)
     {
+        string name = seriesId.ToString();
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var readStateService = scope.ServiceProvider.GetRequiredService<ReadStateService>();
-
+            var series = await db.Series.AsNoTracking().FirstOrDefaultAsync(a=>a.Id==seriesId);
+            name = series?.Title ?? name;
             var providers = await db.SeriesProviders
                 .Where(sp => sp.SeriesId == seriesId)
                 .AsNoTracking()
@@ -324,23 +327,23 @@ public class OpdsImageService
             string? archivePath = _settingsService.DirectSettings?.ResolveChapterPath(seriesStoragePath, chapterFilename);
             if (archivePath == null)
             {
-                _logger.LogWarning("Archive not found for chapter {Filename} in series {SeriesId}",
-                    chapterFilename, seriesId);
+                _logger.LogWarning("Archive not found for chapter {Filename} in series {name}",
+                    chapterFilename, name);
                 return;
             }
 
             // Cancel any previous extraction for this user
             _coordinator.CancelActiveExtraction(userKey);
 
-            await StartExtractionAsync(userKey, seriesId, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            await StartExtractionAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("Preload canceled for series {SeriesId}", seriesId);
+            _logger.LogDebug("Preload canceled for series {name}", name);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Background preload failed for series {SeriesId}", seriesId);
+            _logger.LogWarning(ex, "Background preload failed for series {name}", name);
         }
     }
 
@@ -349,10 +352,13 @@ public class OpdsImageService
         decimal currentChapterNumber, string seriesStoragePath, string userKey,
         List<string> supportedImageFormats)
     {
+        string name = seriesId.ToString();
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var series = await db.Series.AsNoTracking().FirstOrDefaultAsync(a => a.Id == seriesId);
+            name = series?.Title ?? name;
 
             var providers = await db.SeriesProviders
                 .Where(sp => sp.SeriesId == seriesId)
@@ -420,22 +426,22 @@ public class OpdsImageService
             string? archivePath = _settingsService.DirectSettings?.ResolveChapterPath(seriesStoragePath, chapterFilename);
             if (archivePath == null)
             {
-                _logger.LogWarning("Archive not found for next chapter {Filename} in series {SeriesId}",
-                    chapterFilename, seriesId);
+                _logger.LogWarning("Archive not found for next chapter {Filename} in series {name}",
+                    chapterFilename, name);
                 return;
             }
 
             // Start extraction of the next chapter
             _coordinator.CancelActiveExtraction(userKey);
-            await StartExtractionAsync(userKey, seriesId, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            await StartExtractionAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("Next-chapter preload canceled for series {SeriesId}", seriesId);
+            _logger.LogDebug("Next-chapter preload canceled for series {name}", name);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Next-chapter preload failed for series {SeriesId}", seriesId);
+            _logger.LogWarning(ex, "Next-chapter preload failed for series {name}", name);
         }
     }
 
@@ -446,7 +452,7 @@ public class OpdsImageService
     /// Returns null if the chapter cannot be found in the DB.
     /// </summary>
     private async Task<OpdsExtractionCoordinator.SeriesExtractionState?> SetupAndFireExtractionAsync(
-        string userKey, Guid seriesId, string cacheKey, string cacheDir,
+        string userKey, Guid seriesId, string name, string cacheKey, string cacheDir,
         string archivePath, string chapterFilename, string seriesStoragePath,
         List<string> supportedImageFormats)
     {
@@ -474,7 +480,7 @@ public class OpdsImageService
 
         if (chapter == null)
         {
-            _logger.LogWarning("Chapter {Filename} not found in DB for series {SeriesId}", chapterFilename, seriesId);
+            _logger.LogWarning("Chapter {Filename} not found in DB for series {name}", chapterFilename, name);
             return null;
         }
 
@@ -522,12 +528,12 @@ public class OpdsImageService
     /// Used by preload methods that want to observe the full extraction lifecycle.
     /// </summary>
     private async Task StartExtractionAsync(
-        string userKey, Guid seriesId, string cacheKey, string cacheDir,
+        string userKey, Guid seriesId, string name, string cacheKey, string cacheDir,
         string archivePath, string chapterFilename, string seriesStoragePath,
         List<string> supportedImageFormats)
     {
         var state = await SetupAndFireExtractionAsync(
-            userKey, seriesId, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
 
         if (state?.ExtractionTask == null)
             return;
@@ -538,11 +544,11 @@ public class OpdsImageService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("Extraction canceled for series {SeriesId}, chapter {CacheKey}", seriesId, cacheKey);
+            _logger.LogDebug("Extraction canceled for series {name}, chapter {CacheKey}", name, cacheKey);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Extraction failed for series {SeriesId}, chapter {CacheKey}", seriesId, cacheKey);
+            _logger.LogWarning(ex, "Extraction failed for series {name}, chapter {CacheKey}", name, cacheKey);
         }
     }
 
