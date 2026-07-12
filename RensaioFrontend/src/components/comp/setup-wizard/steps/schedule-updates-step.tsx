@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -24,13 +24,25 @@ export function ScheduleUpdatesStep({
 }: ScheduleUpdatesStepProps) {
   const [downloadOption, setDownloadOption] = useState<string>("proceed");
   const [importTotals, setImportTotals] = useState<ImportTotals | null>(null);
-  
+
   const {
     data: totalsData,
     error: totalsError,
     isLoading: totalsLoading,
     refetch: refetchTotals,
   } = useSetupWizardImportTotals();
+
+  // Always allow progress — this step has no blocking precondition.
+  // The parent wizard shell resets canProgress → false on every step change
+  // via useEffect([currentStep]). That effect runs before child effects in
+  // the commit phase, so a mount-only useEffect with a stable dependency
+  // won't re-fire if the component is merely re-rendered (not re-mounted).
+  // Using useLayoutEffect without deps guarantees it runs after *every*
+  // render cycle, re-asserting canProgress → true regardless of the
+  // parent-effect ordering or query-state transitions.
+  useLayoutEffect(() => {
+    setCanProgress(true);
+  });
 
   // Load import totals when component mounts
   useEffect(() => {
@@ -58,11 +70,6 @@ export function ScheduleUpdatesStep({
       setError(null);
     }
   }, [totalsError, setError]);
-
-  // Handle progress state - always allow progress since user can choose either option
-  useEffect(() => {
-    setCanProgress(true);
-  }, [setCanProgress]);
 
   // Handle download option changes
   useEffect(() => {

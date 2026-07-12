@@ -53,7 +53,7 @@ export const externalLinks: ExternalLinkDef[] = [
   },
   {
     name: "Discord",
-    href: "https://discord.gg/AvhtPPV8",
+    href: "https://discord.gg/f53BRuyVZf",
     icon: <DiscordIcon />,
   },
   {

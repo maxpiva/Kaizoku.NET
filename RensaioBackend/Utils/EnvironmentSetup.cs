@@ -494,12 +494,40 @@ namespace RensaioBackend.Utils
                 return false;
             }
         }
+        static string[] dockerNames = new[] { "docker", "podman", "kubepods", "containerd","libpod" };
+
         public static bool IsDocker
         {
             get
             {
                 if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    return FileExistsEvenIfNoAccess("/.dockerenv");
+                {
+                    if (FileExistsEvenIfNoAccess("/.dockerenv"))
+                        return true;
+                    var env = Environment.GetEnvironmentVariable("container");
+                    foreach(string str in dockerNames)
+                    {
+                        if (env?.Contains(str, StringComparison.OrdinalIgnoreCase) ?? false)
+                            return true;
+                    }
+                    try
+                    {
+                        if (File.Exists("/proc/1/cgroup"))
+                        {
+                            string? text = File.ReadAllText("/proc/1/cgroup");
+                            foreach (string str in dockerNames)
+                            {
+                                if (text?.Contains(str, StringComparison.OrdinalIgnoreCase) ?? false)
+                                    return true;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        //Ignore exceptions, assume not running in Docker
+                    }
+
+                }
                 return false;
             }
         }

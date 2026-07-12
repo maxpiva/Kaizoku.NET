@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useClaimUser, useCreateFirstUser } from '@/lib/api/hooks/useAuth';
 import { useAuth } from '@/contexts/auth-context';
+import { UserLevel } from '@/lib/api/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +50,22 @@ export function IdentifyUserStep({
 
   // All users from the database (after refresh)
   const allUsers = availableUsers ?? [];
+
+  // Detect if any user already has Owner level — this covers the case where the
+  // user re-navigates to this step after already creating/claiming an owner,
+  // or where an owner was established earlier in the wizard flow.
+  // `allUsers` includes the full `User` object with `level` (see AuthController.GetStatus).
+  const existingOwner = allUsers.find((u) => u.level >= UserLevel.Owner);
+
+  // Sync local state when an existing owner is detected from server data
+  // so that canProgress is set and the UI transitions to the completed state
+  // without showing the claim/create UI again.
+  useEffect(() => {
+    if (existingOwner && !claimed && !created) {
+      setSelectedUsername(existingOwner.username);
+      setCanProgress(true);
+    }
+  }, [existingOwner, claimed, created, setCanProgress]);
 
   // Prioritise showing auto-created users first, then all other available users
   const autoCreatedMatch = allUsers.filter(
@@ -122,7 +139,11 @@ export function IdentifyUserStep({
     );
   }
 
-  if (claimed || created) {
+  // Completed state: user has claimed, created, or an existing owner was detected
+  const isComplete = claimed || created || !!existingOwner;
+  const displayUsername = existingOwner?.username ?? selectedUsername;
+
+  if (isComplete) {
     return (
       <Card className="mt-12">
         <CardHeader>
@@ -134,7 +155,7 @@ export function IdentifyUserStep({
         <CardContent>
           <div className="bg-secondary border border-green-200 rounded-lg p-4">
             <p className="text-sm">
-              You are now identified as <strong>{selectedUsername}</strong>!
+              You are now identified as <strong>{displayUsername}</strong>!
             </p>
             <p className="text-sm text-muted-foreground mt-2">
               You have been promoted to owner. No password was set - authentication
@@ -194,6 +215,7 @@ export function IdentifyUserStep({
     );
   }
 
+  // Users exist but no owner has been established — show the list of users to select/claim
   return (
     <div className="space-y-4">
       <div className="text-sm text-muted-foreground pt-12">
