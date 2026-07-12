@@ -541,14 +541,14 @@ services:<br />
   <!-- PERMISSIONS -->
   <section class="container section">
     <h2 class="section-title">Permissions</h2>
-    <p class="section-subtitle">Ensure the specified UID and PGID have write access to your mounted <code>/config</code> and <code>/series</code> directories.</p>
+    <p class="section-subtitle">Ensure the specified PUID and PGID have write access to your mounted <code>/config</code> and <code>/series</code> directories.</p>
     <div class="table-wrap">
       <table>
         <thead>
           <tr><th>Variable</th><th>Value</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>UID</code></td><td>99</td><td>Host user ID</td></tr>
+          <tr><td><code>PUID</code></td><td>99</td><td>Host user ID</td></tr>
           <tr><td><code>PGID</code></td><td>100</td><td>Host group ID</td></tr>
           <tr><td><code>UMASK</code></td><td>022</td><td>File permission mask (default)</td></tr>
         </tbody>
@@ -580,7 +580,7 @@ services:<br />
   &lt;Config Name=&quot;Config Folder&quot; Target=&quot;/config&quot; Default=&quot;/mnt/user/appdata/rensaio&quot; Mode=&quot;rw&quot; Description=&quot;Path to store configuration, database, and settings.&quot; Type=&quot;Path&quot; /&gt;
   &lt;Config Name=&quot;Series Folder&quot; Target=&quot;/series&quot; Default=&quot;/mnt/user/media/series&quot; Mode=&quot;rw&quot; Description=&quot;Path where series and chapters will be downloaded.&quot; Type=&quot;Path&quot; /&gt;
 
-  &lt;Config Name=&quot;UID&quot; Target=&quot;UID&quot; Default=&quot;99&quot; Mode=&quot;rw&quot; Description=&quot;User ID to run the container as.&quot; Type=&quot;Variable&quot; /&gt;
+  &lt;Config Name=&quot;PUID&quot; Target=&quot;PUID&quot; Default=&quot;99&quot; Mode=&quot;rw&quot; Description=&quot;User ID to run the container as.&quot; Type=&quot;Variable&quot; /&gt;
   &lt;Config Name=&quot;PGID&quot; Target=&quot;PGID&quot; Default=&quot;100&quot; Mode=&quot;rw&quot; Description=&quot;Group ID to run the container as.&quot; Type=&quot;Variable&quot; /&gt;
   &lt;Config Name=&quot;UMASK&quot; Target=&quot;UMASK&quot; Default=&quot;022&quot; Mode=&quot;rw&quot; Description=&quot;UMASK for file permissions.&quot; Type=&quot;Variable&quot; /&gt;
 
