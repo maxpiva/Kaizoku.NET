@@ -18,7 +18,7 @@ When you subscribe to a series, it will automatically download it. Whenever the 
 > Nevertheless, **before upgrading**, make sure to back up your config directory, including your database. Since the devil never rests.
 
 <p align="center">
-  <a href="https://discord.gg/AvhtPPV8">💬 Discord</a> &nbsp;|&nbsp; <a href="https://www.rensaio.net">🌐 Website</a>
+  <a href="https://discord.gg/f53BRuyVZf">💬 Discord</a> &nbsp;|&nbsp; <a href="https://www.rensaio.net">🌐 Website</a>
 </p>
 
 ---
@@ -129,11 +129,11 @@ Then use [IKVM](https://github.com/ikvmnet/ikvm) to run this on .NET.
 
 | Variable | Value | Description                    |
 |----------|-------|--------------------------------|
-| `UID`    | 99    | Host user ID                   |
+| `PUID`    | 99    | Host user ID                   |
 | `PGID`   | 100   | Host group ID                  |
 | `UMASK`  | 022   | File permission mask (default) |
 
-> Ensure the specified UID and PGID have write access to your mounted `/config` and `/series` directories.
+> Ensure the specified PUID and PGID have write access to your mounted `/config` and `/series` directories.
 
 ---
 
@@ -150,7 +150,7 @@ docker run -d \
   --name Rensaio \
   --network host \
   -p 9833:9833 \
-  -e UID=99 \
+  -e PUID=99 \
   -e PGID=100 \
   -e UMASK=022 \
   -v /path/to/your/config:/config \
@@ -175,7 +175,7 @@ services:
     environment:
         - UMASK=022
         - PGID=100
-        - UID=99
+        - PUID=99
     ports:
         - '9833:9833'
 ```
@@ -202,7 +202,7 @@ services:
   <Config Name="Config Folder" Target="/config" Default="/mnt/user/appdata/rensaio" Mode="rw" Description="Path to store configuration, database, and settings." Type="Path" />
   <Config Name="Series Folder" Target="/series" Default="/mnt/user/media/series" Mode="rw" Description="Path where series and chapters will be downloaded." Type="Path" />
 
-  <Config Name="UID" Target="UID" Default="99" Mode="rw" Description="User ID to run the container as." Type="Variable" />
+  <Config Name="PUID" Target="PUID" Default="99" Mode="rw" Description="User ID to run the container as." Type="Variable" />
   <Config Name="PGID" Target="PGID" Default="100" Mode="rw" Description="Group ID to run the container as." Type="Variable" />
   <Config Name="UMASK" Target="UMASK" Default="022" Mode="rw" Description="UMASK for file permissions." Type="Variable" />
 
