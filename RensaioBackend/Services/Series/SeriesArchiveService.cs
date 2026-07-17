@@ -221,7 +221,20 @@ namespace RensaioBackend.Services.Series
                     {
                         // Hashes are keyed by filename, so drop the stale entry before moving.
                         _hashCache.DeleteChapterHash(series.StoragePath, chap.Filename);
-                        File.Move(oldFullPath, newFullPath);
+                        if (!string.Equals(oldFullPath, newFullPath, StringComparison.Ordinal) &&
+                            string.Equals(oldFullPath, newFullPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Case-only rename: a direct File.Move throws "already exists" on
+                            // case-insensitive filesystems, so hop through a temp name first
+                            // (same two-step pattern the folder rename below uses).
+                            string tempFullPath = newFullPath + "__rename_tmp";
+                            File.Move(oldFullPath, tempFullPath);
+                            File.Move(tempFullPath, newFullPath);
+                        }
+                        else
+                        {
+                            File.Move(oldFullPath, newFullPath);
+                        }
                         _logger.LogInformation("Renamed archive {Old} -> {New}", chap.Filename, newFileName);
                         chap.Filename = newFileName;
                         _db.Touch(sp, a => a.Chapters);
@@ -273,7 +286,24 @@ namespace RensaioBackend.Services.Series
                             // Two-step move so case-only renames also work on case-insensitive filesystems.
                             string tempAbs = newAbs + "__rename_tmp";
                             Directory.Move(oldAbs, tempAbs);
-                            Directory.Move(tempAbs, newAbs);
+                            try
+                            {
+                                Directory.Move(tempAbs, newAbs);
+                            }
+                            catch
+                            {
+                                // Second leg failed: roll the folder back to its original name so
+                                // it is never stranded at the temp path, then rethrow for the outer handler.
+                                try
+                                {
+                                    Directory.Move(tempAbs, oldAbs);
+                                }
+                                catch (Exception rollbackEx)
+                                {
+                                    _logger.LogError(rollbackEx, "Failed to roll back temp folder {Temp} to {Old} after a failed case-only folder rename", tempAbs, oldAbs);
+                                }
+                                throw;
+                            }
                         }
                         else
                         {

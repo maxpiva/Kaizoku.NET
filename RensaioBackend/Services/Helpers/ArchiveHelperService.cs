@@ -425,7 +425,11 @@ namespace RensaioBackend.Services.Helpers
                 provider += "-" + scanlator;
             provider = provider.Replace("[", "(").Replace("]", ")");
             string lan = !string.IsNullOrEmpty(language) ? "[" + language.ToLowerInvariant() + "]" : "";
-            return $"[{provider}]{lan}".ReplaceInvalidFilenameAndPathCharacters();
+            string prefix = $"[{provider}]{lan}".ReplaceInvalidFilenameAndPathCharacters();
+            // Mirror MakeFileNameSafe's whitespace collapse so this prefix StartsWith-matches
+            // the names it produces.
+            prefix = Regex.Replace(prefix, @"\s+", " ").Trim();
+            return prefix;
         }
 
         public static ComicInfo CreateComicInfo(Models.Database.SeriesEntity s, SeriesProviderEntity sp, Chapter chap, int cnt)
