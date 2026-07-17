@@ -455,8 +455,8 @@ namespace RensaioBackend.Services.Helpers
             info.LanguageISO = sp.Language.ToLowerInvariant();
             info.Number = chap.Number?.FormatDecimal() ?? "";
             info.PageCount = cnt;
-            info.Series = sp.Title.Trim();
-            info.LocalizedSeries = s.Title.Trim();
+            info.Series = s.Title.Trim();
+            info.LocalizedSeries = sp.Title.Trim();
             info.Web = chap.Url!;
             info.Writer = sp.Author?.Trim() ?? s.Author?.Trim() ?? "";
             info.Publisher = sp.Provider;

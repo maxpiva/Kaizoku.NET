@@ -502,8 +502,13 @@ namespace RensaioBackend.Services.Series
                     SeriesStatus newStatus = (SeriesStatus)(int)extensionManga.Status;
                     bool statusChanged = newStatus != serie.LastKnownStatus;
 
-                    // Update the series-level metadata
-                    if (!string.IsNullOrEmpty(extensionManga.Title))
+                    // Update the series-level metadata.
+                    // Only the provider flagged as the title source may overwrite the canonical
+                    // series title; otherwise a per-provider refresh would clobber the selected
+                    // title with whichever provider refreshed last. When no provider is flagged
+                    // as the title source, preserve the upstream behaviour of taking the title.
+                    if (!string.IsNullOrEmpty(extensionManga.Title) &&
+                        (serie.IsTitle || !series.Sources.Any(x => x.IsTitle)))
                         series.Title = extensionManga.Title;
                     if (!string.IsNullOrEmpty(extensionManga.Artist))
                         series.Artist = extensionManga.Artist;
