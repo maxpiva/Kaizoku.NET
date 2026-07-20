@@ -74,7 +74,7 @@ export function AddSeries({
         {triggerElement}
       </DialogTrigger>
       <DialogContent
-        className="bg-transparent border-0 shadow-none p-0 max-h-none overflow-visible w-[calc(100vw-24px)] sm:w-[min(980px,calc(100vw-48px))] max-w-none top-[8vh] sm:top-[10vh] translate-y-0 [&>button]:hidden"
+        className="bg-transparent border-0 shadow-none p-0 max-h-none overflow-visible w-[calc(100vw-24px)] sm:w-[min(980px,calc(100vw-48px))] max-w-none top-[8dvh] sm:top-[10dvh] translate-y-0 [&>button]:hidden"
         onInteractOutside={(e) => {
           // Allow tap-outside dismiss on mobile; prevent on desktop
           if (!window.matchMedia("(max-width: 640px)").matches) {
