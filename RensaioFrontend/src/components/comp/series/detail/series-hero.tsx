@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Pause, Play, CheckCircle2, Check, Trash2, FolderOpen, Copy, RefreshCw } from "lucide-react";
+import { Pause, Play, CheckCircle2, Check, Trash2, FolderOpen, Copy, RefreshCw, FolderSync } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SeriesStatus, type SeriesExtendedInfo } from "@/lib/api/types";
 import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
@@ -126,9 +126,11 @@ export interface SeriesHeroProps {
   canManageDownloads: boolean;
   verifyPending: boolean;
   refreshPending: boolean;
+  renamePending: boolean;
   onPauseToggle: () => void;
   onVerify: () => void;
   onRefresh: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }
 
@@ -143,9 +145,11 @@ export function SeriesHero({
   canManageDownloads,
   verifyPending,
   refreshPending,
+  renamePending,
   onPauseToggle,
   onVerify,
   onRefresh,
+  onRename,
   onDelete,
 }: SeriesHeroProps) {
   const [expanded, setExpanded] = useState(false);
@@ -325,6 +329,19 @@ export function SeriesHero({
                 >
                   <RefreshCw className={`h-4 w-4 sm:mr-2 ${refreshPending ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">Refresh</span>
+                </Button>
+              )}
+
+              {canEditSeries && (
+                <Button
+                  variant="outline"
+                  onClick={onRename}
+                  disabled={renamePending}
+                  title="Rename the series folder & all .cbz files to the correct naming scheme"
+                  className="px-0 w-9 sm:w-auto sm:px-4"
+                >
+                  <FolderSync className={`h-4 w-4 sm:mr-2 ${renamePending ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Rename</span>
                 </Button>
               )}
 

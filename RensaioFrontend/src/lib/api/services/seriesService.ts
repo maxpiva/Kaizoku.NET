@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type LatestGenre, type SearchSource, type SeriesIntegrityResult, type ChapterDetail } from '@/lib/api/types';
+import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type LatestGenre, type SearchSource, type SeriesIntegrityResult, type SeriesRenameResult, type ChapterDetail } from '@/lib/api/types';
 
 export const seriesService = {
   /**
@@ -127,6 +127,15 @@ export const seriesService = {
    */
   async updateAllSeries(): Promise<void> {
     return apiClient.post<void>('/api/serie/update-all', {});
+  },
+
+  /**
+   * Rename a single series folder to match its title and rename every downloaded
+   * .cbz to the canonical naming scheme. Fixes archives saved under an out-of-date name.
+   */
+  async renameSeries(id: string): Promise<SeriesRenameResult> {
+    const params = new URLSearchParams({ id });
+    return apiClient.post<SeriesRenameResult>(`/api/serie/rename?${params.toString()}`, {});
   },
 
   /**

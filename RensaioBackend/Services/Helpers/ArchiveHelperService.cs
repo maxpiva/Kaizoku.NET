@@ -411,6 +411,27 @@ namespace RensaioBackend.Services.Helpers
             return safeName;
         }
 
+        /// <summary>
+        /// Builds the leading "[Provider][lang]" portion that <see cref="MakeFileNameSafe"/> writes
+        /// at the start of every archive it names, applying the identical provider/scanlator
+        /// normalization (dash → underscore, scanlator suffix, bracket escaping). Use this to
+        /// recognize Rensaio-named archives — regardless of how a scanlator suffix or escaped
+        /// character changed the on-disk spelling — rather than guessing from the raw provider name.
+        /// </summary>
+        public static string MakeFileNamePrefixSafe(string provider, string? scanlator, string language)
+        {
+            provider = provider.Replace("-", "_");
+            if (scanlator != null && provider != scanlator)
+                provider += "-" + scanlator;
+            provider = provider.Replace("[", "(").Replace("]", ")");
+            string lan = !string.IsNullOrEmpty(language) ? "[" + language.ToLowerInvariant() + "]" : "";
+            string prefix = $"[{provider}]{lan}".ReplaceInvalidFilenameAndPathCharacters();
+            // Mirror MakeFileNameSafe's whitespace collapse so this prefix StartsWith-matches
+            // the names it produces.
+            prefix = Regex.Replace(prefix, @"\s+", " ").Trim();
+            return prefix;
+        }
+
         public static ComicInfo CreateComicInfo(Models.Database.SeriesEntity s, SeriesProviderEntity sp, Chapter chap, int cnt)
         {
             List<string> ratings = Enum.GetNames<AgeRating>().ToList();
@@ -434,8 +455,8 @@ namespace RensaioBackend.Services.Helpers
             info.LanguageISO = sp.Language.ToLowerInvariant();
             info.Number = chap.Number?.FormatDecimal() ?? "";
             info.PageCount = cnt;
-            info.Series = sp.Title.Trim();
-            info.LocalizedSeries = s.Title.Trim();
+            info.Series = s.Title.Trim();
+            info.LocalizedSeries = sp.Title.Trim();
             info.Web = chap.Url!;
             info.Writer = sp.Author?.Trim() ?? s.Author?.Trim() ?? "";
             info.Publisher = sp.Provider;
