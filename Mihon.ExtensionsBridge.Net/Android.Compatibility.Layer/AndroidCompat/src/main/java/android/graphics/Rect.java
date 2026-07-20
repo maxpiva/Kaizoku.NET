@@ -30,7 +30,7 @@ public final class Rect {
         this.bottom = bottom;
     }
 
-    public Rect(Rect r) {
+        public Rect(Rect r) {
         if (r == null) {
             this.left = 0;
             this.top = 0;
@@ -49,6 +49,13 @@ public final class Rect {
         this.top = top;
         this.right = right;
         this.bottom = bottom;
+    }
+
+    public void set(Rect r) {
+        this.left = r.left;
+        this.top = r.top;
+        this.right = r.right;
+        this.bottom = r.bottom;
     }
 
     public final int getWidth() {

@@ -22,9 +22,9 @@ namespace RensaioBackend
             // crashes (AccessViolation, StackOverflow, etc.) that managed handlers
             // can never see.  This is CRITICAL because IKVM runs native JVM code
             // that can AV without any managed exception handler being invoked.
-            NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
+            /*NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
             NativeCrashHandler.Install();
-
+            */
             // Register FIRST-CHANCE exception handler to catch exceptions that are
             // thrown and caught internally — these never reach UnhandledException.
             AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
@@ -69,7 +69,7 @@ namespace RensaioBackend
                 FallbackCrashLogger.Write("ProcessExit fired (HasShutdownStarted=" + state + ")");
                 try { Log.Information("ProcessExit fired (HasShutdownStarted={State})", state); } catch { }
                 // Uninstall VEH to avoid native handler running after we've started cleanup
-                try { NativeCrashHandler.Uninstall(); } catch { }
+               /* try { NativeCrashHandler.Uninstall(); } catch { }*/
                 // Flush Serilog synchronously so buffered entries are written before the process dies.
                 try { Log.CloseAndFlush(); } catch { }
             };

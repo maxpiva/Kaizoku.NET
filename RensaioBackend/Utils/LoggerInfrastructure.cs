@@ -35,6 +35,8 @@ namespace RensaioBackend.Utils
     /// Safe to call on all platforms — the platform-specific code is
     /// guarded by runtime checks.
     /// </summary>
+    /// 
+    /*
     public static class NativeCrashHandler
     {
         // ---- Windows VEH ----
@@ -48,6 +50,7 @@ namespace RensaioBackend.Utils
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool RemoveVectoredExceptionHandler(IntPtr handler);
 
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
         private delegate uint VectoredExceptionHandlerDelegate(IntPtr exceptionPointers);
         private static VectoredExceptionHandlerDelegate? _vehDelegate;
         private static IntPtr _vehHandle = IntPtr.Zero;
@@ -245,7 +248,7 @@ namespace RensaioBackend.Utils
             catch { }
         }
     }
-
+    */
     /// <summary>
     /// Last-resort crash logger that writes to a file using only raw I/O,
     /// with zero dependency on Serilog or any other framework.

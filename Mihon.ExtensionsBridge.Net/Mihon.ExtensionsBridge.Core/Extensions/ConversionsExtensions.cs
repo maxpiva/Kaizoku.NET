@@ -39,6 +39,15 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 return defaultValue;
             }
         }
+
+        private static void WriteField(object instance, string fieldName, object value)
+        {
+            if (instance == null) return;
+            var t = instance.GetType();
+            var f = t.GetField(fieldName, KotlinFieldFlags);
+            if (f == null) return;
+            f.SetValue(instance, value);
+        }
         public static string ParsedName(this TachiyomiExtension extension)
         {
             if (extension.Name.StartsWith("Tachiyomi:"))
@@ -241,6 +250,37 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             else
                 smanga.setUpdate_strategy(eu.kanade.tachiyomi.source.model.UpdateStrategy.ONLY_FETCH_ONCE);
             smanga.setInitialized(manga.Initialized);
+
+            // Convert System.Text.Json.JsonElement → kotlinx.serialization.json.JsonObject
+            if (manga.Memo.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+                manga.Memo.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                var jsonString = System.Text.Json.JsonSerializer.Serialize(manga.Memo);
+                try
+                {
+                    // Use reflection to access the Kotlin Json singleton and parse the JSON string
+                    var jsonType = typeof(kotlinx.serialization.json.Json);
+                    var instanceField = jsonType.GetField("INSTANCE", BindingFlags.Public | BindingFlags.Static);
+                    if (instanceField != null)
+                    {
+                        var jsonInstance = instanceField.GetValue(null);
+                        var parseMethod = jsonType.GetMethod("parseToJsonElement", new[] { typeof(string) });
+                        if (parseMethod != null)
+                        {
+                            var parsed = parseMethod.Invoke(jsonInstance, new object[] { jsonString });
+                            if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
+                            {
+                                WriteField(smanga, "memo", jsonObject);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fallback: leave memo as JsonObject.EMPTY (default)
+                }
+            }
+
             return smanga;
         }
         private static void ReplaceFieldIfNeeded(eu.kanade.tachiyomi.source.model.SManga details, string? original, string field, Action<string> action)
@@ -284,6 +324,27 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             var strategy = ReadField<eu.kanade.tachiyomi.source.model.UpdateStrategy>(
                 smanga, "update_strategy", eu.kanade.tachiyomi.source.model.UpdateStrategy.ONLY_FETCH_ONCE);
             bool initialized = ReadField<bool>(smanga, "initialized", false);
+
+            // Convert kotlinx.serialization.json.JsonObject → System.Text.Json.JsonElement
+            System.Text.Json.JsonElement memo = default;
+            try
+            {
+                var memoObj = ReadField<object>(smanga, "memo", null);
+                if (memoObj != null)
+                {
+                    var jsonString = memoObj.ToString();
+                    if (!string.IsNullOrEmpty(jsonString))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                        memo = doc.RootElement.Clone();
+                    }
+                }
+            }
+            catch
+            {
+                // Leave memo as default if conversion fails
+            }
+
             return new T
             {
                 Title = title,
@@ -297,7 +358,8 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 UpdateStrategy = strategy == eu.kanade.tachiyomi.source.model.UpdateStrategy.ALWAYS_UPDATE
                     ? UpdateStrategy.ALWAYS_UPDATE
                     : UpdateStrategy.ONLY_FETCH_ONCE,
-                Initialized = initialized
+                Initialized = initialized,
+                Memo = memo
             };
         }
     }

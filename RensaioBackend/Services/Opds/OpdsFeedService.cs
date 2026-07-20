@@ -541,7 +541,7 @@ public class OpdsFeedService
             // Find series in this category (match against Genre list)
             var seriesInCategory = FilterByCategory(allSeries, category);
             if (seriesInCategory.Count>0)
-                await RenderFolderAsync(sb, user, $"category:{EncodeBase64Url(category)}", category, seriesInCategory, null, token).ConfigureAwait(false);
+                await RenderFolderAsync(sb, user, $"category:{EncodeBase64Url(category)}", category, seriesInCategory, null, false, token).ConfigureAwait(false);
         }
         RenderFooter(sb);
         return sb.ToString();
@@ -561,7 +561,7 @@ public class OpdsFeedService
         {
             // Find series in this tag (match against Genre list)
             var seriesInTag = FilterByTag(allSeries, tag);
-            await RenderFolderAsync(sb, user, $"tag:{EncodeBase64Url(tag)}", tag, seriesInTag, null, token).ConfigureAwait(false);
+            await RenderFolderAsync(sb, user, $"tag:{EncodeBase64Url(tag)}", tag, seriesInTag, null, false, token).ConfigureAwait(false);
         }
         RenderFooter(sb);
         return sb.ToString();
@@ -594,7 +594,7 @@ public class OpdsFeedService
             {
                 // Find series in this source (match against Source list)
                 var seriesInSource = FilterBySource(allSeries, source);
-                await RenderFolderAsync(sb, user, $"source:{EncodeBase64Url(source)}", source, seriesInSource, null, token).ConfigureAwait(false);
+                await RenderFolderAsync(sb, user, $"source:{EncodeBase64Url(source)}", source, seriesInSource, null, false, token).ConfigureAwait(false);
             }
         }
 
@@ -694,7 +694,7 @@ public class OpdsFeedService
 
     private List<SeriesEntity> OrderByLastReadOrLastChapter(List<(SeriesEntity Series, List<ChapterReadState> ChaptersReadState)> seriesList)
     {
-        return seriesList.OrderByDescending(a => LastDateTime(a.ChaptersReadState.Max(b => b.LastReadAt), a.Series.LastChapterDate ?? DateTime.MinValue)).Select(a => a.Series).ToList();
+        return seriesList.OrderByDescending(a => LastDateTime(a.ChaptersReadState.Select(b => b.LastReadAt).DefaultIfEmpty(DateTime.MinValue).Max(), a.Series.LastChapterDate ?? DateTime.MinValue)).Select(a => a.Series).ToList();
     }
 
     private List<SeriesEntity> FilterByReading(List<SeriesEntity> seriesList, string username)

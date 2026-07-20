@@ -3,13 +3,14 @@ package eu.kanade.tachiyomi.network
 import android.content.Context
 import app.cash.quickjs.QuickJs
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import eu.kanade.tachiyomi.util.lang.withIOContext
 
 /**
  * Util for evaluating JavaScript in sources.
  */
+@Suppress("UNUSED", "UNCHECKED_CAST")
 class JavaScriptEngine(
-    @Suppress("UNUSED_PARAMETER") context: Context,
+    context: Context,
 ) {
     /**
      * Evaluate arbitrary JavaScript code and get the result as a primitive type
@@ -21,7 +22,7 @@ class JavaScriptEngine(
      */
     @Suppress("UNUSED", "UNCHECKED_CAST")
     suspend fun <T> evaluate(script: String): T =
-        withContext(Dispatchers.IO) {
+        withIOContext {
             QuickJs.create().use {
                 it.evaluate(script) as T
             }

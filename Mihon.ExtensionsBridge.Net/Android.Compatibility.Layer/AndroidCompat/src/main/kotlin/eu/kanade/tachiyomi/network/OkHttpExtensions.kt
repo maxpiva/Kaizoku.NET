@@ -16,12 +16,14 @@ import rx.Observable
 import rx.Producer
 import rx.Subscription
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.resume
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 val jsonMime = "application/json; charset=utf-8".toMediaType()
-
+@OptIn(ExperimentalAtomicApi::class)
+@Deprecated("Use suspend APIs instead")
 fun Call.asObservable(): Observable<Response> {
     return Observable.unsafeCreate { subscriber ->
         // Since Call is a one-shot type, clone it for each new subscriber.
@@ -29,9 +31,11 @@ fun Call.asObservable(): Observable<Response> {
 
         // Wrap the call in a helper which handles both unsubscription and backpressure.
         val requestArbiter =
-            object : AtomicBoolean(), Producer, Subscription {
+            object : Producer, Subscription {
+                val boolean = AtomicBoolean(false)
+
                 override fun request(n: Long) {
-                    if (n == 0L || !compareAndSet(false, true)) return
+                    if (n == 0L || !boolean.compareAndSet(expectedValue = false, newValue = true)) return
 
                     try {
                         val response = call.execute()
@@ -39,15 +43,15 @@ fun Call.asObservable(): Observable<Response> {
                             subscriber.onNext(response)
                             subscriber.onCompleted()
                         }
-                    } catch (error: Exception) {
+                    } catch (e: Exception) {
                         if (!subscriber.isUnsubscribed) {
-                            subscriber.onError(error)
+                            subscriber.onError(e)
                         }
                     }
                 }
 
                 override fun unsubscribe() {
-                    // call.cancel()
+                    call.cancel()
                 }
 
                 override fun isUnsubscribed(): Boolean = call.isCanceled()
@@ -58,56 +62,50 @@ fun Call.asObservable(): Observable<Response> {
     }
 }
 
-fun Call.asObservableSuccess(): Observable<Response> =
-    asObservable()
-        .doOnNext { response ->
-            if (!response.isSuccessful) {
-                response.close()
-                throw HttpException(response.code)
-            }
+@Deprecated("Use suspend APIs instead")
+fun Call.asObservableSuccess(): Observable<Response> {
+    @Suppress("DEPRECATION")
+    return asObservable().doOnNext { response ->
+        if (!response.isSuccessful) {
+            response.close()
+            throw HttpException(response.code)
         }
+    }
+}
 
-// Based on https://github.com/gildor/kotlin-coroutines-okhttp
+// Based on https://github.com/square/okhttp/blob/master/okhttp-coroutines/src/main/kotlin/okhttp3/coroutines/ExecuteAsync.kt
+// and https://github.com/gildor/kotlin-coroutines-okhttp
 private suspend fun Call.await(callStack: Array<StackTraceElement>): Response {
     return suspendCancellableCoroutine { continuation ->
-        var responseRef: Response? = null
-
         continuation.invokeOnCancellation {
-            responseRef?.close()
             try {
-                cancel()
+                this.cancel()
             } catch (_: Throwable) {
-                // Ignore cancel exception
+                // ignore
             }
         }
 
-        val callback =
+        this.enqueue(
             object : Callback {
-                override fun onResponse(
-                    call: Call,
-                    response: Response,
-                ) {
-                    responseRef = response
-                    try {
-                        continuation.resume(response)
-                    } catch (t: Throwable) {
-                        response.close()
-                        throw t
-                    }
-                }
-
                 override fun onFailure(
                     call: Call,
                     e: IOException,
                 ) {
-                    // Don't bother with resuming the continuation if it is already cancelled.
                     if (continuation.isCancelled) return
                     val exception = IOException(e.message, e).apply { stackTrace = callStack }
                     continuation.resumeWithException(exception)
                 }
-            }
 
-        enqueue(callback)
+                override fun onResponse(
+                    call: Call,
+                    response: Response,
+                ) {
+                    continuation.resume(response) { _, value, _ ->
+                        value.close()
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -117,7 +115,7 @@ suspend fun Call.await(): Response {
 }
 
 /**
- * @since extensions-lib 1.5
+ * Similar to [await] but throws [HttpException] if [Response.isSuccessful] returns false
  */
 suspend fun Call.awaitSuccess(): Response {
     val callStack = Exception().stackTrace.run { copyOfRange(1, size) }
@@ -147,17 +145,14 @@ fun OkHttpClient.newCachelessCallWithProgress(
     return progressClient.newCall(request)
 }
 
-inline fun <reified T> Response.parseAs(json: Json = Json.Default): T = json.decodeFromJsonResponse(serializer(), this)
+context(_: Json)
+inline fun <reified T> Response.parseAs(): T = decodeFromJsonResponse(serializer(), this)
 
-@OptIn(ExperimentalSerializationApi::class)
-fun <T> Json.decodeFromJsonResponse(
+context(json: Json)
+fun <T> decodeFromJsonResponse(
     deserializer: DeserializationStrategy<T>,
     response: Response,
 ): T =
     response.body.source().use {
-        decodeFromBufferedSource(deserializer, it)
+        json.decodeFromBufferedSource(deserializer, it)
     }
-
-class HttpException(
-    val code: Int,
-) : IllegalStateException("HTTP error $code")

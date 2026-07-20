@@ -14,9 +14,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Cookie
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -24,6 +24,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
 import extension.bridge.Settings
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
@@ -100,7 +101,7 @@ class CloudflareInterceptor(
     companion object {
         private val ERROR_CODES = listOf(403, 503)
         private val SERVER_CHECK = arrayOf("cloudflare-nginx", "cloudflare")
-        private val COOKIE_NAMES = listOf("cf_clearance")
+        val COOKIE_NAMES = listOf("cf_clearance")
         private val CHROME_IMAGE_TEMPLATE_REGEX = Regex("""<title>(.*?) \(\d+×\d+\)</title>""")
     }
 }
@@ -151,8 +152,6 @@ object CFClearance {
         val domain: String,
         val path: String? = null,
         val expires: Double? = null,
-        @SerialName("expiry")
-        val expiry: Double? = null,
         val size: Int? = null,
         val httpOnly: Boolean? = null,
         val secure: Boolean? = null,
@@ -185,7 +184,6 @@ object CFClearance {
         onlyCookies: Boolean,
     ): FlareSolverResponse {
         val timeout = Settings.flareSolverrTimeout.seconds
-
         return with(json) {
             mutex.withLock {
                 client
@@ -196,16 +194,35 @@ object CFClearance {
                                 Json
                                     .encodeToString(
                                         FlareSolverRequest(
-                                            "request.get",
+                                            "request.${originalRequest.method.lowercase()}",
                                             originalRequest.url.toString(),
                                             session = Settings.flareSolverrSessionName,
                                             sessionTtlMinutes = Settings.flareSolverrSessionTtl,
                                             cookies =
-                                                network.cookieStore.get(originalRequest.url).map {
-                                                    FlareSolverCookie(it.name, it.value)
-                                                },
+                                                network.cookieStore
+                                                    .get(originalRequest.url)
+                                                    .filter { it.name !in CloudflareInterceptor.COOKIE_NAMES }
+                                                    .map { cookie ->
+                                                        FlareSolverCookie(cookie.name, cookie.value)
+                                                    },
                                             returnOnlyCookies = onlyCookies,
                                             maxTimeout = timeout.inWholeMilliseconds.toInt(),
+                                            postData =
+                                                if (originalRequest.method == "POST") {
+                                                    when (val body = originalRequest.body) {
+                                                        is FormBody -> {
+                                                            Buffer()
+                                                                .also { body.writeTo(it) }
+                                                                .readUtf8()
+                                                        }
+
+                                                        else -> {
+                                                            ""
+                                                        }
+                                                    }
+                                                } else {
+                                                    null
+                                                },
                                         ),
                                     ).toRequestBody(jsonMediaType),
                         ),
@@ -225,7 +242,6 @@ object CFClearance {
             val cookies =
                 flareSolverResponse.solution.cookies
                     .map { cookie ->
-                        val expirationSeconds = cookie.expires ?: cookie.expiry
                         Cookie
                             .Builder()
                             .name(cookie.name)
@@ -236,10 +252,10 @@ object CFClearance {
                                 if (cookie.secure != null && cookie.secure) it.secure()
                                 if (!cookie.path.isNullOrEmpty()) it.path(cookie.path)
                                 // We need to convert the expires time to milliseconds for the persistent cookie store
-                                if (expirationSeconds != null && expirationSeconds > 0) {
-                                    it.expiresAt((expirationSeconds * 1000).toLong())
-                                }
-                                if (!cookie.domain.startsWith('.')) it.hostOnlyDomain(cookie.domain.removePrefix("."))
+                                if (cookie.expires != null && cookie.expires > 0) it.expiresAt((cookie.expires * 1000).toLong())
+                                if (!cookie.domain.startsWith('.')) {
+                                    it.hostOnlyDomain(cookie.domain.removePrefix("."))
+                                }  
                             }.build()
                     }.groupBy { it.domain }
                     .flatMap { (domain, cookies) ->

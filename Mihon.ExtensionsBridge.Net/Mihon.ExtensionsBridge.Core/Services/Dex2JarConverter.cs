@@ -392,6 +392,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 return pair;
             }*/
             var cw = new ClassWriter(cr, 0);
+            //var cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
 
             cr.accept(new TransformingClassVisitor(cw, _logger), 0);
 
@@ -466,7 +467,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             /// <param name="cw">The downstream class writer receiving transformed classes.</param>
             /// <param name="logger">Logger for debug output.</param>
             public TransformingClassVisitor(ClassWriter cw, ILogger logger)
-                : base(Opcodes.ASM5, cw)
+                : base(Opcodes.ASM9, cw)
             {
                 _logger = logger;
             }
@@ -563,7 +564,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             /// <param name="mv">The downstream method visitor.</param>
             /// <param name="logger">Logger for debug output.</param>
             public TransformingMethodVisitor(MethodVisitor mv, ILogger logger)
-                : base(Opcodes.ASM5, mv)
+                : base(Opcodes.ASM9, mv)
             {
                 _logger = logger;
             }

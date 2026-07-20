@@ -13,19 +13,23 @@ static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        Environment.SetEnvironmentVariable("IKVM_VERBOSE", "1");
+
         // Initialize the zero-dependency crash logger as early as possible.
         // EnvironmentSetup.Path is resolved in the static constructor, so it
         // is safe to use here even before InitializeAsync() is called.
         var crashLogDir = System.IO.Path.Combine(EnvironmentSetup.Path, "logs");
         FallbackCrashLogger.Initialize(crashLogDir);
 
+       
         // Install the Windows Vectored Exception Handler (VEH) to catch native
         // crashes (AccessViolation, StackOverflow, etc.) that managed handlers
         // can never see.  This is CRITICAL because IKVM runs native JVM code
         // that can AV without any managed exception handler being invoked.
+        /*
         NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
         NativeCrashHandler.Install();
-
+        */
         // Register FIRST-CHANCE exception handler to catch exceptions that are
         // thrown and caught internally — these never reach UnhandledException.
         AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
@@ -35,6 +39,7 @@ static class Program
                 source.Contains("Android") || source.Contains("Mihon") ||
                 source.Contains("Rensaio") || source.Contains("Java"))
             {
+
                 FallbackCrashLogger.WriteException(e.Exception,
                     "TRAY FIRSTCHANCE: " + e.Exception?.GetType().Name + " from " + source);
             }
@@ -65,7 +70,7 @@ static class Program
             try { state = Environment.HasShutdownStarted ? "shutdown-started" : "normal"; } catch { }
             FallbackCrashLogger.Write("TRAY ProcessExit fired (HasShutdownStarted=" + state + ")");
             try { Log.Information("TRAY ProcessExit fired (HasShutdownStarted={State})", state); } catch { }
-            try { NativeCrashHandler.Uninstall(); } catch { }
+           /* try { NativeCrashHandler.Uninstall(); } catch { }*/
             try { Log.CloseAndFlush(); } catch { }
         };
 

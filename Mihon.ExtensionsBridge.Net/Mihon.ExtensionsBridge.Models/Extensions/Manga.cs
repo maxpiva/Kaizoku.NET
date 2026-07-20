@@ -14,6 +14,7 @@ namespace Mihon.ExtensionsBridge.Models.Extensions
         public string? ThumbnailUrl { get; set; }
         public UpdateStrategy UpdateStrategy { get; set; }
         public bool Initialized { get; set; }
+        public System.Text.Json.JsonElement Memo { get; set; }
 
     }
 

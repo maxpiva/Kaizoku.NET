@@ -43,7 +43,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
 
         public const float LIB_VERSION_MIN = 1.3f;
-        public const float LIB_VERSION_MAX = 1.5f;
+        public const float LIB_VERSION_MAX = 1.6f;
         /// <summary>
         /// Provides the local working folder structure and persistence of repository groups.
         /// </summary>
