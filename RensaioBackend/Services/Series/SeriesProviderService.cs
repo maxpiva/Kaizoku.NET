@@ -164,7 +164,7 @@ namespace RensaioBackend.Services.Series
                     string? extension = Path.GetExtension(ch.Filename);
                     decimal? maxChap = targetProvider.Chapters.Max(c => c.Number);
                     string filename = ArchiveHelperService.MakeFileNameSafe(targetProvider.Provider, targetProvider.Scanlator,
-                        targetProvider.Title, targetProvider.Language, ch.Number, ch.Name, maxChap);
+                        series.Title, targetProvider.Language, ch.Number, ch.Name, maxChap);
                     string newFilename = filename + extension;
                     string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");
                     string newPath = Path.Combine(settings.StorageFolder, series.StoragePath, newFilename);
@@ -192,7 +192,7 @@ namespace RensaioBackend.Services.Series
                     {
                         decimal? maxChap = targetProvider.Chapters.Max(c => c.Number);
                         string filename = ArchiveHelperService.MakeFileNameSafe(targetProvider.Provider, targetProvider.Scanlator,
-                            targetProvider.Title, targetProvider.Language, dst.Number, dst.Name, maxChap);
+                            series.Title, targetProvider.Language, dst.Number, dst.Name, maxChap);
                         string? extension = Path.GetExtension(ch.Filename);
                         string newFilename = filename + extension;
                         string originalPath = Path.Combine(settings.StorageFolder, series.StoragePath, ch.Filename ?? "");

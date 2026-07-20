@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { seriesService } from '@/lib/api/services/seriesService';
-import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type LatestGenre, type SearchSource, type SeriesIntegrityResult, type ChapterDetail } from '@/lib/api/types';
+import { type FullSeries, type SeriesInfo, type SeriesExtendedInfo, type ProviderMatch, type AugmentedResponse, type LatestSeriesInfo, type LatestGenre, type SearchSource, type SeriesIntegrityResult, type SeriesRenameResult, type ChapterDetail } from '@/lib/api/types';
 
 /**
  * Hook to get available search sources (for search and filtering)
@@ -221,6 +221,22 @@ export const useRefreshSeries = () => {
     onSuccess: (_, id) => {
       // The refresh runs asynchronously on the backend; invalidate so the detail
       // (and library tab counts) pick up new metadata/chapters once jobs complete.
+      void queryClient.invalidateQueries({ queryKey: ['series', 'detail', id] });
+      void queryClient.invalidateQueries({ queryKey: ['series', 'library'] });
+    },
+  });
+};
+
+/**
+ * Hook to rename a series folder + its .cbz archives to the canonical naming scheme.
+ */
+export const useRenameSeries = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation<SeriesRenameResult, Error, string>({
+    mutationFn: (id: string) => seriesService.renameSeries(id),
+    onSuccess: (_, id) => {
+      // Storage path / filenames changed — refetch the detail (and library counts).
       void queryClient.invalidateQueries({ queryKey: ['series', 'detail', id] });
       void queryClient.invalidateQueries({ queryKey: ['series', 'library'] });
     },

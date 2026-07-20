@@ -664,6 +664,22 @@ export interface SeriesIntegrityResult {
   badFiles: ArchiveIntegrityResult[];
 }
 
+export interface SeriesRenameResult {
+  success: boolean;
+  /** True when the series folder was renamed on disk. */
+  folderRenamed: boolean;
+  /** Relative storage path before the rename. */
+  oldFolder: string;
+  /** Relative storage path after the rename (unchanged if the folder was not renamed). */
+  newFolder: string;
+  /** Number of .cbz archives renamed to the canonical scheme. */
+  filesRenamed: number;
+  /** Number of archives that could not be renamed (e.g. target name already taken). */
+  filesFailed: number;
+  /** Optional human-readable note (e.g. why the folder rename was skipped). */
+  message?: string;
+}
+
 // --- User Management Types ---
 
 export interface User {

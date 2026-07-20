@@ -160,6 +160,33 @@ namespace RensaioBackend.Controllers
         }
 
         /// <summary>
+        /// Renames the series folder to match its current title and renames every downloaded
+        /// .cbz to the canonical naming scheme. Repairs archives saved under an out-of-date name.
+        /// </summary>
+        /// <param name="id">The unique identifier of the series.</param>
+        /// <param name="token">Cancellation token.</param>
+        [HttpPost("rename")]
+        [RequireUserLevel(UserLevel.Manager)]
+        [ProducesResponseType(typeof(SeriesRenameResultDto), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(500)]
+        public async Task<ActionResult<SeriesRenameResultDto>> RenameSeriesAsync([FromQuery] Guid id, CancellationToken token = default)
+        {
+            try
+            {
+                if (id == Guid.Empty)
+                    return BadRequest("No series id provided");
+                var result = await _archiveService.RenameSeriesAsync(id, token).ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error renaming series: {Message}", ex.Message);
+                return StatusCode(500, "Error renaming series.");
+            }
+        }
+
+        /// <summary>
         /// Gets the unified, series-level chapter list (merged across every source). Each chapter
         /// reports whether it is downloaded and from which source, versus genuinely missing, plus the
         /// sources available for (re-)download.
