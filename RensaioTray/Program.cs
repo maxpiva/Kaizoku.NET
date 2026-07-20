@@ -1,8 +1,10 @@
 ﻿using Avalonia;
 using RensaioBackend.Utils;
 using RensaioTray.Utils;
+using Serilog;
 using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace RensaioTray;
 
@@ -11,6 +13,62 @@ static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // Initialize the zero-dependency crash logger as early as possible.
+        // EnvironmentSetup.Path is resolved in the static constructor, so it
+        // is safe to use here even before InitializeAsync() is called.
+        var crashLogDir = System.IO.Path.Combine(EnvironmentSetup.Path, "logs");
+        FallbackCrashLogger.Initialize(crashLogDir);
+
+        // Install the Windows Vectored Exception Handler (VEH) to catch native
+        // crashes (AccessViolation, StackOverflow, etc.) that managed handlers
+        // can never see.  This is CRITICAL because IKVM runs native JVM code
+        // that can AV without any managed exception handler being invoked.
+        NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
+        NativeCrashHandler.Install();
+
+        // Register FIRST-CHANCE exception handler to catch exceptions that are
+        // thrown and caught internally — these never reach UnhandledException.
+        AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
+        {
+            var source = e.Exception?.Source ?? "";
+            if (source.Contains("IKVM") || source.Contains("ikvm") ||
+                source.Contains("Android") || source.Contains("Mihon") ||
+                source.Contains("Rensaio") || source.Contains("Java"))
+            {
+                FallbackCrashLogger.WriteException(e.Exception,
+                    "TRAY FIRSTCHANCE: " + e.Exception?.GetType().Name + " from " + source);
+            }
+        };
+
+        // Register global exception traps BEFORE any application code runs.
+        // These handlers capture crashes that bypass Avalonia's and
+        // AspNetCore's error pipelines (native crashes, StackOverflowException,
+        // finalizer thread crashes, unobserved task exceptions, silent kills).
+        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        {
+            var ex = e.ExceptionObject as Exception;
+            FallbackCrashLogger.WriteException(ex,
+                "TRAY APPDOMAIN UNHANDLED EXCEPTION (terminating=" + e.IsTerminating + ")");
+            try { Log.Fatal(ex, "TRAY APPDOMAIN UNHANDLED EXCEPTION (terminating={IsTerminating})", e.IsTerminating); } catch { }
+        };
+
+        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        {
+            FallbackCrashLogger.WriteException(e.Exception, "TRAY UNOBSERVED TASK EXCEPTION");
+            try { Log.Fatal(e.Exception, "TRAY UNOBSERVED TASK EXCEPTION"); } catch { }
+            e.SetObserved();
+        };
+
+        AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
+        {
+            var state = "unknown";
+            try { state = Environment.HasShutdownStarted ? "shutdown-started" : "normal"; } catch { }
+            FallbackCrashLogger.Write("TRAY ProcessExit fired (HasShutdownStarted=" + state + ")");
+            try { Log.Information("TRAY ProcessExit fired (HasShutdownStarted={State})", state); } catch { }
+            try { NativeCrashHandler.Uninstall(); } catch { }
+            try { Log.CloseAndFlush(); } catch { }
+        };
+
         java.lang.System.setProperty("java.awt.headless", "true");
         if (!EnvironmentSetup.IsApplicationAlreadyRunning())
         {
@@ -27,6 +85,7 @@ static class Program
             }
             catch (Exception ex)
             {
+                FallbackCrashLogger.WriteException(ex, "TRAY AVALONIA STARTUP FAILED");
                 // Log any critical startup errors.
                 Console.WriteLine($"Application startup failed: {ex.Message}");
             }

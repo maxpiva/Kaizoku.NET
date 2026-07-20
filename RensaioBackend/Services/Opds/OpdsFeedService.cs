@@ -82,9 +82,9 @@ public class OpdsFeedService
         sb.Append("</feed>");
     }
 
-    private async Task RenderFolderAsync(StringBuilder sb, UserEntity user, string id, string title, List<SeriesEntity> thumbsSource, DateTime? date = null,  CancellationToken token = default)
+    private async Task RenderFolderAsync(StringBuilder sb, UserEntity user, string id, string title, List<SeriesEntity> thumbsSource, DateTime? date = null,  bool first=false, CancellationToken token = default)
     {
-        string thumb = await PickRandomThumbnailAsync(user.OpdsPath, thumbsSource, token).ConfigureAwait(false);
+        string thumb = first ? await PickFirstThumbnailAsync(user.OpdsPath, thumbsSource, token).ConfigureAwait(false) : await PickRandomThumbnailAsync(user.OpdsPath, thumbsSource, token).ConfigureAwait(false);
         RenderFolder(sb, user, id, title, thumb, date);
     }
 
@@ -140,21 +140,21 @@ public class OpdsFeedService
     /// </summary>
     public async Task<string> BuildRootCatalogAsync(UserEntity user, string user_agent, CancellationToken token = default)
     {
-        var allSeries = await _db.Series.Include(a=>a.Sources).AsNoTracking().ToListAsync(token);
+        var allSeries = await _db.Series.Include(a=>a.Sources).AsNoTracking().OrderBy(a=>a.Title).ToListAsync(token);
         var categories = _settingsService.DirectSettings?.Categories ?? [];
         var readingSeries = FilterByReading(allSeries, user.Username);
         var lastSeries = FilterByLast(allSeries);
         string allThumb = await PickRandomThumbnailAsync(user.OpdsPath, allSeries, token);
         var sb = RenderHeader(user, "", $"Rensaiō - {EscapeXml(user.Username)}'s Library", user_agent);
         if (readingSeries.Count > 0)
-            await RenderFolderAsync(sb, user, "reading", "Reading", readingSeries, null, token).ConfigureAwait(false);
+            await RenderFolderAsync(sb, user, "reading", "Reading", readingSeries, null, true, token).ConfigureAwait(false);
         if (lastSeries.Count > 0)
-            await RenderFolderAsync(sb, user, "last-changed", "Last Changed", lastSeries, null, token).ConfigureAwait(false);
-        await RenderFolderAsync(sb, user, "all-series", "All Series", allSeries, null, token).ConfigureAwait(false);
+            await RenderFolderAsync(sb, user, "last-changed", "Last Changed", lastSeries, null, true, token).ConfigureAwait(false);
+        await RenderFolderAsync(sb, user, "all-series", "All Series", allSeries, null, false, token).ConfigureAwait(false);
         if (categories.Length > 0)
-            await RenderFolderAsync(sb, user, "categories","Categories", allSeries, null, token).ConfigureAwait(false);
-        await RenderFolderAsync(sb, user, "tags", "Tags", allSeries, null, token).ConfigureAwait(false);
-        await RenderFolderAsync(sb, user, "sources", "Sources", allSeries, null, token).ConfigureAwait(false);
+            await RenderFolderAsync(sb, user, "categories","Categories", allSeries, null, false, token).ConfigureAwait(false);
+        await RenderFolderAsync(sb, user, "tags", "Tags", allSeries, null, false, token).ConfigureAwait(false);
+        await RenderFolderAsync(sb, user, "sources", "Sources", allSeries, null, false, token).ConfigureAwait(false);
         RenderFooter(sb);
         return sb.ToString();
     }
@@ -204,7 +204,7 @@ public class OpdsFeedService
     {
         var seriesList = await _db.Series
             .Include(s => s.Sources)
-            .AsNoTracking()
+            .AsNoTracking().OrderBy(a=>a.Title)
             .ToListAsync(token);
 
         var sb = RenderHeader(user, id, title, user_agent);
@@ -216,7 +216,7 @@ public class OpdsFeedService
         if (source != null)
             serlist = FilterBySource(serlist, source).OrderBy(a=>a.Title).ToList();
         if (filterReading)
-            serlist = FilterByReading(serlist, user.Username).OrderByDescending(a => a.Sources.Max(s => s.Chapters.Max(c => c.DownloadDate ?? DateTime.MinValue))).ToList();
+            serlist = FilterByReading(serlist, user.Username).ToList();
         if (last)
             serlist = FilterByLast(serlist).OrderByDescending(a => a.Sources.Max(s => s.Chapters.Max(c => c.DownloadDate ?? DateTime.MinValue))).ToList();
         foreach (var series in serlist)
@@ -685,10 +685,22 @@ public class OpdsFeedService
     {
         return seriesList.Where(a => a.Sources.Any(b => string.Equals(provider, b.Provider, StringComparison.InvariantCultureIgnoreCase))).ToList();
     }
+    private DateTime LastDateTime(DateTime one, DateTime two)
+    {
+        if (one > two)
+            return one;
+        return two;
+    }
+
+    private List<SeriesEntity> OrderByLastReadOrLastChapter(List<(SeriesEntity Series, List<ChapterReadState> ChaptersReadState)> seriesList)
+    {
+        return seriesList.OrderByDescending(a => LastDateTime(a.ChaptersReadState.Max(b => b.LastReadAt), a.Series.LastChapterDate ?? DateTime.MinValue)).Select(a => a.Series).ToList();
+    }
+
     private List<SeriesEntity> FilterByReading(List<SeriesEntity> seriesList, string username)
     {
         var res = _readStateService.GetUserSeriesReadStates(username, seriesList);
-        return res.Where(a => a.ChaptersReadState != null && a.ChaptersReadState.Count > 0).Select(a => a.Series).OrderByDescending(a => a.LastChapterDate ?? DateTime.MinValue).ToList();
+        return OrderByLastReadOrLastChapter(res);
     }
     private List<SeriesEntity> FilterByLast(List<SeriesEntity> seriesList)
     {
@@ -713,7 +725,16 @@ public class OpdsFeedService
         var pick = seriesWithThumb[random.Next(seriesWithThumb.Count)];
         return await BuildThumbnailLinkAsync(opdsPath, pick.ThumbnailUrl, token);
     }
+    private async Task<string> PickFirstThumbnailAsync(string opdsPath, List<SeriesEntity> series, CancellationToken token)
+    {
+        var seriesWithThumb = series.Where(s => !string.IsNullOrWhiteSpace(s.ThumbnailUrl)).ToList();
 
+        if (seriesWithThumb.Count == 0)
+            return string.Empty;
+
+        var pick = seriesWithThumb[0];
+        return await BuildThumbnailLinkAsync(opdsPath, pick.ThumbnailUrl, token);
+    }
     /// <summary>
     /// Builds the OPDS thumbnail link elements for a series entry.
     /// Resolves the thumbnail URL to a cache key and links directly to /api/image/{key}.

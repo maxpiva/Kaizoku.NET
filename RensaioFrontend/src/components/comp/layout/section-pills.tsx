@@ -44,7 +44,7 @@ export function useSections(): SectionDef[] {
     sections.push({ name: "Library", href: "/library", icon: Library });
   }
   if (canBrowse) {
-    sections.push({ name: "Browse", href: "/cloud-latest", icon: Sparkles });
+    sections.push({ name: "Discover", href: "/cloud-latest", icon: Sparkles });
   }
   if (canViewQueue) {
     const activeCount = metrics?.downloads ?? 0;

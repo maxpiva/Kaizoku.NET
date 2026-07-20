@@ -376,6 +376,15 @@ namespace RensaioBackend.Utils
             CopyInitialAppSettings();
             await WriteToAppSettingsAsync(storageDirectory, token);
             BuildConfiguration();
+            // Initialize the fallback crash logger as early as possible, before Serilog is built.
+            // This logger writes to crash-.log with zero dependencies and is safe to call from
+            // unhandled-exception handlers, OOM scenarios, and process exit events.
+            var logsDir = Configuration!.GetValue<string>("Serilog:WriteTo:0:Args:path", "logs/log-.txt");
+            logsDir = System.IO.Path.GetDirectoryName(logsDir) ?? "logs";
+            // Resolve relative log paths against the app data directory
+            if (!System.IO.Path.IsPathRooted(logsDir))
+                logsDir = System.IO.Path.Combine(Path, logsDir);
+            FallbackCrashLogger.Initialize(logsDir);
             LoggerInfrastructure.BuildLogger(Configuration!);
             ExtractWWWRoot();
         }

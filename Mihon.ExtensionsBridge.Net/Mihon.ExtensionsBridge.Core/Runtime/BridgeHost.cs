@@ -67,34 +67,26 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         {
             _logger.LogInformation("Android App initializing...");
 
+            var baseDir = Path.GetFullPath(AppContext.BaseDirectory);
+            Startup.addBootClassPathAssembly(Assembly.LoadFrom(Path.Combine(baseDir, "Android.Compat.dll")));
 
+            // IMPORTANT: applicationSetup MUST be called before any code path that could access
+            // SettingsConfig (called via ConfigKt.getSettings()). It registers the SettingsConfig
+            // module in GlobalConfigManager. If we await before this call, other hosted services
+            // may run concurrently and trigger a lazy access to settingsModule (Config.kt:103)
+            // before it is registered, causing a NullPointerException:
+            //   "null cannot be cast to non-null type extension.bridge.SettingsConfig"
+            StartupKt.applicationSetup(folder.AndroidFolder, folder.TempFolder, new AndroidCompatLogManager.LoggerSink(logger));
+            AndroidCompatLogManager.SetLoglevel(logger);
+
+            // Load preferences AFTER applicationSetup — this involves an I/O await that
+            // yields the thread.  By then SettingsConfig is safely registered.
             Mihon.ExtensionsBridge.Models.Preferences? prefs = await _folder.LoadPreferencesAsync(cancellationToken);
             if (prefs == null)
             {
                 prefs = new Mihon.ExtensionsBridge.Models.Preferences();
             }
-            var baseDir = Path.GetFullPath(AppContext.BaseDirectory);
-            Startup.addBootClassPathAssembly(Assembly.LoadFrom(Path.Combine(baseDir, "Android.Compat.dll")));
-            /*
 
-            // Create and pre-warm an isolated, non-reentrant ALC for IKVM
-            var baseDir = Path.GetFullPath(AppContext.BaseDirectory);
-            alc = new IkvmAssemblyLoadContext(baseDir);
-
-            // Eager-load IKVM bits and dependent Java/Android bridge assemblies before using them.
-            // This prevents on-demand resolution from happening under loader locks.
-            Preload(alc, "IKVM.Java");
-            Preload(alc, "IKVM.Runtime");
-            Preload(alc, "IKVM.CoreLib");
-            Preload(alc, "Android.Compat");
-            // Preload critical assemblies using a custom ALC to avoid dynamic emission during resolution
-         */
-
-           //(Action)(()=>{
-                StartupKt.applicationSetup(folder.AndroidFolder, folder.TempFolder, new AndroidCompatLogManager.LoggerSink(logger));
-                AndroidCompatLogManager.SetLoglevel(logger);
-           //)).InvokeInJavaContext();
-    
             await _manager.SetPreferencesAsync(prefs, cancellationToken);
             _logger.LogInformation("Android App initialized.");
 

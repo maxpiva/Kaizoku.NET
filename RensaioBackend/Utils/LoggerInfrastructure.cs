@@ -5,12 +5,342 @@ using Serilog.Events;
 using Serilog.Filters;
 using Serilog.Parsing;
 using Serilog.Sinks.SystemConsole.Themes;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace RensaioBackend.Utils
 {
+    /// <summary>
+    /// Registers a Windows Vectored Exception Handler (VEH) that intercepts
+    /// native/SEH exceptions (e.g. AccessViolation, StackOverflow) before the
+    /// OS terminates the process.  Managed handlers like AppDomain.UnhandledException
+    /// are NEVER invoked for these crashes, so VEH is the only way to log them.
+    ///
+    /// Must be called from the process entry point before any other code runs.
+    /// Safe to call on non-Windows platforms — the P/Invoke is skipped.
+    /// </summary>
+    /// <summary>
+    /// Cross-platform native crash and signal handler.
+    ///
+    /// Windows: Installs a Vectored Exception Handler (VEH) to intercept
+    ///   native SEH exceptions (AccessViolation, StackOverflow, etc.) that
+    ///   managed handlers can never see.
+    /// Linux/macOS: Hooks SIGTERM, SIGINT, SIGQUIT via PosixSignal.
+    ///   SIGSEGV/SIGABRT cannot be safely intercepted from managed code on
+    ///   these platforms — only the managed handlers can catch those.
+    ///
+    /// Safe to call on all platforms — the platform-specific code is
+    /// guarded by runtime checks.
+    /// </summary>
+    public static class NativeCrashHandler
+    {
+        // ---- Windows VEH ----
+        private const uint EXCEPTION_CONTINUE_SEARCH = 0;
+        private const uint EXCEPTION_ACCESS_VIOLATION = 0xC0000005;
+        private const uint EXCEPTION_STACK_OVERFLOW = 0xC00000FD;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr AddVectoredExceptionHandler(uint first, IntPtr handler);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool RemoveVectoredExceptionHandler(IntPtr handler);
+
+        private delegate uint VectoredExceptionHandlerDelegate(IntPtr exceptionPointers);
+        private static VectoredExceptionHandlerDelegate? _vehDelegate;
+        private static IntPtr _vehHandle = IntPtr.Zero;
+
+        // ---- Posix signals (cross-platform) ----
+        private static List<PosixSignalRegistration>? _posixRegistrations;
+
+        // ---- Shared state ----
+        private static string? _logPath;
+
+        public static void SetLogPath(string path)
+        {
+            _logPath = path;
+        }
+
+        /// <summary>
+        /// Installs platform-specific native crash handlers.
+        /// Windows: VEH.  Linux/macOS: PosixSignal handlers.
+        /// </summary>
+        public static void Install()
+        {
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                    System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                InstallWindowsVeh();
+            }
+            else
+            {
+                InstallPosixHandlers();
+            }
+        }
+
+        /// <summary>
+        /// Uninstalls all native handlers.
+        /// </summary>
+        public static void Uninstall()
+        {
+            UninstallWindowsVeh();
+            UninstallPosixHandlers();
+        }
+
+        // ---- Windows VEH implementation ----
+
+        private static void InstallWindowsVeh()
+        {
+            try
+            {
+                _vehDelegate = VectoredHandler;
+                var fp = System.Runtime.InteropServices.Marshal.GetFunctionPointerForDelegate(_vehDelegate);
+                _vehHandle = AddVectoredExceptionHandler(1, fp);
+                if (_vehHandle == IntPtr.Zero)
+                    _vehDelegate = null;
+            }
+            catch
+            {
+                _vehDelegate = null;
+            }
+        }
+
+        private static void UninstallWindowsVeh()
+        {
+            if (_vehHandle != IntPtr.Zero)
+            {
+                try { RemoveVectoredExceptionHandler(_vehHandle); } catch { }
+                _vehHandle = IntPtr.Zero;
+                _vehDelegate = null;
+            }
+        }
+
+        private static uint VectoredHandler(IntPtr exceptionPointers)
+        {
+            uint code = 0;
+            try { code = (uint)System.Runtime.InteropServices.Marshal.ReadInt32(exceptionPointers, 0); }
+            catch { return EXCEPTION_CONTINUE_SEARCH; }
+
+            // Skip debug events
+            if (code == 0x40010006 || code == 0x4001000A)
+                return EXCEPTION_CONTINUE_SEARCH;
+
+            ulong address = 0;
+            try
+            {
+                var addrPtr = exceptionPointers + 8;
+                address = IntPtr.Size == 8
+                    ? (ulong)System.Runtime.InteropServices.Marshal.ReadInt64(addrPtr)
+                    : (ulong)System.Runtime.InteropServices.Marshal.ReadInt32(addrPtr);
+            }
+            catch { }
+
+            var timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var codeName = code switch
+            {
+                EXCEPTION_ACCESS_VIOLATION => "ACCESS_VIOLATION",
+                EXCEPTION_STACK_OVERFLOW => "STACK_OVERFLOW",
+                0xC000001D => "ILLEGAL_INSTRUCTION",
+                0xC0000006 => "IN_PAGE_ERROR",
+                0xC0000094 => "INT_DIVIDE_BY_ZERO",
+                0xC0000096 => "PRIV_INSTRUCTION",
+                0xE06D7363 => "CPP_EXCEPTION",
+                _ => "UNKNOWN"
+            };
+
+            string detail = "";
+            if (code == EXCEPTION_ACCESS_VIOLATION)
+            {
+                try
+                {
+                    int infoOffset = 28;
+                    var flags = System.Runtime.InteropServices.Marshal.ReadInt32(exceptionPointers, infoOffset);
+                    var accessType = (flags & 0xFF) switch
+                    {
+                        0 => "READ", 1 => "WRITE", 8 => "EXECUTE",
+                        _ => $"flags=0x{flags:X}"
+                    };
+                    var violAddr = (ulong)System.Runtime.InteropServices.Marshal.ReadInt64(exceptionPointers, infoOffset + 8);
+                    detail = $" ({accessType} at 0x{violAddr:X16})";
+                }
+                catch { }
+            }
+
+            WriteToCrashLog($"[{timestamp}] [VEH] NATIVE EXCEPTION: 0x{code:X8} ({codeName}) at 0x{address:X16}{detail}");
+
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        // ---- Posix signal handlers (Linux/macOS) ----
+
+        private static void InstallPosixHandlers()
+        {
+            try
+            {
+                _posixRegistrations = new List<PosixSignalRegistration>(3);
+
+                // SIGTERM — graceful shutdown requested
+                _posixRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>
+                {
+                    WriteToCrashLog($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [POSIX] SIGTERM received — process terminating");
+                    ctx.Cancel = false; // Allow default behavior
+                }));
+
+                // SIGINT — Ctrl+C
+                _posixRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGINT, ctx =>
+                {
+                    WriteToCrashLog($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [POSIX] SIGINT received");
+                    ctx.Cancel = false;
+                }));
+
+                // SIGQUIT — Ctrl+\ (also triggers core dump on Linux)
+                try
+                {
+                    _posixRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGQUIT, ctx =>
+                    {
+                        WriteToCrashLog($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [POSIX] SIGQUIT received — process terminating");
+                        ctx.Cancel = false;
+                    }));
+                }
+                catch
+                {
+                    // SIGQUIT may not be available on all platforms
+                }
+            }
+            catch
+            {
+                // PosixSignal not supported on this platform
+            }
+        }
+
+        private static void UninstallPosixHandlers()
+        {
+            if (_posixRegistrations != null)
+            {
+                foreach (var reg in _posixRegistrations)
+                {
+                    try { reg.Dispose(); } catch { }
+                }
+                _posixRegistrations = null;
+            }
+        }
+
+        // ---- Shared log writer ----
+
+        private static void WriteToCrashLog(string message)
+        {
+            if (_logPath == null) return;
+            try
+            {
+                message += Environment.NewLine;
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(message);
+                using var fs = new System.IO.FileStream(_logPath,
+                    System.IO.FileMode.Append, System.IO.FileAccess.Write,
+                    System.IO.FileShare.ReadWrite, 4096, useAsync: false);
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush();
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Last-resort crash logger that writes to a file using only raw I/O,
+    /// with zero dependency on Serilog or any other framework.
+    /// Use when the process is about to die from an unhandled exception
+    /// and Serilog may no longer be safe to call.
+    /// </summary>
+    public static class FallbackCrashLogger
+    {
+        private static readonly object _lock = new();
+        private static string? _logPath;
+
+        /// <summary>
+        /// Initializes the fallback crash logger with the directory where crash logs will be written.
+        /// Must be called once as early as possible (before any exception handler can fire).
+        /// Safe to call multiple times — only the first call takes effect.
+        /// </summary>
+        public static void Initialize(string logsDirectory)
+        {
+            if (_logPath != null)
+                return;
+            try
+            {
+                if (!Directory.Exists(logsDirectory))
+                    Directory.CreateDirectory(logsDirectory);
+                _logPath = Path.Combine(logsDirectory, "crash-.log");
+                // Write a header to confirm the file is writable
+                var header = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] FallbackCrashLogger initialized.{Environment.NewLine}";
+                File.AppendAllText(_logPath, header);
+            }
+            catch
+            {
+                // Nothing we can do — logging is unavailable
+            }
+        }
+
+        /// <summary>
+        /// Writes a single line to the crash log with zero-throw guarantee.
+        /// Safe to call from unhandled-exception handlers, OOM scenarios, etc.
+        /// </summary>
+        public static void Write(string message, [CallerMemberName] string caller = "")
+        {
+            if (_logPath == null)
+                return;
+            try
+            {
+                var line = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [{caller}] {message}{Environment.NewLine}";
+                lock (_lock)
+                {
+                    File.AppendAllText(_logPath, line);
+                }
+            }
+            catch
+            {
+                // Absolute last resort — swallow silently
+            }
+        }
+
+        /// <summary>
+        /// Writes exception details to the crash log with zero-throw guarantee.
+        /// </summary>
+        public static void WriteException(Exception? ex, string context, [CallerMemberName] string caller = "")
+        {
+            if (_logPath == null)
+                return;
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [{caller}] CRASH: {context}");
+                if (ex != null)
+                {
+                    sb.AppendLine($"  Type:     {ex.GetType().FullName}");
+                    sb.AppendLine($"  Message:  {ex.Message}");
+                    sb.AppendLine($"  HResult:  0x{ex.HResult:X8}");
+                    sb.AppendLine($"  StackTrace: {ex.StackTrace}");
+                    if (ex.InnerException != null)
+                    {
+                        sb.AppendLine($"  InnerException: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+                        sb.AppendLine($"  InnerStackTrace: {ex.InnerException.StackTrace}");
+                    }
+                    sb.AppendLine($"  Source:   {ex.Source}");
+                    sb.AppendLine($"  TargetSite: {ex.TargetSite}");
+                }
+                sb.AppendLine("--- end crash entry ---");
+                lock (_lock)
+                {
+                    File.AppendAllText(_logPath, sb.ToString());
+                }
+            }
+            catch
+            {
+                // Nothing more we can do
+            }
+        }
+    }
+
     public static class LoggerInfrastructure
     {
         public static int PascalClassNameWidth = 0;

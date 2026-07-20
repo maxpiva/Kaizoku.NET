@@ -131,8 +131,25 @@ public partial class App : Application
         {
             // Build and start the ASP.NET Core host (this can run on background thread)
             _host = RensaioBackend.Program.CreateHostBuilder(Array.Empty<string>()).Build();
-            // Start the ASP.NET Core host (this can run on background thread)
-            _ = Task.Run(async()=>await _host.StartAsync(_shutdownCancellationTokenSource.Token).ConfigureAwait(false));
+            // Start the ASP.NET Core host (this can run on background thread).
+            // Wrap in a tracked task so host crashes are logged even though we
+            // deliberately don't await here (to keep the UI thread responsive).
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _host.StartAsync(_shutdownCancellationTokenSource.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Normal cancellation during shutdown — no action needed.
+                }
+                catch (Exception ex)
+                {
+                    FallbackCrashLogger.WriteException(ex, "TRAY HOST STARTAsync FAILED");
+                    Console.WriteLine($"Backend host failed to start: {ex.Message}");
+                }
+            });
             // Setup the tray icon on the UI thread
             Avalonia.Threading.Dispatcher.UIThread.Invoke(() =>
             {
@@ -141,6 +158,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
+            FallbackCrashLogger.WriteException(ex, "TRAY StartApplication FAILED");
             Console.WriteLine($"Failed to start application: {ex.Message}");
         }
     }

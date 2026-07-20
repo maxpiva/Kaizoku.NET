@@ -41,7 +41,6 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.div
 import kotlin.math.roundToInt
 import xyz.nulldev.ts.config.CONFIG_PREFIX
-import kotlinx.coroutines.launch
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import android.app.Application
 import android.content.Context
@@ -355,16 +354,21 @@ fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogS
 
     TrustManagerBridge.ensureSubjectKeyIdentifierTolerance()
     
-    mutableConfigValueScope.launch(Dispatchers.IO) {
-        logger.info { "Initializing JCEF runtime — this may take a while" }
-        runCatching { KcefWebViewProvider.ensureRuntimeReady() }
-            .onSuccess {
-                logger.info { "JCEF runtime initialized" }
-            }
-            .onFailure { throwable ->
-                logger.warn(throwable) { "Unable to warm up KCEF runtime" }
-            }
-    }
+    // Synchronous JCEF initialization — must complete before any extension
+    // tries to create a WebView.  The Comix (and similar) extension calls
+    // runInWebView which creates a WebView on the main looper thread, which
+    // in turn calls CefAppBridge.getOrCreate().  If sharedApp is still null
+    // (because the old async init hadn't finished yet), the main looper blocks
+    // on the CefAppBuilder.build() lock, causing a 90+ second timeout and
+    // "Failed to start WebView" errors.
+    logger.info { "Initializing JCEF runtime — this may take a while" }
+    runCatching { KcefWebViewProvider.ensureRuntimeReady() }
+        .onSuccess {
+            logger.info { "JCEF runtime initialized" }
+        }
+        .onFailure { throwable ->
+            logger.warn(throwable) { "Unable to warm up KCEF runtime" }
+        }
 
     // AES/CBC/PKCS7Padding Cypher provider for zh.copymanga
     Security.addProvider(BouncyCastleProvider())
