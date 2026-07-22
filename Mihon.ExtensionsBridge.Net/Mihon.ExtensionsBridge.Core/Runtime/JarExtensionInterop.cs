@@ -1,16 +1,17 @@
-﻿using extension.bridge;
-using eu.kanade.tachiyomi.source;
+﻿using eu.kanade.tachiyomi.source;
+using extension.bridge;
 using java.io;
 using java.lang;
 using java.net;
 using Microsoft.Extensions.Logging;
-using System.Reflection;
+using Mihon.ExtensionsBridge.Core.Abstractions;
 using Mihon.ExtensionsBridge.Core.Extensions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Mihon.ExtensionsBridge.Models.Extensions;
+using System.Reflection;
 using static kotlin.reflect.jvm.@internal.ReflectProperties;
-using Mihon.ExtensionsBridge.Core.Abstractions;
+using static sun.awt.CausedFocusEvent;
 
 namespace Mihon.ExtensionsBridge.Core.Runtime
 {
@@ -58,7 +59,27 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             Version = entry.Extension.Version;
             string className = entry.Extension.Package + entry.ClassName;
             java.util.List ops = null;
-            ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
+            try
+            {
+                ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
+
+            }
+            catch (System.Exception ae)
+            {
+                while (ae != null)
+                {
+                    _logger.LogError(ae, ae.ToString());
+
+                    if (ae is java.lang.Throwable)
+                    {
+                        java.lang.Throwable cause = (java.lang.Throwable)ae;
+                        ae = cause.getCause();
+                    }
+                    else
+                        ae = null;
+                }
+                throw;
+            }
             var list = new List<ISourceInterop>();
             ops.toArray().Cast<Source>().ToList().ForEach(s => list.Add(new SourceInterop(s, logger)));
             /*

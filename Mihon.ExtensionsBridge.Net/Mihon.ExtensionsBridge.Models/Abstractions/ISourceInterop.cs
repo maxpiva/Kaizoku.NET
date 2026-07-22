@@ -13,6 +13,7 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         string Name { get; }
         bool SupportsLatest { get; }
 
+        Task<MangaUpdate> GetDetailsAndChaptersAsync(Manga manga, CancellationToken token = default);
         Task<List<ParsedChapter>> GetChaptersAsync(Manga manga, CancellationToken token = default);
         Task<ParsedManga> GetDetailsAsync(Manga manga, CancellationToken token = default);
         Task<ContentTypeStream> GetPageImageAsync(Page page, CancellationToken token = default);

@@ -11,20 +11,26 @@ export { formatThumbnailUrl };
 export const getExtensionEntries = (extension: Provider): ExtensionEntry[] =>
   extension.onlineRepositories.flatMap((repo) => repo.entries);
 
+export const getInstalledRepoEntries = (extension: Provider): ExtensionEntry[] | undefined => {
+  if (!extension.isInstaled) return undefined;
+  const repo = extension.onlineRepositories[0];
+  return repo?.entries;
+};
+
 export const getPrimaryEntry = (extension: Provider): ExtensionEntry | undefined => {
   const allEntries = getExtensionEntries(extension);
   if (allEntries.length === 0) return undefined;
 
   if (extension.isInstaled) {
-    const localRepo = extension.onlineRepositories.find((repo) =>
-      repo.entries.some((entry) => entry.isLocal)
-    );
-    if (localRepo) {
+    // The first repository in onlineRepositories contains all locally installed
+    // versions for this extension. Use activeEntry to pick the correct one.
+    const installedRepo = extension.onlineRepositories[0];
+    if (installedRepo?.entries.length) {
       const index = Math.min(
         Math.max(extension.activeEntry ?? 0, 0),
-        localRepo.entries.length - 1
+        installedRepo.entries.length - 1
       );
-      return localRepo.entries[index] ?? localRepo.entries[0];
+      return installedRepo.entries[index] ?? installedRepo.entries[0];
     }
   }
 
@@ -46,3 +52,15 @@ export const getExtensionVersion = (extension: Provider): string =>
 
 export const isExtensionNsfw = (extension: Provider): boolean =>
   getExtensionEntries(extension).some((entry) => entry.nsfw);
+
+/** Returns true if the active entry for an installed extension has isLocal = true */
+export const isActiveEntryLocal = (extension: Provider): boolean => {
+  const entry = getPrimaryEntry(extension);
+  return entry?.isLocal ?? false;
+};
+
+/** Returns the total number of version entries available for an installed extension */
+export const getEntryCount = (extension: Provider): number => {
+  if (!extension.isInstaled) return 0;
+  return getInstalledRepoEntries(extension)?.length ?? 0;
+};

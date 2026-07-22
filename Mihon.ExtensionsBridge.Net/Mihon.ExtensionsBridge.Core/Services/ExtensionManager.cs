@@ -43,7 +43,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
 
         public const float LIB_VERSION_MIN = 1.3f;
-        public const float LIB_VERSION_MAX = 1.5f;
+        public const float LIB_VERSION_MAX = 1.6f;
         /// <summary>
         /// Provides the local working folder structure and persistence of repository groups.
         /// </summary>
@@ -957,7 +957,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 // If files are missing, skip this entry gracefully
                 if (!File.Exists(jarPath) || !File.Exists(apkPath))
                 {
-                    _logger.LogInformation("Skipping entry {EntryName}: missing expected artifacts (APK/JAR/DLL) in {Folder}.", entry.Name, expectedFolder);
+                    _logger.LogInformation("Skipping entry {EntryName}: missing expected artifacts (APK/JAR) in {Folder}.", entry.Name, expectedFolder);
                     continue;
                 }
 
@@ -971,7 +971,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 if (dex2jarMismatch)
                 {
                     _logger.LogInformation(
-                        "DEX2JAR version mismatch for {EntryName}: JAR version {JarVersion} != converter version {Dex2JarVersion}. Recreating JAR and Recompiling DLL.",
+                        "DEX2JAR version mismatch for {EntryName}: JAR version {JarVersion} != converter version {Dex2JarVersion}. Recreating JAR...",
                         entry.Name, entry.Jar.Version, _dex2Jar.Version);
                 }
                 /*
@@ -1017,6 +1017,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
                             continue;
                     }
                     */
+
+                    // Persist the updated Jar.Version (set by Dex2JarConverter.ConvertAsync) to disk,
+                    // so the version mismatch is not flagged again on the next startup.
+                    await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
+
                     processed++;
                 }
                 catch (OperationCanceledException)

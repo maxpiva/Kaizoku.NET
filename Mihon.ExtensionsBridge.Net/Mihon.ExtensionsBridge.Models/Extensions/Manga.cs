@@ -14,9 +14,14 @@ namespace Mihon.ExtensionsBridge.Models.Extensions
         public string? ThumbnailUrl { get; set; }
         public UpdateStrategy UpdateStrategy { get; set; }
         public bool Initialized { get; set; }
+        public System.Text.Json.JsonElement Memo { get; set; }
 
     }
-
+    public class MangaUpdate
+    {
+        public ParsedManga Manga { get; set; }
+        public List<ParsedChapter> Chapters { get; set; } = [];
+    }
     public class ParsedManga : Manga
     {
         public string RealUrl { get; set; }

@@ -4,6 +4,7 @@ using com.googlecode.dex2jar.tools;
 using java.nio.file;
 using Microsoft.Extensions.Logging;
 using org.objectweb.asm;
+using org.objectweb.asm.tree;
 using System.IO.Compression;
 using System.Linq;
 using Mihon.ExtensionsBridge.Core.Extensions;
@@ -44,7 +45,13 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// <summary>
         /// Current converter version used to tag conversion results.
         /// </summary>
-        public const string Version = "1.0.0";
+        /// <remarks>
+        /// Bumped to 1.1.0 for the oracle-driven correction of dex2jar's R8 stripped-constructor
+        /// mistranslation (<see cref="DexNewInstanceCorrector"/>). Extensions previously converted with an
+        /// earlier version are re-converted on startup via <c>ExtensionManager.ValidateAndRecompileAsync</c>,
+        /// which compares <c>entry.Jar.Version</c> against this value.
+        /// </remarks>
+        public const string Version = "1.1.1";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
@@ -137,7 +144,10 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 {
                     return false;
                 }
-                FixAndroidClasses(jarFilePath);
+                // Build the authoritative new-instance oracle from the same APK bytes (not a re-read),
+                // then correct dex2jar's R8 stripped-constructor mistranslation on the converted classes.
+                var oracle = DexNewInstanceOracle.Build(data);
+                FixAndroidClasses(jarFilePath, oracle);
                 ExtractAssetsFromApk(apkFile, jarFile);
                 return true;
             }, token).ConfigureAwait(false);
@@ -156,7 +166,11 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// to replace Android classes with compatibility implementations.
         /// </summary>
         /// <param name="jarFile">The path to the generated JAR file.</param>
-        public void FixAndroidClasses(java.nio.file.Path jarFile)
+        /// <param name="oracle">
+        /// The authoritative DEX <c>new-instance</c> oracle used to correct dex2jar's R8 stripped-constructor
+        /// mistranslation. All classes are collected first so cross-class constructor synthesis can run.
+        /// </param>
+        internal void FixAndroidClasses(java.nio.file.Path jarFile, DexNewInstanceOracle oracle)
         {
             FileSystem fs = null;
             try
@@ -165,38 +179,55 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
                 var root = fs.getPath("/");
 
-                using var stream = Files.walk(root);
+                var entries = new List<(java.nio.file.Path path, ClassNode node)>();
 
-                var it = stream.iterator();
-                while (it.hasNext())
+                using (var stream = Files.walk(root))
                 {
-                    var p = (java.nio.file.Path)it.next();
-                    if (Files.isDirectory(p))
-                        continue;
-
-                    var pair = GetClassBytes(p);
-                    if (pair == null)
-                        continue;
-
-                    // Determine class name and delete entries that start with any of the remove namespaces
-                    var cr = new ClassReader(pair.Value.bytes);
-                    var className = cr.getClassName();
-                    if (ShouldRemoveNamespace(className))
+                    var it = stream.iterator();
+                    while (it.hasNext())
                     {
-                        try
-                        {
-                            _logger.LogDebug("Removing class due to namespace filter: {ClassName}", className);
-                            Files.delete(p);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to remove class {ClassName} at path {Path}", className, p.toString());
-                        }
-                        continue;
-                    }
+                        var p = (java.nio.file.Path)it.next();
+                        if (Files.isDirectory(p))
+                            continue;
 
-                    var transformed = Transform(pair.Value);
-                    Write(transformed);
+                        var pair = GetClassBytes(p);
+                        if (pair == null)
+                            continue;
+
+                        // Determine class name and delete entries that start with any of the remove namespaces
+                        var cr = new ClassReader(pair.Value.bytes);
+                        var className = cr.getClassName();
+                        if (ShouldRemoveNamespace(className))
+                        {
+                            try
+                            {
+                                _logger.LogDebug("Removing class due to namespace filter: {ClassName}", className);
+                                Files.delete(p);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to remove class {ClassName} at path {Path}", className, p.toString());
+                            }
+                            continue;
+                        }
+
+                        // Apply the streaming replacements first, then parse into a tree node for correction.
+                        var transformed = Transform(pair.Value);
+                        var node = new ClassNode();
+                        new ClassReader(transformed.bytes).accept(node, 0);
+                        entries.Add((p, node));
+                    }
+                }
+
+                // Retype mistranslated NEWs across all classes and synthesise any missing default constructors.
+                var corrector = new DexNewInstanceCorrector(oracle, _logger);
+                corrector.CorrectAll(entries.Select(e => e.node).ToList());
+
+                // Write each corrected class back (frame hygiene + version lowering applied per class).
+                foreach (var entry in entries)
+                {
+                    var bytes = corrector.WriteClass(entry.node);
+                    Files.write(entry.path, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 }
             }
             finally
@@ -392,6 +423,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 return pair;
             }*/
             var cw = new ClassWriter(cr, 0);
+            //var cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
 
             cr.accept(new TransformingClassVisitor(cw, _logger), 0);
 
@@ -407,19 +439,6 @@ namespace Mihon.ExtensionsBridge.Core.Services
             return _packagesToSkip.Any(prefix => className.StartsWith(prefix, StringComparison.Ordinal));
         }
 
-        /// <summary>
-        /// Writes transformed class bytes back into the JAR file system.
-        /// </summary>
-        /// <param name="pair">The path and transformed bytes to write.</param>
-        private void Write((java.nio.file.Path path, byte[] bytes) pair)
-        {
-            Files.write(
-                pair.path,
-                pair.bytes,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-            );
-        }
 
         /// <summary>
         /// Replaces a direct internal type name with its compatibility counterpart if listed.
@@ -466,7 +485,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             /// <param name="cw">The downstream class writer receiving transformed classes.</param>
             /// <param name="logger">Logger for debug output.</param>
             public TransformingClassVisitor(ClassWriter cw, ILogger logger)
-                : base(Opcodes.ASM5, cw)
+                : base(Opcodes.ASM9, cw)
             {
                 _logger = logger;
             }
@@ -563,7 +582,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             /// <param name="mv">The downstream method visitor.</param>
             /// <param name="logger">Logger for debug output.</param>
             public TransformingMethodVisitor(MethodVisitor mv, ILogger logger)
-                : base(Opcodes.ASM5, mv)
+                : base(Opcodes.ASM9, mv)
             {
                 _logger = logger;
             }

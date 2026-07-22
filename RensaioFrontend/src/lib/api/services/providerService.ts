@@ -54,4 +54,11 @@ export const providerService = {
   async setProviderPreferences(preferences: ProviderPreferences): Promise<void> {
     return apiClient.post<void>('/api/provider/preferences', preferences);
   },
+
+  /**
+   * Sets the active version and auto-update preference for an installed extension.
+   */
+  async setProviderVersion(pkgName: string, version: string, autoUpdate: boolean): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>(`/api/provider/version/${pkgName}`, { version, autoUpdate });
+  },
 };

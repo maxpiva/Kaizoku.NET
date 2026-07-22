@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search } from "lucide-react";
 import { type Provider, NsfwVisibility } from "@/lib/api/types";
 import { type MultiSelectOption } from "@/components/ui/multi-select";
@@ -245,6 +245,17 @@ export function SourcesList({
     }
   };
 
+  // ── Version changed handler (refresh the full list) ─────────────────────────
+  const handleVersionChanged = useCallback(async () => {
+    try {
+      const data = await providerService.getProviders();
+      setExtensions(data);
+    } catch (error) {
+      console.error('Failed to refresh extensions after version change:', error);
+      toast({ title: 'Failed to refresh sources', variant: 'destructive' });
+    }
+  }, [toast]);
+
   // ── APK install ──────────────────────────────────────────────────────────────
   const handleInstallFromApk = async (file: File) => {
     try {
@@ -349,6 +360,7 @@ export function SourcesList({
               onUninstall={(pkgName) => void handleUninstall(pkgName)}
               isLoading={actionLoading === ext.package}
               showNsfwIndicator={true}
+              onVersionChanged={handleVersionChanged}
             />
           ))}
         </SourcesSection>

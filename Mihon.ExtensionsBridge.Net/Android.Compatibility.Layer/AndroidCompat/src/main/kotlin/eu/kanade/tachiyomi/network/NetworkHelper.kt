@@ -81,8 +81,7 @@ class NetworkHelper(
                         ),
                     ).addInterceptor(UncaughtExceptionInterceptor())
                     .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
-                    .addNetworkInterceptor(IgnoreGzipInterceptor())
-                    .addNetworkInterceptor(BrotliInterceptor)
+
 
             // if (preferences.verboseLogging().get()) {
             val httpLoggingInterceptor =
@@ -125,5 +124,7 @@ class NetworkHelper(
 //    val client by lazy { baseClientBuilder.cache(Cache(cacheDir, cacheSize)).build() }
     val client by lazy { baseClientBuilder.build() }
 
+    @Deprecated("The regular client handles Cloudflare by default")
+    @Suppress("UNUSED")
     val cloudflareClient by lazy { client }
 }

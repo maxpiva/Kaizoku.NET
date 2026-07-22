@@ -11,9 +11,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using static android.telecom.Call;
 using Page = Mihon.ExtensionsBridge.Models.Extensions.Page;
 using UpdateStrategy = Mihon.ExtensionsBridge.Models.Extensions.UpdateStrategy;
+using Manga = Mihon.ExtensionsBridge.Models.Extensions.Manga;
+using ParsedChapter = Mihon.ExtensionsBridge.Models.Extensions.ParsedChapter;
 
 namespace Mihon.ExtensionsBridge.Core.Extensions
 {
@@ -38,6 +39,15 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             {
                 return defaultValue;
             }
+        }
+
+        private static void WriteField(object instance, string fieldName, object value)
+        {
+            if (instance == null) return;
+            var t = instance.GetType();
+            var f = t.GetField(fieldName, KotlinFieldFlags);
+            if (f == null) return;
+            f.SetValue(instance, value);
         }
         public static string ParsedName(this TachiyomiExtension extension)
         {
@@ -87,6 +97,18 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 }).ToList(),
                 HasNextPage = mangaPage.getHasNextPage()
             };
+        }
+        public static MangaUpdate ToMangaUpdate(this eu.kanade.tachiyomi.source.model.SMangaUpdate mangaUpdate, eu.kanade.tachiyomi.source.online.HttpSource source)
+        {
+            if (mangaUpdate == null)
+                throw new ArgumentNullException(nameof(mangaUpdate));
+            var update = new MangaUpdate
+            {
+                Manga = mangaUpdate.getManga().ToManga<ParsedManga>(),
+                Chapters = mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(mangaUpdate.getManga().getTitle(), mangaUpdate.getManga(), source)
+            };
+            update.Manga.RealUrl = source.getMangaUrl(mangaUpdate.getManga());
+            return update;
         }
         public static string GetString(java.lang.CharSequence seq)
         {
@@ -180,6 +202,26 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 upload = DateTimeOffset.UtcNow;
                 //Ignore, bad parse will just use current time
             }
+            // Convert kotlinx.serialization.json.JsonObject → System.Text.Json.JsonElement
+            System.Text.Json.JsonElement memo = default;
+            try
+            {
+                var memoObj = ReadField<object>(chapter, "memo", null);
+                if (memoObj != null)
+                {
+                    var jsonString = memoObj.ToString();
+                    if (!string.IsNullOrEmpty(jsonString))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                        memo = doc.RootElement.Clone();
+                    }
+                }
+            }
+            catch
+            {
+                // Leave memo as default if conversion fails
+            }
+
             return new T
             {
                 Name = name,
@@ -187,6 +229,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Scanlator = scanlator,
                 DateUpload = upload,
                 ChapterNumber = chNum,
+                Memo = memo
             };
         }
         public static Page ToPage(this eu.kanade.tachiyomi.source.model.Page page)
@@ -210,6 +253,27 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 throw new ArgumentNullException(nameof(page));
             return new eu.kanade.tachiyomi.source.model.Page(page.Index, page.Url ?? page.ImageUrl ?? "", page.ImageUrl, android.net.Uri.parse(page.Url));
         }
+        private static kotlinx.serialization.json.Json GetDefaultJson()
+        {
+            var field = typeof(kotlinx.serialization.json.Json)
+                .GetProperty("Default", BindingFlags.Public | BindingFlags.Static);
+
+            return (kotlinx.serialization.json.Json)field.GetValue(null);
+        }
+
+        public static kotlinx.serialization.json.JsonObject ToJsonObject(this string json)
+        {
+            if (string.IsNullOrEmpty(json))
+                throw new ArgumentNullException(nameof(json));
+
+            var element = GetDefaultJson().parseToJsonElement(json);
+
+            if (element is kotlinx.serialization.json.JsonObject obj)
+                return obj;
+
+            throw new InvalidOperationException("The provided JSON string is not a JSON object.");
+        }
+
         public static eu.kanade.tachiyomi.source.model.SChapterImpl ToSChapter(this Chapter chapter)
         {
             if (chapter == null)
@@ -220,6 +284,23 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             schapter.setScanlator(chapter.Scanlator);
             schapter.setDate_upload(chapter.DateUpload.ToUnixTimeSeconds());
             schapter.setChapter_number(chapter.ChapterNumber);
+            if (chapter.Memo.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+                chapter.Memo.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                var jsonString = System.Text.Json.JsonSerializer.Serialize(chapter.Memo);
+                try
+                {
+                    var parsed = ToJsonObject(jsonString);
+                    if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
+                    {
+                        WriteField(schapter, "memo", jsonObject);
+                    }
+                }
+                catch
+                {
+                    // Fallback: leave memo as JsonObject.EMPTY (default)
+                }
+            }
             return schapter;
         }
         public static eu.kanade.tachiyomi.source.model.SManga ToSManga(this Manga manga)
@@ -241,6 +322,27 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             else
                 smanga.setUpdate_strategy(eu.kanade.tachiyomi.source.model.UpdateStrategy.ONLY_FETCH_ONCE);
             smanga.setInitialized(manga.Initialized);
+
+            // Convert System.Text.Json.JsonElement → kotlinx.serialization.json.JsonObject
+            if (manga.Memo.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+                manga.Memo.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                var jsonString = System.Text.Json.JsonSerializer.Serialize(manga.Memo);
+                try
+                {
+                    var parsed = ToJsonObject(jsonString);
+                    if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
+                    {
+                        WriteField(smanga, "memo", jsonObject);
+                    }
+
+                }
+                catch
+                {
+                    // Fallback: leave memo as JsonObject.EMPTY (default)
+                }
+            }
+
             return smanga;
         }
         private static void ReplaceFieldIfNeeded(eu.kanade.tachiyomi.source.model.SManga details, string? original, string field, Action<string> action)
@@ -284,6 +386,27 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             var strategy = ReadField<eu.kanade.tachiyomi.source.model.UpdateStrategy>(
                 smanga, "update_strategy", eu.kanade.tachiyomi.source.model.UpdateStrategy.ONLY_FETCH_ONCE);
             bool initialized = ReadField<bool>(smanga, "initialized", false);
+
+            // Convert kotlinx.serialization.json.JsonObject → System.Text.Json.JsonElement
+            System.Text.Json.JsonElement memo = default;
+            try
+            {
+                var memoObj = ReadField<object>(smanga, "memo", null);
+                if (memoObj != null)
+                {
+                    var jsonString = memoObj.ToString();
+                    if (!string.IsNullOrEmpty(jsonString))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                        memo = doc.RootElement.Clone();
+                    }
+                }
+            }
+            catch
+            {
+                // Leave memo as default if conversion fails
+            }
+
             return new T
             {
                 Title = title,
@@ -297,7 +420,8 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 UpdateStrategy = strategy == eu.kanade.tachiyomi.source.model.UpdateStrategy.ALWAYS_UPDATE
                     ? UpdateStrategy.ALWAYS_UPDATE
                     : UpdateStrategy.ONLY_FETCH_ONCE,
-                Initialized = initialized
+                Initialized = initialized,
+                Memo = memo
             };
         }
     }

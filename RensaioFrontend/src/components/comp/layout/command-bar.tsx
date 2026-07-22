@@ -390,12 +390,12 @@ function getSearchPlaceholder(
 ): string {
   switch (currentPage) {
     case "library":
-      return "Search series...";
+      return "Filter series...";
     case "providers":
-      return "Search sources...";
+      return "Filter sources...";
     case "queue":
-      return "Search queue...";
+      return "Filter queue...";
     default:
-      return "Search...";
+      return "Filter...";
   }
 }

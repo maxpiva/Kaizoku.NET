@@ -82,12 +82,11 @@ namespace RensaioBackend.Services.Search
                         var source = await _mihon.SourceFromProviderIdAsync(ls.MihonProviderId!, token).ConfigureAwait(false);
                         Manga m = ls.ToManga()!;
                         // Bound each source call so a stuck provider can't freeze the import.
-                        var fullData = await SourceTimeout
-                            .RunAsync(c => source.GetDetailsAsync(m, c), ct)
+                        var mangaUpdate = await SourceTimeout
+                            .RunAsync(c => source.GetDetailsAndChaptersAsync(m, c), ct)
                             .ConfigureAwait(false);
-                        var chapterData = await SourceTimeout
-                            .RunAsync(c => source.GetChaptersAsync(m, c), ct)
-                            .ConfigureAwait(false);
+                        var fullData = mangaUpdate.Manga;
+                        var chapterData = mangaUpdate.Chapters;
                         if (fullData != null && chapterData != null && chapterData.Count > 0)
                         {
                             // Set default scanlator if not provided

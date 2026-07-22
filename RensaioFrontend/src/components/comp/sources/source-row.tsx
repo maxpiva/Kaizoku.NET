@@ -1,7 +1,8 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import ReactCountryFlag from "react-country-flag";
+import { Wrench } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -13,11 +14,16 @@ import {
   getExtensionLanguages,
   getExtensionVersion,
   isExtensionNsfw,
+  isActiveEntryLocal,
+  getEntryCount,
 } from "./lib";
 import { getCountryCodeForLanguage } from "@/lib/utils/language-country-mapping";
 import { SourceThumb } from "./source-thumb";
 import { RowActionsInstalled } from "./row-actions-installed";
 import { RowActionsAvailable } from "./row-actions-available";
+import { VersionSelectorDialog } from "./version-selector-dialog";
+import { providerService } from "@/lib/api/services/providerService";
+import { useToast } from "@/hooks/use-toast";
 
 interface SourceRowProps {
   extension: Provider;
@@ -26,6 +32,8 @@ interface SourceRowProps {
   onUninstall?: (pkgName: string) => void;
   isLoading?: boolean;
   showNsfwIndicator?: boolean;
+  /** Called after a version switch completes so the parent can refresh its list */
+  onVersionChanged?: () => void;
 }
 
 function formatLanguageMeta(extension: Provider): string {
@@ -56,15 +64,39 @@ export function SourceRow({
   onUninstall,
   isLoading = false,
   showNsfwIndicator = true,
+  onVersionChanged,
 }: SourceRowProps) {
+  const { toast } = useToast();
   const primaryLanguage = getPrimaryLanguage(extension);
   const countryCode = getCountryCodeForLanguage(primaryLanguage);
   const isNsfw = showNsfwIndicator && isExtensionNsfw(extension);
   const meta = formatLanguageMeta(extension);
-
   const isFailing =
     mode === 'installed' &&
     (extension.isBroken || extension.isDead);
+
+  // -- Version selector state --
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [versionSubmitting, setVersionSubmitting] = useState(false);
+
+  const isLocalEntry = mode === 'installed' && isActiveEntryLocal(extension);
+  const entryCount = mode === 'installed' ? getEntryCount(extension) : 0;
+  const showWrench = mode === 'installed' && entryCount > 1;
+
+  const handleVersionConfirm = useCallback(async (version: string, autoUpdate: boolean) => {
+    setVersionSubmitting(true);
+    try {
+      await providerService.setProviderVersion(extension.package, version, autoUpdate);
+      toast({ title: `Version set to v${version}`, variant: 'success' });
+      setVersionDialogOpen(false);
+      onVersionChanged?.();
+    } catch (err) {
+      console.error('Failed to set version:', err);
+      toast({ title: 'Failed to set version', variant: 'destructive' });
+    } finally {
+      setVersionSubmitting(false);
+    }
+  }, [extension.package, onVersionChanged, toast]);
 
   const rowContent = (
     <div
@@ -95,12 +127,28 @@ export function SourceRow({
           {isNsfw && <span className="nsfw-pill">18+</span>}
         </div>
 
-        {/* Line 2: version · languages (muted) */}
-        {meta && (
-          <div className="text-[12px] md:text-[13px] text-muted-foreground truncate mt-0.5">
-            {meta}
-          </div>
-        )}
+        {/* Line 2: version · languages (muted) + Local badge + wrench */}
+        <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+          {meta ? (
+            <span className="text-[12px] md:text-[13px] text-muted-foreground truncate">
+              {meta}
+            </span>
+          ) : null}
+          {isLocalEntry && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 font-medium whitespace-nowrap leading-none">
+              Local
+            </span>
+          )}
+          {showWrench && (
+            <button
+              className="inline-flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors flex-shrink-0"
+              onClick={() => setVersionDialogOpen(true)}
+              aria-label={`Select version for ${extension.name}`}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Right: action area */}
@@ -122,19 +170,32 @@ export function SourceRow({
     </div>
   );
 
-  // Wrap failing installed rows in a Tooltip to expose the error message
-  if (isFailing) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {rowContent}
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          Source is broken or unreachable
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
+  return (
+    <>
+      {/* Wrap failing installed rows in a Tooltip to expose the error message */}
+      {isFailing ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {rowContent}
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            Source is broken or unreachable
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        rowContent
+      )}
 
-  return rowContent;
+      {/* Version selector dialog */}
+      {mode === 'installed' && (
+        <VersionSelectorDialog
+          extension={extension}
+          open={versionDialogOpen}
+          onOpenChange={setVersionDialogOpen}
+          onConfirm={handleVersionConfirm}
+          isSubmitting={versionSubmitting}
+        />
+      )}
+    </>
+  );
 }

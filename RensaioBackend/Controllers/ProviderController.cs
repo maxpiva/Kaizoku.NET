@@ -214,5 +214,38 @@ namespace RensaioBackend.Controllers
                 return StatusCode(500, new { error =$"Error installing extension from file {file?.FileName ?? ""}."});
             }
         }
+
+        /// <summary>
+        /// Sets the active version and auto-update preference for an installed extension.
+        /// </summary>
+        /// <param name="pkgName">Package name of the extension</param>
+        /// <param name="request">The version and auto-update settings</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Success status</returns>
+        /// <response code="200">Version set successfully</response>
+        /// <response code="400">Failed to set version</response>
+        /// <response code="500">If an error occurs during the operation</response>
+        [HttpPost("version/{pkgName}")]
+        [RequireUserLevel(UserLevel.Manager)]
+        [ProducesResponseType(typeof(object), 200)]
+        [ProducesResponseType(typeof(object), 400)]
+        [ProducesResponseType(typeof(object), 500)]
+        public async Task<IActionResult> SetProviderVersionAsync([FromRoute] string pkgName, [FromBody] SetProviderVersionRequestDto request, CancellationToken token = default)
+        {
+            try
+            {
+                var success = await _managerService.SetProviderVersionAsync(pkgName, request.Version, request.AutoUpdate, token).ConfigureAwait(false);
+                if (success)
+                {
+                    return Ok(new { message = "Extension version set successfully" });
+                }
+                return BadRequest(new { error = "Failed to set extension version" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting version for extension {PkgName}", pkgName);
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
     }
 }
