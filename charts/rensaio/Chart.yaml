@@ -1,0 +1,14 @@
+---
+apiVersion: v2
+name: rensaio
+description: A Helm chart for Rensaiō, a feature-complete series manager powered by Mihon Extensions
+type: application
+version: 0.1.0
+appVersion: latest
+kubeVersion: ">=1.28.0-0"
+home: https://github.com/maxpiva/rensaio
+icon: https://raw.githubusercontent.com/maxpiva/rensaio/refs/heads/main/RensaioFrontend/public/rensaio.png
+dependencies:
+  - name: common
+    version: "4.6.2"
+    repository: "https://bjw-s-labs.github.io/helm-charts/"

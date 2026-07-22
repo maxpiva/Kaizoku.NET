@@ -1,0 +1,92 @@
+controllers:
+  main:
+    serviceAccount:
+      identifier: &app rensaio
+
+    containers:
+      main:
+        enabled: true
+        image:
+          repository: maxpiva/rensaio
+          tag: latest
+          pullPolicy: IfNotPresent
+
+        env:
+          PUID: "99"
+          PGID: "100"
+          UMASK: "022"
+          # TZ: UTC
+
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              tcpSocket:
+                port: 9833
+              initialDelaySeconds: 30
+              periodSeconds: 15
+              failureThreshold: 3
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              tcpSocket:
+                port: 9833
+              initialDelaySeconds: 10
+              periodSeconds: 10
+              failureThreshold: 3
+
+        # The entrypoint chowns /config and drops privileges itself via gosu,
+        # so the container must start as root.
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+
+serviceAccount:
+  rensaio:
+    enabled: true
+
+service:
+  main:
+    ports:
+      http:
+        port: 9833
+        targetPort: 9833
+
+ingress:
+  main:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: rensaio.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+persistence:
+  config:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 5Gi
+    # storageClass: ""
+    # existingClaim: ""
+    globalMounts:
+      - path: /config
+  series:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 500Gi
+    # storageClass: ""
+    # existingClaim: ""
+    globalMounts:
+      - path: /series

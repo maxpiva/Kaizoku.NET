@@ -1,25 +1,77 @@
-<table>
-  <tr>
-    <td align="center" border="0">
-      <img width="500px" src="./RensaioFrontend/public/rensaiow.png" alt="Rensaiō"></img>
-    </td>
-    </tr>  <tr>
-    <td>
-       <strong>Rensaiō</strong> is a modern fork of the original <strong>Kaizoku</strong> and <strong>Kaizoku Next Gen</strong> by OAE,  built to fill the void and bring a streamlined series manager back to life.<br/>
-<strong>What does it do?</strong>  <br/>
-When you subscribe to a series, it will automatically download it. Whenever the series is updated in any of your configured providers, new chapters will be downloaded automatically, in a “drop and forget” fashion.
-    </td>
-  </tr>
-</table>
+<div align="center">
+
+<img width="500px" src="./RensaioFrontend/public/rensaiow.png" alt="Rensaiō">
+<br/>
+
+</div>
+
+<div align="center">
+
+[![Discord](https://img.shields.io/discord/1516878111239700510?label&logo=discord&logoColor=white&color=blue)](https://discord.gg/f53BRuyVZf)&nbsp;&nbsp;
+[![Website](https://img.shields.io/badge/-rensaio.net-blue?logo=googlechrome&logoColor=white)](https://www.rensaio.net)&nbsp;&nbsp;
+[![License](https://img.shields.io/github/license/maxpiva/rensaio?label&color=blue)](./LICENSE)&nbsp;&nbsp;
+[![Docker Pulls](https://img.shields.io/docker/pulls/maxpiva/rensaio?label&logo=docker&logoColor=white&color=blue)](https://hub.docker.com/r/maxpiva/rensaio)&nbsp;&nbsp;
+[![Release](https://img.shields.io/github/v/release/maxpiva/rensaio?label&logo=github&color=blue)](https://github.com/maxpiva/Rensaio/releases)
+
+</div>
+
+<div align="center">
+
+<strong>Rensaiō</strong> is a modern fork of the original <strong>Kaizoku</strong> and <strong>Kaizoku Next Gen</strong> by OAE, built to fill the void and bring a streamlined series manager back to life.
+
+<strong>What does it do?</strong><br/>
+
+When you subscribe to a series, it will automatically download it. Whenever the series is updated in any of your configured providers, new chapters will be downloaded automatically, in a "drop and forget" fashion.
+
+</div>
 
 > [!IMPORTANT]
 > ⬆️ **You can upgrade directly from Kaizoku.Net to Rensaiō.** No changes are required on your side: simply run the new executable or update your Docker image, and everything will be upgraded automatically.
 >
 > Nevertheless, **before upgrading**, make sure to back up your config directory, including your database. Since the devil never rests.
 
-<p align="center">
-  <a href="https://discord.gg/f53BRuyVZf">💬 Discord</a> &nbsp;|&nbsp; <a href="https://www.rensaio.net">🌐 Website</a>
-</p>
+---
+
+## Table of Contents
+
+- [Quick Start](#-quick-start)
+- [What It Does](#-what-it-does)
+- [Key Features](#-key-features)
+- [Under the Hood](#-under-the-hood)
+- [Issues](#-issues)
+- [Running Android libraries on .NET, is that possible?](#-running-android-libraries-on-net-is-that-possible)
+- [Docker Support](#-docker-support)
+  - [Volumes](#-volumes)
+  - [Ports](#-ports)
+  - [Permissions](#-permissions)
+  - [Network Mode](#-network-mode)
+  - [One-Liner Run Command](#-example-one-liner-run-command)
+  - [Docker Compose Example](#docker-compose-example)
+  - [Unraid Template](#-unraid-template)
+  - [Helm Chart](#-helm-chart)
+- [Desktop App](#-desktop-app)
+- [Build It Yourself](#-build-it-yourself)
+- [Resource Usage](#-resource-usage)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+---
+
+## 🚀 Quick Start
+
+```bash
+docker run -d \
+  --name rensaio \
+  --network host \
+  -e PUID=99 -e PGID=100 -e UMASK=022 \
+  -v /path/to/config:/config \
+  -v /path/to/series:/series \
+  maxpiva/rensaio:latest
+```
+
+Open `http://<host-ip>:9833` and follow the setup wizard.
+
+For Docker Compose, Unraid, or Kubernetes (Helm), see [Docker Support](#-docker-support).
 
 ---
 
@@ -45,7 +97,7 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
 
 - 📥 **Automatic Downloads**
 
-  Everyting is automatic, Retries, Reschedules. With a dedicated download Page.
+  Everything is automatic, Retries, Reschedules. With a dedicated download Page.
 
 - 🔄 **Auto-Updates**  
   Extensions are kept up to date.
@@ -60,7 +112,7 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
   Read your library from any OPDS-compatible reader app. Browse by all series, what's new, what you're currently reading, categories, and tags. Reading progress syncs back automatically. Each user gets their own unique random OPDS path (e.g. `door-pebble`) for private access. Example: ```https://rensaio.example.com/door-pebble```
 
 - 🤖 **MCP Server (AI Integration)**
-  Expose your library to AI tools through the Model Context Protocol. Let LLMs search your series, check status, and more, all respecting user permissions. Just add /mcp to your OPDS path. Example: ```https://rensaio.example.com/door-pebble/mcp'```
+  Expose your library to AI tools through the Model Context Protocol. Let LLMs search your series, check status, and more, all respecting user permissions. Just add /mcp to your OPDS path. Example: ```https://rensaio.example.com/door-pebble/mcp```
 
 - 📖 **Read State Tracking**
   Remembers where you left off reading each chapter, across all your devices, backed in your series, not the database.
@@ -80,19 +132,23 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
   - External Domain Support for reverse proxy scenarios.
   - Support for jxl, jp2, avif image formats, with real-time transcoding for clients not supporting them.
   - And much more...
+
 ---
 
 ## 🛠️ Under the Hood
 
 Rensaiō is composed of:
 
-- **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/rensaio/tree/next) (Next.js).
+- **Frontend**: A beautiful UI forked from [Kaizoku Next by OAE](https://github.com/oae/kaizoku/tree/next) (Next.js).
 - **Backend**: A custom .NET engine that manages schedules, downloads, metadata, OPDS/MCP servers, and scrobbler sync, with a Mihon Bridge that enables the use of Mihon Android extensions.
+
 ---
 
 ## ⚙️ Issues
 
 - If you encounter any issues, check the `logs` folder. You can review the logs there or upload them to share feedback.
+
+---
 
 ## 🤔 Running Android libraries on .NET, is that possible?
 
@@ -115,15 +171,11 @@ Then use [IKVM](https://github.com/ikvmnet/ikvm) to run this on .NET.
 | `/config`      | Stores application configuration |
 | `/series`      | Stores series                    |
 
----
-
 ### 🌐 Ports
 
 | Port  | Service         | Required | Notes                        |
 |-------|--------------|----------|------------------------------|
 | 9833  | Rensaiō UI   | ✅       | Web interface                |
-
----
 
 ### 👤 Permissions
 
@@ -135,13 +187,9 @@ Then use [IKVM](https://github.com/ikvmnet/ikvm) to run this on .NET.
 
 > Ensure the specified PUID and PGID have write access to your mounted `/config` and `/series` directories.
 
----
-
 ### 🌐 Network Mode
 
-It is recommended to use **host networking** for optimal performance when downloading a lot and querying multiple providers in parallel.
-
----
+It is recommended to use **host networking** for optimal performance when downloading a lot and querying multiple providers in parallel. This applies to the Docker one-liner and Unraid template below; the Compose and Helm examples use bridged/`ClusterIP` networking instead since host networking isn't practical (or needed) in those environments.
 
 ### 🚀 Example: One-Liner Run Command
 
@@ -159,10 +207,9 @@ docker run -d \
 ```
 Replace /path/to/your/config and /path/to/your/series with real paths on your host.
 
+### Docker Compose Example
 
----
-
-## Docker Compose Example
+Runnable file: [`examples/docker-compose.yml`](./examples/docker-compose.yml)
 
 ```yaml
 services:
@@ -180,10 +227,9 @@ services:
         - '9833:9833'
 ```
 
+### 🧩 Unraid Template
 
----
-
-## 🐳 Unraid Template
+Template file: [`examples/unraid.xml`](./examples/unraid.xml)
 
 ```xml
 <Container>
@@ -208,11 +254,26 @@ services:
 
   <WebUI>http://[IP]:9833</WebUI>
 
-  <TemplateURL>https://raw.githubusercontent.com/maxpiva/rensaio/main/unraid/rensaio.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/maxpiva/rensaio/main/examples/unraid.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/maxpiva/rensaio/refs/heads/main/RensaioFrontend/public/rensaio.png</Icon>
 </Container>
 ```
 
+### ⎈ Helm Chart
+
+A Helm chart is available at [`charts/rensaio`](./charts/rensaio) for running Rensaiō on Kubernetes. It deploys a single container, a `Service` on port `9833`, and PVCs for `/config` and `/series`.
+
+```bash
+helm dependency update ./charts/rensaio
+helm install rensaio ./charts/rensaio -n rensaio --create-namespace
+```
+
+Configure `PUID`/`PGID`/`UMASK`, image tag, PVC sizes/storage classes, and ingress via `values.yaml`. A sample override — existing PVC claims, a dedicated storage class, and ingress with TLS — is at [`examples/helm-values.yaml`](./examples/helm-values.yaml):
+
+```bash
+helm install rensaio ./charts/rensaio -n rensaio --create-namespace \
+  -f examples/helm-values.yaml
+```
 
 ---
 
@@ -261,6 +322,12 @@ Help clean up the mess left behind by our overenthusiastic friends, Copilot, Cla
 ### Backend Devs ! PRs Welcome  
 
 PRs are welcome to improve stability and architecture.
+
+---
+
+## 📄 License
+
+Licensed under the [GNU General Public License v3.0](./LICENSE).
 
 ---
 
