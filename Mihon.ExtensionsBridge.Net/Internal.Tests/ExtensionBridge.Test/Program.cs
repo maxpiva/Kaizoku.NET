@@ -97,7 +97,7 @@ namespace Mihon.ExtensionsBridge.Test
                 }
             }
             */
-       
+
 
             IRepositoryManager repoMgr = _bridge.OnlineRepositoryManager;
             IExtensionManager _extManager = _bridge.LocalExtensionManager;
@@ -129,7 +129,7 @@ namespace Mihon.ExtensionsBridge.Test
                  List<Page> pages = await source.GetPagesAsync(chapter, cancellationToken);
              }
             */
-            var n = list[0].Extensions.FirstOrDefault(a => a.Name.Contains("Asura"));
+            var n = list[0].Extensions.FirstOrDefault(a => a.Name.Contains("Hive Scans"));
             RepositoryGroup grp = await _extManager.AddExtensionAsync(n);
             if (grp != null)
             {

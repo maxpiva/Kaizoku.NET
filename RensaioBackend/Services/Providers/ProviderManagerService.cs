@@ -139,6 +139,7 @@ namespace RensaioBackend.Services.Providers
                         v.IsBroken = existing.IsBroken;
                         v.IsInstaled = true;
                         v.ActiveEntry = repo.ActiveEntry;
+                        v.AutoUpdate = repo.AutoUpdate;
                         v.Repositories = new List<ExtensionRepositoryDto>() { repoview };
                         v.ThumbnailUrl = "ext://" + Path.Combine(entry.GetRelativeVersionFolder(), entry.Icon.FileName);
                         if (!providers.ContainsKey(v.Package))
