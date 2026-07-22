@@ -26,10 +26,8 @@ static class Program
         // crashes (AccessViolation, StackOverflow, etc.) that managed handlers
         // can never see.  This is CRITICAL because IKVM runs native JVM code
         // that can AV without any managed exception handler being invoked.
-        /*
         NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
         NativeCrashHandler.Install();
-        */
         // Register FIRST-CHANCE exception handler to catch exceptions that are
         // thrown and caught internally — these never reach UnhandledException.
         AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
@@ -82,7 +80,7 @@ static class Program
             try { state = Environment.HasShutdownStarted ? "shutdown-started" : "normal"; } catch { }
             FallbackCrashLogger.Write("TRAY ProcessExit fired (HasShutdownStarted=" + state + ")");
             try { Log.Information("TRAY ProcessExit fired (HasShutdownStarted={State})", state); } catch { }
-           /* try { NativeCrashHandler.Uninstall(); } catch { }*/
+            try { NativeCrashHandler.Uninstall(); } catch { }
             try { Log.CloseAndFlush(); } catch { }
         };
 
