@@ -13,6 +13,8 @@
 
         public string? Scanlator { get; set; }
 
+        public System.Text.Json.JsonElement Memo { get; set; }
+
     }
     public class ParsedChapter : Chapter
     {

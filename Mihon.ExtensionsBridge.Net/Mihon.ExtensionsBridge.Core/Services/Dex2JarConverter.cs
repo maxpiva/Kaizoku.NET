@@ -51,7 +51,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// earlier version are re-converted on startup via <c>ExtensionManager.ValidateAndRecompileAsync</c>,
         /// which compares <c>entry.Jar.Version</c> against this value.
         /// </remarks>
-        public const string Version = "1.1.0";
+        public const string Version = "1.1.1";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.

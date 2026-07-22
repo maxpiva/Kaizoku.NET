@@ -28,6 +28,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime.Gatekeeper
         public string Name => _inner.Name;
         public bool SupportsLatest => _inner.SupportsLatest;
 
+        public async Task<MangaUpdate> GetDetailsAndChaptersAsync(Manga manga, CancellationToken token = default)
+        { await _gate.EnterAsync(token); try { return await _inner.GetDetailsAndChaptersAsync(manga, token).ConfigureAwait(false); } finally { _gate.Exit(); } }
         public async Task<List<ParsedChapter>> GetChaptersAsync(Manga manga, CancellationToken token = default)
         { await _gate.EnterAsync(token); try { return await _inner.GetChaptersAsync(manga, token).ConfigureAwait(false); } finally { _gate.Exit(); } }
         public async Task<ParsedManga> GetDetailsAsync(Manga manga, CancellationToken token = default)

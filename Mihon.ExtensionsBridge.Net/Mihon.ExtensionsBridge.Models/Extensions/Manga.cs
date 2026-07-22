@@ -17,7 +17,11 @@ namespace Mihon.ExtensionsBridge.Models.Extensions
         public System.Text.Json.JsonElement Memo { get; set; }
 
     }
-
+    public class MangaUpdate
+    {
+        public ParsedManga Manga { get; set; }
+        public List<ParsedChapter> Chapters { get; set; } = [];
+    }
     public class ParsedManga : Manga
     {
         public string RealUrl { get; set; }

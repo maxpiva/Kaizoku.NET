@@ -157,15 +157,21 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
         public async Task<MangaList> GetPopularAsync(int page, CancellationToken token = default)
         {
-            return await WrapHttpException(async () => 
+            try
             {
-                if (_httpSource == null)
-                    throw new InvalidOperationException("Source does not support catalogue operations.");
-#pragma warning disable CS0612 // Type or member is obsolete
-                var mangaPage = await _httpSource.fetchPopularManga(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
-                return mangaPage!.ToMangaList(_httpSource);
-            }).ConfigureAwait(false);
+                return await WrapHttpException(async () =>
+                {
+                    if (_httpSource == null)
+                        throw new InvalidOperationException("Source does not support catalogue operations.");
+                    var mangaPage = await KotlinSuspendBridge.CallSuspend<MangasPage>((cont) => _httpSource.getPopularManga(page, cont), token).ConfigureAwait(false);
+                    return mangaPage!.ToMangaList(_httpSource);
+                }).ConfigureAwait(false);
+            }
+            catch (java.lang.UnsupportedOperationException ex)
+            {
+                _logger.LogWarning(ex, "Source '{Name}' does not implement popularMangaRequest(). Returning empty results.", Name);
+                return new MangaList();
+            }
         }
 
         /// <summary>
@@ -179,17 +185,23 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// </exception>
         public async Task<MangaList> GetLatestAsync(int page, CancellationToken token = default)
         {
-            return await WrapHttpException(async () =>
+            try
             {
-                if (_httpSource == null)
-                    throw new InvalidOperationException("Source does not support catalogue operations.");
-                if (!SupportsLatest)
-                    throw new InvalidOperationException("Source does not support latest updates.");
-#pragma warning disable CS0612 // Type or member is obsolete
-                var mangaPage = await _httpSource.fetchLatestUpdates(page).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
-                return mangaPage!.ToMangaList(_httpSource);
-            }).ConfigureAwait(false);
+                return await WrapHttpException(async () =>
+                {
+                    if (_httpSource == null)
+                        throw new InvalidOperationException("Source does not support catalogue operations.");
+                    if (!SupportsLatest)
+                        throw new InvalidOperationException("Source does not support latest updates.");
+                    var mangaPage = await KotlinSuspendBridge.CallSuspend<MangasPage>((cont) => _httpSource.getLatestUpdates(page, cont), token).ConfigureAwait(false);
+                    return mangaPage!.ToMangaList(_httpSource);
+                }).ConfigureAwait(false);
+            }
+            catch (java.lang.UnsupportedOperationException ex)
+            {
+                _logger.LogWarning(ex, "Source '{Name}' reports SupportsLatest=true but latestUpdatesRequest() is not implemented. Returning empty results.", Name);
+                return new MangaList();
+            }
         }
 
         /// <summary>
@@ -202,20 +214,29 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         /// <exception cref="InvalidOperationException">Thrown when the source does not support catalogue operations.</exception>
         public async Task<MangaList> SearchAsync(int page, string query, CancellationToken token = default)
         {
-            return await WrapHttpException(async () =>
+            try
             {
-                if (_httpSource == null)
-                    throw new InvalidOperationException("Source does not support catalogue operations.");
-                PopulateFilterList();
-#pragma warning disable CS0612 // Type or member is obsolete
-                var mangaPage = await _httpSource.fetchSearchManga(page, query, _cachedList).ConsumeObservableOneOrDefaultAsync<MangasPage>(EmptyMangasPage(), token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
-                return mangaPage!.ToMangaList(_httpSource);
-            }).ConfigureAwait(false);
+                return await WrapHttpException(async () =>
+                {
+                    if (_httpSource == null)
+                        throw new InvalidOperationException("Source does not support catalogue operations.");
+                    PopulateFilterList();
+                    var mangaPage = await KotlinSuspendBridge.CallSuspend<MangasPage>((cont) => _httpSource.getSearchManga(page, query, _cachedList, cont), token).ConfigureAwait(false);
+                    return mangaPage!.ToMangaList(_httpSource);
+                }).ConfigureAwait(false);
+            }
+            catch (java.lang.UnsupportedOperationException ex)
+            {
+                _logger.LogWarning(ex, "Source '{Name}' does not implement searchMangaRequest(). Returning empty results.", Name);
+                return new MangaList();
+            }
         }
 
         /// <summary>
         /// Fetches detailed information for a manga.
+        /// If getMangaUpdate is not overridden, calls fetchMangaDetails and fetchChapterList
+        /// directly using blocking Observable calls to avoid coroutine suspension issues under IKVM.
+        /// Otherwise falls back to the suspend getMangaUpdate path.
         /// </summary>
         /// <param name="manga">The manga model to enrich.</param>
         /// <param name="token">The cancellation token.</param>
@@ -228,17 +249,44 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 if (_httpSource == null)
                     throw new InvalidOperationException("Source does not support catalogue operations.");
                 SManga mangaImpl = manga.ToSManga();
-#pragma warning disable CS0612 // Type or member is obsolete
-                var mangaDetails = await _httpSource.fetchMangaDetails(mangaImpl).ConsumeObservableOneOrDefaultAsync<SManga>(mangaImpl, token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
-                ParsedManga m = mangaDetails!.ToManga<ParsedManga>(manga);
-                m.RealUrl = _httpSource.getMangaUrl(mangaDetails ?? mangaImpl);
+                var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), true, false, cont), token).ConfigureAwait(false);
+                ParsedManga m = mangaUpdate.getManga().ToManga<ParsedManga>(manga);
+                m.RealUrl = _httpSource.getMangaUrl(mangaUpdate.getManga());
                 return m;
             }).ConfigureAwait(false);
         }
 
         /// <summary>
+        /// Fetches Manga detailed information and Chapters for a manga.
+        /// If getMangaUpdate is not overridden, calls fetchMangaDetails and fetchChapterList
+        /// directly using blocking Observable calls to avoid coroutine suspension issues under IKVM.
+        /// Otherwise falls back to the suspend getMangaUpdate path.
+        /// </summary>
+        /// <param name="manga">The manga model to enrich.</param>
+        /// <param name="token">The cancellation token.</param>
+        /// <returns>The detailed <see cref="Manga"/>.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source does not support HTTP operations.</exception>
+        public async Task<MangaUpdate> GetDetailsAndChaptersAsync(Manga manga, CancellationToken token = default)
+        {
+            return await WrapHttpException(async () =>
+            {
+                if (_httpSource == null)
+                    throw new InvalidOperationException("Source does not support catalogue operations.");
+                SManga mangaImpl = manga.ToSManga();
+
+                // Extension overrides getMangaUpdate — use the suspend path
+                var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), true, false, cont), token).ConfigureAwait(false);
+                return mangaUpdate.ToMangaUpdate(_httpSource);
+
+            }).ConfigureAwait(false);
+        }
+
+
+        /// <summary>
         /// Retrieves the chapter list for a given manga.
+        /// If getMangaUpdate is not overridden, calls fetchChapterList directly
+        /// using blocking Observable consumption. Otherwise falls back to the
+        /// suspend getMangaUpdate path.
         /// </summary>
         /// <param name="manga">The target manga.</param>
         /// <param name="token">The cancellation token.</param>
@@ -251,10 +299,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 if (_httpSource == null)
                     throw new InvalidOperationException("Source does not support catalogue operations.");
                 SManga mangaImpl = manga.ToSManga();
-#pragma warning disable CS0612 // Type or member is obsolete
-                var chapters = await _httpSource.fetchChapterList(mangaImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
-                return chapters!.toArray().Cast<SChapter>().ToParsedChapters(manga.Title, mangaImpl, _httpSource);
+                var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), false, true, cont), token).ConfigureAwait(false);
+                return mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(mangaUpdate.getManga().getTitle(), mangaUpdate.getManga(), _httpSource);
             }).ConfigureAwait(false);
         }
 
@@ -272,9 +318,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 if (_httpSource == null)
                     throw new InvalidOperationException("Source does not support catalogue operations.");
                 SChapterImpl chasImpl = chapter.ToSChapter();
-#pragma warning disable CS0612 // Type or member is obsolete
-                var pages = await _httpSource.fetchPageList(chasImpl).ConsumeObservableOneOrDefaultAsync<java.util.List>(new java.util.ArrayList(), token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
+                var pages = await KotlinSuspendBridge.CallSuspend<java.util.List>((cont) => _httpSource.getPageList(chasImpl, cont), token).ConfigureAwait(false);
                 return pages!.toArray().Cast<eu.kanade.tachiyomi.source.model.Page>().Select(a => a.ToPage()).ToList();
             }).ConfigureAwait(false);
         }
@@ -305,9 +349,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 if (string.IsNullOrEmpty(page.ImageUrl))
                 {
                     var spage2 = page.ToSPage();
-#pragma warning disable CS0612 // Type or member is obsolete
-                    string? newImageUrl = await _httpSource.fetchImageUrl(spage2).ConsumeObservableOneOrDefaultAsync<string>(string.Empty, token).ConfigureAwait(false);
-#pragma warning restore CS0612 // Type or member is obsolete
+                    string? newImageUrl = await KotlinSuspendBridge.CallSuspend<string>((cont) => _httpSource.getImageUrl(spage2, cont), token).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(newImageUrl))
                         page.ImageUrl = newImageUrl;
                 }

@@ -26,7 +26,9 @@ namespace Mihon.ExtensionsBridge.Test
                 {
                     logging.ClearProviders();
                     logging.AddConsole();
-                    logging.SetMinimumLevel(LogLevel.Debug);
+                    // Trace surfaces DexNewInstanceCorrector per-method diagnostics
+                    // (live-iterator rewrite / oracle-mismatch / skipped-method).
+                    logging.SetMinimumLevel(LogLevel.Trace);
                 })
                 .ConfigureServices((context, services) =>
                 {
@@ -105,27 +107,43 @@ namespace Mihon.ExtensionsBridge.Test
 
             var list = repoMgr.ListOnlineRepositories();
 
-           // RepositoryGroup grp = await _extManager.AddExtensionAsync(data);
-            var n = list[0].Extensions.FirstOrDefault(a => a.Name.Contains("ReadComicOnline"));
+            // RepositoryGroup grp = await _extManager.AddExtensionAsync(data);
+            /*
+             var n = list[0].Extensions.FirstOrDefault(a => a.Name.Contains("ReadComicOnline"));
+             RepositoryGroup grp = await _extManager.AddExtensionAsync(n);
+             if (grp!=null)
+             {
+                 IExtensionInterop extension = await _extManager.GetInteropAsync(grp);
+                 List<ISourceInterop> sources = extension.Sources;
+                 var prefs = await extension.LoadPreferencesAsync(cancellationToken);
+                 prefs[0].Preference.CurrentValue = "https://plainraw.com/raw/7388602029b1";
+                 await extension.SavePreferencesAsync(prefs, cancellationToken);
+                 prefs = await extension.LoadPreferencesAsync(cancellationToken);
+                 ISourceInterop source = sources.FirstOrDefault()!;
+                 MangaList mangas3 = await source.GetPopularAsync(1, cancellationToken);
+                 MangaList mangas = await source.GetLatestAsync(1, cancellationToken);
+                 MangaList mangas2 = await source.SearchAsync(1, "Absolute Batman", cancellationToken);
+                 Manga m = await source.GetDetailsAsync(mangas.Mangas[0], cancellationToken);
+                 List<ParsedChapter> chapters = await source.GetChaptersAsync(m, cancellationToken);
+                 ParsedChapter chapter = chapters.Last();
+                 List<Page> pages = await source.GetPagesAsync(chapter, cancellationToken);
+             }
+            */
+            var n = list[0].Extensions.FirstOrDefault(a => a.Name.Contains("Asura"));
             RepositoryGroup grp = await _extManager.AddExtensionAsync(n);
-            if (grp!=null)
+            if (grp != null)
             {
                 IExtensionInterop extension = await _extManager.GetInteropAsync(grp);
                 List<ISourceInterop> sources = extension.Sources;
-                var prefs = await extension.LoadPreferencesAsync(cancellationToken);
-                prefs[0].Preference.CurrentValue = "https://plainraw.com/raw/7388602029b1";
-                await extension.SavePreferencesAsync(prefs, cancellationToken);
-                prefs = await extension.LoadPreferencesAsync(cancellationToken);
                 ISourceInterop source = sources.FirstOrDefault()!;
                 MangaList mangas3 = await source.GetPopularAsync(1, cancellationToken);
                 MangaList mangas = await source.GetLatestAsync(1, cancellationToken);
-                MangaList mangas2 = await source.SearchAsync(1, "Absolute Batman", cancellationToken);
+                MangaList mangas2 = await source.SearchAsync(1, "Sword", cancellationToken);
                 Manga m = await source.GetDetailsAsync(mangas.Mangas[0], cancellationToken);
                 List<ParsedChapter> chapters = await source.GetChaptersAsync(m, cancellationToken);
-                ParsedChapter chapter = chapters.Last();
-                List<Page> pages = await source.GetPagesAsync(chapter, cancellationToken);
+                MangaUpdate mm = await source.GetDetailsAndChaptersAsync(m, cancellationToken);
+                List<Page> pages = await source.GetPagesAsync(chapters.Last(), cancellationToken);
             }
-           
         }
 
         public Task StopAsync(CancellationToken cancellationToken)

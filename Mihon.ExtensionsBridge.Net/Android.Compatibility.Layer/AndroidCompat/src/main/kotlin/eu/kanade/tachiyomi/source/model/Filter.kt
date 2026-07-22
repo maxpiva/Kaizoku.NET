@@ -2,7 +2,7 @@ package eu.kanade.tachiyomi.source.model
 
 // The class is originally sealed, Tachidesk adds new subclasses for serialization
 // sealed class Filter<T>(val name: String, var state: T) {
-open class Filter<T>(
+sealed class Filter<T>(
     val name: String,
     var state: T,
 ) {
@@ -14,7 +14,7 @@ open class Filter<T>(
         name: String = "",
     ) : Filter<Any>(name, 0)
 
-    abstract class Select<V>(
+    open class Select<V>(
         name: String,
         val values: Array<V>,
         state: Int = 0,
@@ -22,17 +22,17 @@ open class Filter<T>(
         val displayValues get() = values.map { it.toString() }
     }
 
-    abstract class Text(
+    open class Text(
         name: String,
         state: String = "",
     ) : Filter<String>(name, state)
 
-    abstract class CheckBox(
+    open class CheckBox(
         name: String,
         state: Boolean = false,
     ) : Filter<Boolean>(name, state)
 
-    abstract class TriState(
+    open class TriState(
         name: String,
         state: Int = STATE_IGNORE,
     ) : Filter<Int>(name, state) {
@@ -49,12 +49,12 @@ open class Filter<T>(
         }
     }
 
-    abstract class Group<V>(
+    open class Group<V>(
         name: String,
         state: List<V>,
     ) : Filter<List<V>>(name, state)
 
-    abstract class Sort(
+    open class Sort(
         name: String,
         val values: Array<String>,
         state: Selection? = null,

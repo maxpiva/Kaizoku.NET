@@ -11,9 +11,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using static android.telecom.Call;
 using Page = Mihon.ExtensionsBridge.Models.Extensions.Page;
 using UpdateStrategy = Mihon.ExtensionsBridge.Models.Extensions.UpdateStrategy;
+using Manga = Mihon.ExtensionsBridge.Models.Extensions.Manga;
+using ParsedChapter = Mihon.ExtensionsBridge.Models.Extensions.ParsedChapter;
 
 namespace Mihon.ExtensionsBridge.Core.Extensions
 {
@@ -96,6 +97,18 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 }).ToList(),
                 HasNextPage = mangaPage.getHasNextPage()
             };
+        }
+        public static MangaUpdate ToMangaUpdate(this eu.kanade.tachiyomi.source.model.SMangaUpdate mangaUpdate, eu.kanade.tachiyomi.source.online.HttpSource source)
+        {
+            if (mangaUpdate == null)
+                throw new ArgumentNullException(nameof(mangaUpdate));
+            var update = new MangaUpdate
+            {
+                Manga = mangaUpdate.getManga().ToManga<ParsedManga>(),
+                Chapters = mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(mangaUpdate.getManga().getTitle(), mangaUpdate.getManga(), source)
+            };
+            update.Manga.RealUrl = source.getMangaUrl(mangaUpdate.getManga());
+            return update;
         }
         public static string GetString(java.lang.CharSequence seq)
         {
@@ -189,6 +202,26 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 upload = DateTimeOffset.UtcNow;
                 //Ignore, bad parse will just use current time
             }
+            // Convert kotlinx.serialization.json.JsonObject → System.Text.Json.JsonElement
+            System.Text.Json.JsonElement memo = default;
+            try
+            {
+                var memoObj = ReadField<object>(chapter, "memo", null);
+                if (memoObj != null)
+                {
+                    var jsonString = memoObj.ToString();
+                    if (!string.IsNullOrEmpty(jsonString))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                        memo = doc.RootElement.Clone();
+                    }
+                }
+            }
+            catch
+            {
+                // Leave memo as default if conversion fails
+            }
+
             return new T
             {
                 Name = name,
@@ -196,6 +229,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Scanlator = scanlator,
                 DateUpload = upload,
                 ChapterNumber = chNum,
+                Memo = memo
             };
         }
         public static Page ToPage(this eu.kanade.tachiyomi.source.model.Page page)
@@ -219,6 +253,27 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 throw new ArgumentNullException(nameof(page));
             return new eu.kanade.tachiyomi.source.model.Page(page.Index, page.Url ?? page.ImageUrl ?? "", page.ImageUrl, android.net.Uri.parse(page.Url));
         }
+        private static kotlinx.serialization.json.Json GetDefaultJson()
+        {
+            var field = typeof(kotlinx.serialization.json.Json)
+                .GetProperty("Default", BindingFlags.Public | BindingFlags.Static);
+
+            return (kotlinx.serialization.json.Json)field.GetValue(null);
+        }
+
+        public static kotlinx.serialization.json.JsonObject ToJsonObject(this string json)
+        {
+            if (string.IsNullOrEmpty(json))
+                throw new ArgumentNullException(nameof(json));
+
+            var element = GetDefaultJson().parseToJsonElement(json);
+
+            if (element is kotlinx.serialization.json.JsonObject obj)
+                return obj;
+
+            throw new InvalidOperationException("The provided JSON string is not a JSON object.");
+        }
+
         public static eu.kanade.tachiyomi.source.model.SChapterImpl ToSChapter(this Chapter chapter)
         {
             if (chapter == null)
@@ -229,6 +284,23 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             schapter.setScanlator(chapter.Scanlator);
             schapter.setDate_upload(chapter.DateUpload.ToUnixTimeSeconds());
             schapter.setChapter_number(chapter.ChapterNumber);
+            if (chapter.Memo.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+                chapter.Memo.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                var jsonString = System.Text.Json.JsonSerializer.Serialize(chapter.Memo);
+                try
+                {
+                    var parsed = ToJsonObject(jsonString);
+                    if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
+                    {
+                        WriteField(schapter, "memo", jsonObject);
+                    }
+                }
+                catch
+                {
+                    // Fallback: leave memo as JsonObject.EMPTY (default)
+                }
+            }
             return schapter;
         }
         public static eu.kanade.tachiyomi.source.model.SManga ToSManga(this Manga manga)
@@ -258,22 +330,12 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 var jsonString = System.Text.Json.JsonSerializer.Serialize(manga.Memo);
                 try
                 {
-                    // Use reflection to access the Kotlin Json singleton and parse the JSON string
-                    var jsonType = typeof(kotlinx.serialization.json.Json);
-                    var instanceField = jsonType.GetField("INSTANCE", BindingFlags.Public | BindingFlags.Static);
-                    if (instanceField != null)
+                    var parsed = ToJsonObject(jsonString);
+                    if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
                     {
-                        var jsonInstance = instanceField.GetValue(null);
-                        var parseMethod = jsonType.GetMethod("parseToJsonElement", new[] { typeof(string) });
-                        if (parseMethod != null)
-                        {
-                            var parsed = parseMethod.Invoke(jsonInstance, new object[] { jsonString });
-                            if (parsed is kotlinx.serialization.json.JsonObject jsonObject)
-                            {
-                                WriteField(smanga, "memo", jsonObject);
-                            }
-                        }
+                        WriteField(smanga, "memo", jsonObject);
                     }
+
                 }
                 catch
                 {
