@@ -21,6 +21,13 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         private readonly IInternalRepositoryManager _internalRepositoryManager;
         private readonly IServiceProvider _serviceProvider;
         private bool _initialized = false;
+        // InitializeAsync is invoked from two places during startup: BridgeHost.ExecuteAsync
+        // (after the first await yields control back to the host) and
+        // StartupHostedService.StartAsync. Without a lock both callers pass the
+        // _initialized check and run the full initialization concurrently, causing
+        // ValidateAndRecompileAsync to recompile the same extensions twice in parallel
+        // (racing on the same version folders and repository metadata).
+        private readonly SemaphoreSlim _initLock = new(1, 1);
 
         public BridgeManager(IServiceProvider serviceProvider,
             IWorkingFolderStructure workingFolderStructure,
@@ -94,13 +101,21 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         }
         public async Task SetPreferencesAsync(Mihon.ExtensionsBridge.Models.Preferences prefs, CancellationToken cancellationToken)
         {
-            // ((Action)(() => {
+            // Pushing preferences into the Kotlin bridge must never take down the host:
+            // ConfigKt.setSettings throws a NullPointerException ("null cannot be cast to
+            // non-null type extension.bridge.SettingsConfig") if it runs before
+            // applicationSetup registered the SettingsConfig module, and that exception
+            // used to propagate out of StartupHostedService.StartAsync and abort startup.
+            // Preferences are still persisted to disk below, so they are re-applied on the
+            // next successful bridge start.
+            try
+            {
                 SettingsConfig.Settings config = new SettingsConfig.Settings();
                 try
                 {
                     config = ConfigKt.getSettings();
                 }
-                catch 
+                catch
                 {
                     // If we fail to load the config, we can assume it's the default config and continue with that. This can happen if the config file is missing or corrupted.
                 }
@@ -182,9 +197,11 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 {
                     ConfigKt.setSettings(config);
                 }
-              //  SettingsConfig.Settings config2 = ConfigKt.getSettings();
-            //})).InvokeInJavaContext();
-            
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to apply preferences to the extension bridge; continuing with persisted preferences only.");
+            }
 
             await _workingFolderStructure.SavePreferencesAsync(prefs, cancellationToken);
         }
@@ -205,14 +222,27 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 _logger.LogInformation("Bridge Manager is already initialized.");
                 return;
             }
-            _logger.LogInformation("Bridge Manager initializing...");
-            await _internalRepositoryManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
-            await _internalExtensionsManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
-            List<RepositoryEntry> entries = _internalExtensionsManager.ListExtensions().SelectMany(a => a.Entries).ToList();
-            await _internalExtensionsManager.ValidateAndRecompileAsync(entries, cancellationToken).ConfigureAwait(false);
-            await _internalRepositoryManager.RefreshAllRepositoriesAsync(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Bridge Manager initialized.");
-            _initialized = true;
+            await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_initialized)
+                {
+                    _logger.LogInformation("Bridge Manager is already initialized.");
+                    return;
+                }
+                _logger.LogInformation("Bridge Manager initializing...");
+                await _internalRepositoryManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                await _internalExtensionsManager.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                List<RepositoryEntry> entries = _internalExtensionsManager.ListExtensions().SelectMany(a => a.Entries).ToList();
+                await _internalExtensionsManager.ValidateAndRecompileAsync(entries, cancellationToken).ConfigureAwait(false);
+                await _internalRepositoryManager.RefreshAllRepositoriesAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Bridge Manager initialized.");
+                _initialized = true;
+            }
+            finally
+            {
+                _initLock.Release();
+            }
         }
 
         public IExtensionManager LocalExtensionManager => _initialized ? _extensionsManager : throw new InvalidOperationException("Bridge Manager is not initialized.");

@@ -39,6 +39,18 @@ static class Program
                 source.Contains("Android") || source.Contains("Mihon") ||
                 source.Contains("Rensaio") || source.Contains("Java"))
             {
+                // Skip exceptions the Java side throws-and-catches as normal control
+                // flow. dex2jar alone raised ~20k MergeResult exceptions during the
+                // post-update extension recompile, flooding the crash log with
+                // hundreds of thousands of lines of synchronous file I/O.
+                var typeName = e.Exception?.GetType().FullName ?? "";
+                if (typeName.StartsWith("com.googlecode.dex2jar.") ||
+                    typeName == "java.lang.ClassNotFoundException" ||
+                    typeName == "java.lang.NoSuchFieldException" ||
+                    typeName == "java.lang.NoSuchMethodException")
+                {
+                    return;
+                }
 
                 FallbackCrashLogger.WriteException(e.Exception,
                     "TRAY FIRSTCHANCE: " + e.Exception?.GetType().Name + " from " + source);
