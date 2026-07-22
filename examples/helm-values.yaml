@@ -1,0 +1,42 @@
+# Sample values override for charts/rensaio.
+#
+# Usage:
+#   helm install rensaio ./charts/rensaio -n rensaio --create-namespace \
+#     -f examples/helm-values.yaml
+
+controllers:
+  main:
+    containers:
+      main:
+        image:
+          tag: latest
+
+        env:
+          PUID: "99"
+          PGID: "100"
+          UMASK: "022"
+          # TZ: America/Toronto
+
+persistence:
+  config:
+    # Point at storage you already provision instead of a chart-managed PVC.
+    existingClaim: rensaio-config
+  series:
+    storageClass: nfs-media
+    size: 2Ti
+
+ingress:
+  main:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: rensaio.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: rensaio-tls
+        hosts:
+          - rensaio.example.com

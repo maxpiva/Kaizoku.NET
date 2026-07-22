@@ -20,6 +20,6 @@
 
   <WebUI>http://[IP]:9833</WebUI>
 
-  <TemplateURL>https://raw.githubusercontent.com/maxpiva/rensaio/main/unraid/rensaio.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/maxpiva/rensaio/main/examples/unraid.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/maxpiva/rensaio/refs/heads/main/RensaioFrontend/public/rensaio.png</Icon>
 </Container>

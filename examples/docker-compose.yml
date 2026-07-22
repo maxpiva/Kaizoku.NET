@@ -1,0 +1,13 @@
+services:
+  rensaio:
+    container_name: rensaio
+    image: 'maxpiva/rensaio:latest'
+    volumes:
+      - '/path/to/your/series:/series'
+      - '/path/to/your/config:/config'
+    environment:
+      - UMASK=022
+      - PGID=100
+      - PUID=99
+    ports:
+      - '9833:9833'
