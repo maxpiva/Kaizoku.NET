@@ -320,3 +320,6 @@ RensaioBackend/runtime/rensaio.schedule.db-wal
 /uploads
 /.claude/
 /plans
+
+# Helm dependency charts fetched by `helm dependency update` (Chart.lock is kept for reproducibility)
+charts/*/charts/

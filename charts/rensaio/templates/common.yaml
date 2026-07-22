@@ -1,0 +1,25 @@
+{{/*
+Rensaiō - a feature-complete series manager powered by Mihon Extensions.
+
+Usage:
+  helm install rensaio ./charts/rensaio -n rensaio --create-namespace
+
+Notes:
+  - The container starts as root: its entrypoint resolves PUID/PGID, chowns
+    /config, then drops to that user via gosu before starting the app.
+    Do not force a non-root pod securityContext.
+  - /config holds the app database, settings, and the Mihon extensions bridge
+    data. /series is where series and chapters are downloaded to.
+*/}}
+
+{{- include "bjw-s.common.loader.init" . -}}
+
+{{- define "app-template.hardcodedValues" -}}
+{{- if not .Values.global.nameOverride }}
+global:
+  nameOverride: {{ .Release.Name | quote }}
+{{- end }}
+{{- end -}}
+{{- $_ := mergeOverwrite .Values (include "app-template.hardcodedValues" . | fromYaml) -}}
+
+{{- include "bjw-s.common.loader.generate" . -}}
