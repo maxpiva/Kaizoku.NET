@@ -49,33 +49,28 @@ public class OpdsExtractionCoordinator
     // ──────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Cancels the active extraction (if any) for the given user and deletes
-    /// the partial cache directory so a fresh extraction can start cleanly.
+    /// Cancels the active extraction (if any) for the given user.
+    /// The partial cache directory is intentionally kept: extracted pages are
+    /// written atomically, so a later extraction of the same chapter resumes
+    /// from them instead of re-extracting (deleting here also fails on Windows
+    /// while a page file is open, stranding a half-deleted directory).
+    /// The extraction task owns and disposes its own CancellationTokenSource.
     /// </summary>
     public void CancelActiveExtraction(string userKey)
     {
         if (_activeUserExtractions.TryRemove(userKey, out var state))
         {
-            if (!state.Cts.IsCancellationRequested)
+            try
             {
-                state.Cts.Cancel();
+                if (!state.Cts.IsCancellationRequested)
+                {
+                    state.Cts.Cancel();
+                }
             }
-
-            // Delete partial cache directory (if it was being extracted)
-            if (!string.IsNullOrEmpty(state.CacheDir) && Directory.Exists(state.CacheDir))
+            catch (ObjectDisposedException)
             {
-                DeleteCacheDirectory(state.CacheDir);
+                // Extraction already finished and disposed its CTS
             }
-
-            // Wait briefly for the task to finish cleanup, but don't block long
-            if (state.ExtractionTask != null)
-            {
-                try { state.ExtractionTask.GetAwaiter().GetResult(); }
-                catch (OperationCanceledException) { }
-                catch { /* swallow */ }
-            }
-
-            state.Cts.Dispose();
         }
     }
 
@@ -146,16 +141,30 @@ public class OpdsExtractionCoordinator
     public static string GetUserKey(string username) => username;
 
     /// <summary>
-    /// Deletes a cache directory recursively, best-effort.
+    /// Marker file written after a chapter finishes extracting with no failed pages.
+    /// A cache directory without this marker is partial (canceled/failed/legacy)
+    /// and must not be trusted for index-based page lookups.
     /// </summary>
-    public static void DeleteCacheDirectory(string cacheDir)
+    public const string CompleteMarkerFileName = ".complete";
+
+    /// <summary>
+    /// True if the chapter cache directory was fully extracted.
+    /// </summary>
+    public static bool IsChapterCacheComplete(string cacheDir)
+    {
+        return File.Exists(Path.Combine(cacheDir, CompleteMarkerFileName));
+    }
+
+    /// <summary>
+    /// Marks a chapter cache directory as fully extracted, best-effort.
+    /// </summary>
+    public static void MarkChapterCacheComplete(string cacheDir)
     {
         try
         {
-            if (Directory.Exists(cacheDir))
-                Directory.Delete(cacheDir, true);
+            File.WriteAllText(Path.Combine(cacheDir, CompleteMarkerFileName), "");
         }
-        catch { /* best effort */ }
+        catch { /* best effort — worst case the chapter re-extracts (and resumes) */ }
     }
 
     /// <summary>
