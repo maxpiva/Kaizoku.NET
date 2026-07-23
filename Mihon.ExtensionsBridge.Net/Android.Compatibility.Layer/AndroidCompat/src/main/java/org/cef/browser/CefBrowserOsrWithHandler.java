@@ -11,14 +11,24 @@ package org.cef.browser;
 
 import org.cef.CefBrowserSettings;
 import org.cef.CefClient;
+import org.cef.callback.CefDragData;
 import org.cef.handler.CefRenderHandler;
+import org.cef.handler.CefScreenInfo;
 
 import java.awt.Component;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
+import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
-public class CefBrowserOsrWithHandler extends CefBrowser_N {
+// Implements CefRenderHandler directly (delegating to renderHandler_) instead
+// of relying on getRenderHandler() alone: IKVM's JNI FindMethodID only
+// resolves methods DECLARED on the target class, so native CEF callbacks like
+// getScreenInfo throw NoSuchMethodError if the method is merely inherited.
+// CefBrowserOsr declares the full surface for the same reason.
+public class CefBrowserOsrWithHandler extends CefBrowser_N implements CefRenderHandler {
     private final CefRenderHandler renderHandler_;
     private final Component component_;
 
@@ -45,7 +55,68 @@ public class CefBrowserOsrWithHandler extends CefBrowser_N {
 
     @Override
     public CefRenderHandler getRenderHandler() {
-        return renderHandler_;
+        return this;
+    }
+
+    @Override
+    public Rectangle getViewRect(CefBrowser browser) {
+        return renderHandler_.getViewRect(browser);
+    }
+
+    @Override
+    public boolean getScreenInfo(CefBrowser browser, CefScreenInfo screenInfo) {
+        return renderHandler_.getScreenInfo(browser, screenInfo);
+    }
+
+    @Override
+    public Point getScreenPoint(CefBrowser browser, Point viewPoint) {
+        return renderHandler_.getScreenPoint(browser, viewPoint);
+    }
+
+    @Override
+    public void onPopupShow(CefBrowser browser, boolean show) {
+        renderHandler_.onPopupShow(browser, show);
+    }
+
+    @Override
+    public void onPopupSize(CefBrowser browser, Rectangle size) {
+        renderHandler_.onPopupSize(browser, size);
+    }
+
+    @Override
+    public void onPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, ByteBuffer buffer,
+            int width, int height) {
+        renderHandler_.onPaint(browser, popup, dirtyRects, buffer, width, height);
+    }
+
+    @Override
+    public void addOnPaintListener(Consumer<CefPaintEvent> listener) {
+        renderHandler_.addOnPaintListener(listener);
+    }
+
+    @Override
+    public void setOnPaintListener(Consumer<CefPaintEvent> listener) {
+        renderHandler_.setOnPaintListener(listener);
+    }
+
+    @Override
+    public void removeOnPaintListener(Consumer<CefPaintEvent> listener) {
+        renderHandler_.removeOnPaintListener(listener);
+    }
+
+    @Override
+    public boolean onCursorChange(CefBrowser browser, int cursorType) {
+        return renderHandler_.onCursorChange(browser, cursorType);
+    }
+
+    @Override
+    public boolean startDragging(CefBrowser browser, CefDragData dragData, int mask, int x, int y) {
+        return renderHandler_.startDragging(browser, dragData, mask, x, y);
+    }
+
+    @Override
+    public void updateDragCursor(CefBrowser browser, int operation) {
+        renderHandler_.updateDragCursor(browser, operation);
     }
 
     @Override

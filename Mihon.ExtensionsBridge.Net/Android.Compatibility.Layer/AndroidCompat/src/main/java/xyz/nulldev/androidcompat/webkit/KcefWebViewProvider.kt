@@ -1367,13 +1367,26 @@ class KcefWebViewProvider(
         Log.d(TAG, "Page loaded from data at base URL $baseUrl")
     }
 
+    // resultCallback must be nullable: WebView.evaluateJavascript(script, null)
+    // is legal on Android and extensions use it as fire-and-forget while
+    // polling Cloudflare challenges. A non-null parameter here made every such
+    // call throw Kotlin's parameter-null NPE, so challenges never resolved.
     override fun evaluateJavaScript(
         script: String,
-        resultCallback: ValueCallback<String>,
+        resultCallback: ValueCallback<String>?,
     ) {
         val activeBrowser = browser
         if (activeBrowser == null) {
-            handler.post { resultCallback.onReceiveValue(null) }
+            resultCallback?.let { callback -> handler.post { callback.onReceiveValue(null) } }
+            return
+        }
+
+        if (resultCallback == null) {
+            activeBrowser.mainFrame?.executeJavaScript(
+                script.removePrefix("javascript:"),
+                "suwayomi://eval",
+                0,
+            )
             return
         }
 
