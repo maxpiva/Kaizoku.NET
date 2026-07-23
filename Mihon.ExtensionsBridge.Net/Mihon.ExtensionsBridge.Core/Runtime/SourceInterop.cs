@@ -424,16 +424,30 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 return new java.lang.Boolean(string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)); // matches Kotlin toBoolean()
             else if (type == "Set<String>")
             {
-                string[]? vals = System.Text.Json.JsonSerializer.Deserialize<string[]>(value);
-                if (vals == null)
-                    return new java.util.HashSet();
-                else
+                string[]? vals = null;
+                try
                 {
-                    var result = new java.util.HashSet();
-                    foreach (var v in vals)
-                        result.add(v);
-                    return result;
+                    vals = System.Text.Json.JsonSerializer.Deserialize<string[]>(value);
                 }
+                catch (System.Text.Json.JsonException)
+                {
+                    // Fallback: parse legacy non-JSON format from Java Set.toString()
+                    // e.g. "[elem1, elem2]" → ["elem1", "elem2"]
+                    if (value.StartsWith("[") && value.EndsWith("]"))
+                    {
+                        var inner = value.Substring(1, value.Length - 2);
+                        vals = inner.Split(',')
+                            .Select(s => s.Trim())
+                            .Where(s => s.Length > 0)
+                            .ToArray();
+                    }
+                }
+                if (vals == null || vals.Length == 0)
+                    return new java.util.HashSet();
+                var result = new java.util.HashSet();
+                foreach (var v in vals)
+                    result.add(v);
+                return result;
             }
             throw new InvalidOperationException("Unsupported type conversion");
         }

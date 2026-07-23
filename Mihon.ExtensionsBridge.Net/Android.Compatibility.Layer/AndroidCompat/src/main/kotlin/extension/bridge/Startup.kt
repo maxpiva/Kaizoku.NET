@@ -93,6 +93,7 @@ import extension.bridge.logging.AndroidCompatLogger
 import extension.bridge.logging.androidCompatLogger
 import extension.bridge.network.SystemProxyBridge
 import extension.bridge.security.TrustManagerBridge
+import extension.bridge.cef.CefAppBridge
 import extension.bridge.cef.CefMessageLoopBridge
 import android.webkit.CookieManager
 import java.net.URL
@@ -310,7 +311,7 @@ fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogS
                         override fun init(provider: KcefWebViewProvider) {
                             val networkHelper = Injekt.get<NetworkHelper>()
                             val logger = androidCompatLogger(KcefWebViewProvider::class.java)
-                            logger.info { "Start loading cookies" }
+                            logger.debug { "Start loading cookies" }
                             CefCookieManager.getGlobalManager().apply {
                                 val cookies = networkHelper.cookieStore.getStoredCookies()
                                 for (cookie in cookies) {
@@ -354,6 +355,13 @@ fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogS
 
     TrustManagerBridge.ensureSubjectKeyIdentifierTolerance()
     
+    // When running as a desktop application (RensaioTray/Avalonia), the CEF
+    // message pump is driven from an external DispatcherTimer on the C# side
+    // instead of an internal Java daemon thread. This avoids reverse-JNI calls
+    // from CEF native threads into IKVM that can cause GetEnv() fail-fast
+    // crashes ~1 minute after WebView use.
+    CefAppBridge.setExternalPump(true)
+
     // Synchronous JCEF initialization — must complete before any extension
     // tries to create a WebView.  The Comix (and similar) extension calls
     // runInWebView which creates a WebView on the main looper thread, which

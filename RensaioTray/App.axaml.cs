@@ -2,9 +2,20 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+using java.awt;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mihon.ExtensionsBridge.Core.Utilities;
+using Mihon.ExtensionsBridge.Models.Abstractions;
+using RensaioBackend.Utils;
+using RensaioTray.Utils;
+using RensaioTray.Views;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -12,15 +23,6 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.Extensions.Configuration;
-using RensaioBackend.Utils;
-using RensaioTray.Utils;
-using RensaioTray.Views;
-using java.awt;
 
 namespace RensaioTray;
 
@@ -32,6 +34,9 @@ public partial class App : Application
     private IntPtr _consoleWindow = IntPtr.Zero;
     private bool _isShuttingDown = false;
     private readonly CancellationTokenSource _shutdownCancellationTokenSource = new();
+
+
+
 
     public override void Initialize()
     {
@@ -130,7 +135,7 @@ public partial class App : Application
         try
         {
             // Build and start the ASP.NET Core host (this can run on background thread)
-            _host = RensaioBackend.Program.CreateHostBuilder(Array.Empty<string>()).Build();
+            _host = RensaioBackend.Program.CreateHostBuilder(Array.Empty<string>()).AddCefTimer().Build();
             // Start the ASP.NET Core host (this can run on background thread).
             // Wrap in a tracked task so host crashes are logged even though we
             // deliberately don't await here (to keep the UI thread responsive).
@@ -163,6 +168,9 @@ public partial class App : Application
         }
     }
 
+
+    
+
     private async Task GracefulShutdownAsync()
     {
         if (_isShuttingDown)
@@ -188,13 +196,15 @@ public partial class App : Application
                     // Swallow shutdown exceptions
                 }
 
-                // 2) Dispose the host — use ConfigureAwait(false) to avoid UI thread deadlock.
+                // 2) Stop the CEF message pump timer before disposing the host
+
+                // 3) Dispose the host — use ConfigureAwait(false) to avoid UI thread deadlock.
                 // IHost.Dispose() internally calls DisposeAsync().GetAwaiter().GetResult()
                 // which can deadlock on Avalonia's UI synchronization context.
                 await Task.Run(() => _host.Dispose()).ConfigureAwait(false);
             }
 
-            // 3) Clean up UI resources on the UI thread to let the event loop exit
+            // 4) Clean up UI resources on the UI thread to let the event loop exit
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (_trayIcon != null)

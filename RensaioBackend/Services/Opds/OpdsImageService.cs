@@ -115,21 +115,41 @@ public class OpdsImageService
         }
 
         // ── Ensure extraction is running for this chapter ──
-        // If there's no active extraction for this exact chapter, cancel any other
-        // extraction for this user and start one for the requested chapter.
-        if (!_coordinator.TryGetExtraction(userKey, out state) ||
-            state.ChapterCacheKey != cacheKey ||
-            state.ExtractionTask is { IsCompleted: true })
+        // Use per-chapter lock to prevent multiple threads from starting extraction
+        // of the same chapter simultaneously (double-checked locking pattern).
+        //
+        // The lock is only held during the decision to start extraction, not during
+        // extraction itself (which runs as a fire-and-forget background task).
+        // After acquiring the lock, we double-check the cache and extraction state
+        // in case another thread completed extraction while we waited.
+        using (await _coordinator.AcquireChapterLockAsync(cacheKey, token))
         {
-            _coordinator.CancelActiveExtraction(userKey);
+            // Double-check: another thread may have completed extraction while we waited
+            // for the lock. If the cache directory exists with files, try reading from it.
+            if (Directory.Exists(cacheDir))
+            {
+                var result = await ReadPageFromCacheDirAsync(cacheDir, pageIndex, supportedImageFormats,
+                    seriesStoragePath, chapterFilename, token);
+                if (result.imageStream != null)
+                    return result;
+            }
 
-            // Setup extraction (DB lookup, pages, signals) and fire the task without awaiting it.
-            // The state is stored in the coordinator so we can wait for the page signal.
-            state = await SetupAndFireExtractionAsync(
-                userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            // If there's no active extraction for this exact chapter, cancel any other
+            // extraction for this user and start one for the requested chapter.
+            if (!_coordinator.TryGetExtraction(userKey, out state) ||
+                state.ChapterCacheKey != cacheKey ||
+                state.ExtractionTask is { IsCompleted: true })
+            {
+                _coordinator.CancelActiveExtraction(userKey);
 
-            if (state == null)
-                return (null, null, null);
+                // Setup extraction (DB lookup, pages, signals) and fire the task without awaiting it.
+                // The state is stored in the coordinator so we can wait for the page signal.
+                state = await SetupAndFireExtractionAsync(
+                    userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+
+                if (state == null)
+                    return (null, null, null);
+            }
         }
 
         // ── Wait for the specific page to be extracted ──
@@ -227,9 +247,6 @@ public class OpdsImageService
         string cacheKey = $"{seriesId}:{language}:{chapterFilename}";
         string cacheDir = GetCacheDirectory(seriesId, language, chapterFilename);
 
-        // Already cached – nothing to do
-        if (Directory.Exists(cacheDir) && Directory.GetFiles(cacheDir).Length > 0)
-            return Task.CompletedTask;
         // Resolve the full archive path before extraction
         string? archivePath = _settingsService.DirectSettings?.ResolveChapterPath(seriesStoragePath, chapterFilename);
         if (archivePath == null)
@@ -239,11 +256,32 @@ public class OpdsImageService
             return Task.CompletedTask;
         }
 
-        // Cancel any existing preload for this user
-        _coordinator.CancelActiveExtraction(userKey);
+        // Use per-chapter lock to prevent concurrent extraction of the same chapter.
+        // Double-check cache after acquiring the lock.
+        return EnsureChapterIsLoadedLockedAsync(userKey, cacheKey, cacheDir, seriesId, title, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+    }
 
-        // Start extraction with the full archive path
-        return StartExtractionAsync(userKey, seriesId, title, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+    /// <summary>
+    /// Per-chapter-locked portion of <see cref="EnsureChapterIsLoadedAsync"/>.
+    /// Acquires the per-chapter semaphore, double-checks the cache, then starts extraction.
+    /// </summary>
+    private async Task EnsureChapterIsLoadedLockedAsync(
+        string userKey, string cacheKey, string cacheDir,
+        Guid seriesId, string title, string archivePath, string chapterFilename,
+        string seriesStoragePath, List<string> supportedImageFormats)
+    {
+        using (await _coordinator.AcquireChapterLockAsync(cacheKey, CancellationToken.None))
+        {
+            // Double-check: another thread may have completed extraction while we waited
+            if (Directory.Exists(cacheDir) && Directory.GetFiles(cacheDir).Length > 0)
+                return;
+
+            // Cancel any existing preload for this user
+            _coordinator.CancelActiveExtraction(userKey);
+
+            // Start extraction with the full archive path
+            await StartExtractionAsync(userKey, seriesId, title, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -332,10 +370,8 @@ public class OpdsImageService
                 return;
             }
 
-            // Cancel any previous extraction for this user
-            _coordinator.CancelActiveExtraction(userKey);
-
-            await StartExtractionAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            // Use per-chapter lock to prevent concurrent extraction of the same chapter.
+            await PreloadChapterLockedAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
         }
         catch (OperationCanceledException)
         {
@@ -431,9 +467,8 @@ public class OpdsImageService
                 return;
             }
 
-            // Start extraction of the next chapter
-            _coordinator.CancelActiveExtraction(userKey);
-            await StartExtractionAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
+            // Use per-chapter lock to prevent concurrent extraction of the same chapter.
+            await PreloadChapterLockedAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
         }
         catch (OperationCanceledException)
         {
@@ -549,6 +584,28 @@ public class OpdsImageService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Extraction failed for series {name}, chapter {CacheKey}", name, cacheKey);
+        }
+    }
+
+    /// <summary>
+    /// Acquires a per-chapter lock, double-checks the cache, then starts extraction.
+    /// Used by preload methods to prevent concurrent extraction of the same chapter.
+    /// </summary>
+    private async Task PreloadChapterLockedAsync(
+        string userKey, Guid seriesId, string name, string cacheKey, string cacheDir,
+        string archivePath, string chapterFilename, string seriesStoragePath,
+        List<string> supportedImageFormats)
+    {
+        using (await _coordinator.AcquireChapterLockAsync(cacheKey, CancellationToken.None))
+        {
+            // Double-check: another thread may have completed extraction while we waited
+            if (Directory.Exists(cacheDir) && Directory.GetFiles(cacheDir).Length > 0)
+                return;
+
+            // Cancel any existing extraction for this user
+            _coordinator.CancelActiveExtraction(userKey);
+
+            await StartExtractionAsync(userKey, seriesId, name, cacheKey, cacheDir, archivePath, chapterFilename, seriesStoragePath, supportedImageFormats);
         }
     }
 

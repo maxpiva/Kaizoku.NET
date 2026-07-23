@@ -99,6 +99,43 @@ public class OpdsExtractionCoordinator
         }
     }
 
+    /// <summary>
+    /// Acquires a per-chapter async lock to prevent concurrent extraction of the same chapter.
+    /// Other threads attempting to extract the same chapter will wait here.
+    /// Returns an <see cref="IDisposable"/> that releases the lock when disposed.
+    /// </summary>
+    public async Task<IDisposable> AcquireChapterLockAsync(string cacheKey, CancellationToken token = default)
+    {
+        var semaphore = GetChapterLock(cacheKey);
+        await semaphore.WaitAsync(token).ConfigureAwait(false);
+        return new ChapterLockReleaser(this, cacheKey, semaphore);
+    }
+
+    /// <summary>
+    /// Releases a per-chapter lock acquired via <see cref="AcquireChapterLockAsync"/>.
+    /// </summary>
+    private sealed class ChapterLockReleaser : IDisposable
+    {
+        private readonly OpdsExtractionCoordinator _parent;
+        private readonly string _cacheKey;
+        private readonly SemaphoreSlim _semaphore;
+        private bool _disposed;
+
+        public ChapterLockReleaser(OpdsExtractionCoordinator parent, string cacheKey, SemaphoreSlim semaphore)
+        {
+            _parent = parent;
+            _cacheKey = cacheKey;
+            _semaphore = semaphore;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _semaphore.Release();
+            _disposed = true;
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Utilities
     // ──────────────────────────────────────────────────────────────────────────

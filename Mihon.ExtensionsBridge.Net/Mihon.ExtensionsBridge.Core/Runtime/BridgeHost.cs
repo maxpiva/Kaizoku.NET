@@ -17,6 +17,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         private readonly IWorkingFolderStructure _folder;
         private readonly IBridgeManager _manager;
         private readonly ILoggerFactory _loggerFactory;
+
+        private readonly IStartCefTimer? _cefStartTimer;
         private ILogger? _androidLogger;
         //private IkvmAssemblyLoadContext alc;
 
@@ -47,12 +49,13 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         }
 
 
-        public BridgeHost(ILogger<BridgeHost> logger, IWorkingFolderStructure folder, IBridgeManager manager, ILoggerFactory loggerFactory)
+        public BridgeHost(ILogger<BridgeHost> logger, IWorkingFolderStructure folder, IBridgeManager manager, ILoggerFactory loggerFactory, IStartCefTimer cefStartTimer = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _folder = folder ?? throw new ArgumentNullException(nameof(folder));
             _manager = manager ?? throw new ArgumentNullException(nameof(manager));
             _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+            _cefStartTimer = cefStartTimer;
         }
         public 
         static void Preload(IkvmAssemblyLoadContext alc, string simpleName)
@@ -88,6 +91,9 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             }
 
             await _manager.SetPreferencesAsync(prefs, cancellationToken);
+
+            // At this point CEF should have been initialized. This will wire Desktop Apps only.
+            _cefStartTimer?.StartCefPumpTimer();
             _logger.LogInformation("Android App initialized.");
 
 

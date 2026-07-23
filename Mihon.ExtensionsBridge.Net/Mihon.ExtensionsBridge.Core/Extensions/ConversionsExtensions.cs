@@ -141,6 +141,15 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             {
                 pref.Entries = multiSelectListPreference.getEntries()?.Select(e => e.ToString() ?? "").ToList() ?? [];
                 pref.EntryValues = multiSelectListPreference.getEntryValues()?.Select(ev => ev.ToString() ?? "").ToList() ?? [];
+                // getCurrentValue() returns java.util.Set<String> — ToString() produces
+                // non-JSON like "[elem1, elem2]" (unquoted elements). Serialize as proper JSON
+                // array so that deserialization in GetValueFromPreference works.
+                var set = multiSelectListPreference.getCurrentValue() as java.util.Set;
+                if (set != null)
+                {
+                    var items = set.toArray().Cast<object>().Select(x => x?.ToString() ?? "").ToArray();
+                    pref.CurrentValue = System.Text.Json.JsonSerializer.Serialize(items);
+                }
             }
             if (preference is androidx.preference.DialogPreference editTextPreference)
             {
