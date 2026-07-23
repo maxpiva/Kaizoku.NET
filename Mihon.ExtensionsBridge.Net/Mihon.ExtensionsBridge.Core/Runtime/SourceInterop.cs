@@ -274,8 +274,10 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                     throw new InvalidOperationException("Source does not support catalogue operations.");
                 SManga mangaImpl = manga.ToSManga();
 
-                // Extension overrides getMangaUpdate — use the suspend path
-                var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), true, false, cont), token).ConfigureAwait(false);
+                // Extension overrides getMangaUpdate — use the suspend path.
+                // fetchDetails AND fetchChapters: callers expect both (a provider
+                // with zero chapters is dropped by search augmentation)
+                var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), true, true, cont), token).ConfigureAwait(false);
                 return mangaUpdate.ToMangaUpdate(_httpSource, manga);
 
             }).ConfigureAwait(false);
