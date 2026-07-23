@@ -276,7 +276,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
                 // Extension overrides getMangaUpdate — use the suspend path
                 var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), true, false, cont), token).ConfigureAwait(false);
-                return mangaUpdate.ToMangaUpdate(_httpSource);
+                return mangaUpdate.ToMangaUpdate(_httpSource, manga);
 
             }).ConfigureAwait(false);
         }
@@ -300,7 +300,11 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                     throw new InvalidOperationException("Source does not support catalogue operations.");
                 SManga mangaImpl = manga.ToSManga();
                 var mangaUpdate = await KotlinSuspendBridge.CallSuspend<eu.kanade.tachiyomi.source.model.SMangaUpdate>((cont) => _source.getMangaUpdate(mangaImpl, new java.util.ArrayList(), false, true, cont), token).ConfigureAwait(false);
-                return mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(mangaUpdate.getManga().getTitle(), mangaUpdate.getManga(), _httpSource);
+                // The returned SManga may be partial (lateinit title/url unset) when
+                // the extension overrides getMangaUpdate — prefill before any getter
+                var resultManga = mangaUpdate.getManga();
+                ConversionsExtensions.PrefillMissing(resultManga, manga);
+                return mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(resultManga.getTitle(), resultManga, _httpSource);
             }).ConfigureAwait(false);
         }
 
