@@ -79,7 +79,7 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             // may run concurrently and trigger a lazy access to settingsModule (Config.kt:103)
             // before it is registered, causing a NullPointerException:
             //   "null cannot be cast to non-null type extension.bridge.SettingsConfig"
-            StartupKt.applicationSetup(folder.AndroidFolder, folder.TempFolder, new AndroidCompatLogManager.LoggerSink(logger));
+            StartupKt.applicationSetup(folder.AndroidFolder, folder.TempFolder, new AndroidCompatLogManager.LoggerSink(logger), _cefStartTimer!=null);
             AndroidCompatLogManager.SetLoglevel(logger);
 
             // Load preferences AFTER applicationSetup — this involves an I/O await that

@@ -90,12 +90,17 @@ namespace RensaioBackend.Services.Background
             {
 
                 using var scope = _scopeFactory.CreateScope();
-                //Initialize Mihon Bridge
+                // Wait for BridgeHost (background) to fully initialize the bridge.
+                // This awaits the full sequence: InitAndroidAppAsync (Kotlin/Android
+                // compat layer, CEF, SettingsConfig) followed by BridgeManager.InitializeAsync
+                // (repository discovery, extension validation, recompilation).
+                // Once the gate completes, all bridge services are safe to use.
                 var mihon = scope.ServiceProvider.GetRequiredService<IBridgeManager>();
-                await mihon.InitializeAsync(cancellationToken);
+                await mihon.InitializationCompleted.WaitAsync(cancellationToken);
+                _logger.LogInformation("Bridge initialization gate passed — bridge is ready.");
 
 
-              
+               
 
                 //Run migration if needed
                 var migration = scope.ServiceProvider.GetRequiredService<MigrationService>();

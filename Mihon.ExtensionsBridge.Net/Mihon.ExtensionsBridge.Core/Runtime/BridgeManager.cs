@@ -29,6 +29,14 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
         // (racing on the same version folders and repository metadata).
         private readonly SemaphoreSlim _initLock = new(1, 1);
 
+        /// <summary>
+        /// TCS that resolves when the bridge is fully initialized (Android compat +
+        /// extension compilation + repository discovery). StartupHostedService awaits
+        /// <see cref="InitializationCompleted"/> to ensure the bridge is ready before
+        /// running migrations, loading providers, or starting background workers.
+        /// </summary>
+        private readonly TaskCompletionSource _initializationTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public BridgeManager(IServiceProvider serviceProvider,
             IWorkingFolderStructure workingFolderStructure,
             IRepositoryManager repositoryManager,
@@ -215,6 +223,8 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
 
 
 
+        public Task InitializationCompleted => _initializationTcs.Task;
+
         public async Task InitializeAsync(CancellationToken cancellationToken = default)
         {
             if (_initialized)
@@ -238,6 +248,19 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 await _internalRepositoryManager.RefreshAllRepositoriesAsync(cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation("Bridge Manager initialized.");
                 _initialized = true;
+                // Signal the gate: any consumer awaiting InitializationCompleted (e.g.
+                // StartupHostedService) can now proceed. This ensures the Kotlin/Android
+                // compat layer, CEF, extension compilation, and repository discovery are
+                // all complete before migrations, provider caching, or background workers
+                // touch bridge services.
+                _initializationTcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                // Fault the gate so awaiting consumers throw the root cause immediately
+                // instead of hanging indefinitely.
+                _initializationTcs.TrySetException(ex);
+                throw;
             }
             finally
             {

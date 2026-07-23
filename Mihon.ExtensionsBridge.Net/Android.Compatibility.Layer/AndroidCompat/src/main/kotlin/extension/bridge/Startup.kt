@@ -245,7 +245,7 @@ private fun installJulBridge() {
     root.addHandler(handler)
 }
 
-fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogSink)
+fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogSink, externalCef: Boolean)
 {
     val logger = androidCompatLogger(SettingsConfig::class.java)
     // Register sink via manager
@@ -360,7 +360,7 @@ fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogS
     // instead of an internal Java daemon thread. This avoids reverse-JNI calls
     // from CEF native threads into IKVM that can cause GetEnv() fail-fast
     // crashes ~1 minute after WebView use.
-    CefAppBridge.setExternalPump(true)
+    CefAppBridge.setExternalPump(externalCef)
 
     // Synchronous JCEF initialization — must complete before any extension
     // tries to create a WebView.  The Comix (and similar) extension calls
