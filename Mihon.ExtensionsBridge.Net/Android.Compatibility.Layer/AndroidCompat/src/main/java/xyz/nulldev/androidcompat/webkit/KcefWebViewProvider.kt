@@ -50,7 +50,6 @@ import android.webkit.WebViewProvider.ScrollDelegate
 import android.webkit.WebViewProvider.ViewDelegate
 import android.webkit.WebViewRenderProcess
 import android.webkit.WebViewRenderProcessClient
-import xyz.nulldev.androidcompat.webkit.JoglNativeLoader
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -63,6 +62,7 @@ import org.cef.CefClient
 import org.cef.CefSettings
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.browser.CefBrowserOsrWithHandler
 import org.cef.browser.CefMessageRouter
 import org.cef.browser.CefPaintEvent
 import org.cef.callback.CefCallback
@@ -253,9 +253,7 @@ class KcefWebViewProvider(
         }
 
         fun ensureRuntimeReady() {
-            val installDir = resolveInstallDir()
             ensureCefApp()
-            JoglNativeLoader.ensureLoaded(installDir)
         }
 
         private fun CefSettings.trySetBooleanOption(fieldName: String, value: Boolean) {
@@ -309,17 +307,25 @@ class KcefWebViewProvider(
     private fun requireClient(): CefClient =
         cefClient ?: throw IllegalStateException("JCEF client is not initialized")
 
+    // CefBrowserOsrWithHandler paints straight into our HeadlessRenderHandler.
+    // CefClient.createBrowser(url, true, false) would instead create
+    // CefBrowserOsr, JCEF's JOGL/GLCanvas implementation: its DropTarget
+    // constructor throws HeadlessException under java.awt.headless=true, and
+    // with no displayable window its GL drawable is never realized ("Error
+    // making context current" storms ending in a native crash). It can never
+    // work in this process.
+    private fun createHeadlessBrowser(url: String): CefBrowser =
+        CefBrowserOsrWithHandler(requireClient(), url, null, renderHandler, awtEventComponent)
+
     private fun createBrowserForUrl(url: String): CefBrowser =
-        requireClient()
-            .createBrowser(url, true, false)
+        createHeadlessBrowser(url)
             .apply {
                 createImmediately()
                 ensureInitialSize()
             }
 
     private fun createBrowserWithHtml(html: String): CefBrowser =
-        requireClient()
-            .createBrowser(BLANK_URI, true, false)
+        createHeadlessBrowser(BLANK_URI)
             .apply {
                 createImmediately()
                 ensureInitialSize()
@@ -1361,13 +1367,26 @@ class KcefWebViewProvider(
         Log.d(TAG, "Page loaded from data at base URL $baseUrl")
     }
 
+    // resultCallback must be nullable: WebView.evaluateJavascript(script, null)
+    // is legal on Android and extensions use it as fire-and-forget while
+    // polling Cloudflare challenges. A non-null parameter here made every such
+    // call throw Kotlin's parameter-null NPE, so challenges never resolved.
     override fun evaluateJavaScript(
         script: String,
-        resultCallback: ValueCallback<String>,
+        resultCallback: ValueCallback<String>?,
     ) {
         val activeBrowser = browser
         if (activeBrowser == null) {
-            handler.post { resultCallback.onReceiveValue(null) }
+            resultCallback?.let { callback -> handler.post { callback.onReceiveValue(null) } }
+            return
+        }
+
+        if (resultCallback == null) {
+            activeBrowser.mainFrame?.executeJavaScript(
+                script.removePrefix("javascript:"),
+                "suwayomi://eval",
+                0,
+            )
             return
         }
 
