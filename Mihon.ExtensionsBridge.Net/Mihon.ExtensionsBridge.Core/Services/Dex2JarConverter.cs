@@ -50,8 +50,10 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// mistranslation (<see cref="DexNewInstanceCorrector"/>). Extensions previously converted with an
         /// earlier version are re-converted on startup via <c>ExtensionManager.ValidateAndRecompileAsync</c>,
         /// which compares <c>entry.Jar.Version</c> against this value.
+        /// Bumped to 1.1.2 for the generalisation of that correction to non-Object superclasses
+        /// (Kotlin lambda singletons: <c>NEW kotlin/jvm/internal/Lambda</c> where the DEX allocated the subclass).
         /// </remarks>
-        public const string Version = "1.1.1";
+        public const string Version = "1.1.2";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
@@ -220,7 +222,10 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 }
 
                 // Retype mistranslated NEWs across all classes and synthesise any missing default constructors.
-                var corrector = new DexNewInstanceCorrector(oracle, _logger);
+                // DEX type names are normalised through the same replacement map Transform applied, so a
+                // replaced class reference (e.g. SimpleDateFormat) never miscounts as a mistranslation.
+                var corrector = new DexNewInstanceCorrector(oracle, _logger,
+                    type => _classesToReplace.Contains(type) ? REPLACEMENT_PATH + "/" + type : type);
                 corrector.CorrectAll(entries.Select(e => e.node).ToList());
 
                 // Write each corrected class back (frame hygiene + version lowering applied per class).
