@@ -52,8 +52,12 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// which compares <c>entry.Jar.Version</c> against this value.
         /// Bumped to 1.1.2 for the generalisation of that correction to non-Object superclasses
         /// (Kotlin lambda singletons: <c>NEW kotlin/jvm/internal/Lambda</c> where the DEX allocated the subclass).
+        /// Bumped to 1.2.0 for the construction-order oracle: R8 hoists <c>new-instance</c> ops away from
+        /// their <c>&lt;init&gt;</c> calls, so the oracle now orders types by their constructor call (matching
+        /// dex2jar's NEW emission sites) instead of raw allocation order, fixing leftover mispairing
+        /// (ArrayTypeMismatch in generated getFilterList, wrong-subclass filter construction).
         /// </remarks>
-        public const string Version = "1.1.2";
+        public const string Version = "1.2.0";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
