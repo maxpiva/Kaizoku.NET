@@ -124,6 +124,20 @@ namespace Mihon.ExtensionsBridge.Core.Services
             private readonly string _methodName;
             private readonly string _methodDesc;
             private readonly List<string> _types = new();
+
+            // R8 hoists new-instance ops away from their <init> calls, so DEX allocation order is a
+            // permutation of construction order — but dex2jar emits each JVM NEW at its <init> site.
+            // Track each allocation's register (through object moves) to the invoke-direct <init> that
+            // consumes it, so visitEnd can record the types in construction order and restore the
+            // corrector's order assumption. Any inconsistency falls back to allocation order.
+            private sealed class Pending
+            {
+                public string Type = "";
+                public readonly HashSet<int> Regs = new();
+            }
+            private readonly List<Pending> _pending = new();
+            private readonly List<string> _ctorOrdered = new();
+
             public CodeVisitor(DexNewInstanceOracle oracle, string className, string methodName, string methodDesc)
             {
                 _oracle = oracle;
@@ -132,15 +146,92 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 _methodDesc = methodDesc;
             }
 
+            private void RegisterOverwritten(int reg)
+            {
+                foreach (var p in _pending)
+                    p.Regs.Remove(reg);
+            }
+
             public override void visitTypeStmt(com.googlecode.d2j.reader.Op op, int a, int b, string type)
             {
                 // visitTypeStmt is also used for CHECK_CAST / INSTANCE_OF / NEW_ARRAY; only NEW_INSTANCE allocates.
                 if (ReferenceEquals(op, com.googlecode.d2j.reader.Op.NEW_INSTANCE))
+                {
                     _types.Add(InternalName(type));
+                    RegisterOverwritten(a);
+                    var pending = new Pending { Type = InternalName(type) };
+                    pending.Regs.Add(a);
+                    _pending.Add(pending);
+                }
+                else if (ReferenceEquals(op, com.googlecode.d2j.reader.Op.CHECK_CAST))
+                {
+                    // check-cast reads and rewrites the same register; the reference is unchanged.
+                }
+                else
+                {
+                    RegisterOverwritten(a);
+                }
+            }
+
+            public override void visitStmt2R(com.googlecode.d2j.reader.Op op, int a, int b)
+            {
+                bool isObjectMove =
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_OBJECT) ||
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_OBJECT_FROM16) ||
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_OBJECT_16);
+                Pending? source = null;
+                if (isObjectMove)
+                {
+                    for (int i = _pending.Count - 1; i >= 0 && source == null; i--)
+                        if (_pending[i].Regs.Contains(b))
+                            source = _pending[i];
+                }
+                RegisterOverwritten(a);
+                source?.Regs.Add(a);
+            }
+
+            public override void visitStmt1R(com.googlecode.d2j.reader.Op op, int a)
+            {
+                if (ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_RESULT) ||
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_RESULT_WIDE) ||
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_RESULT_OBJECT) ||
+                    ReferenceEquals(op, com.googlecode.d2j.reader.Op.MOVE_EXCEPTION))
+                    RegisterOverwritten(a);
+            }
+
+            public override void visitConstStmt(com.googlecode.d2j.reader.Op op, int ra, object value)
+                => RegisterOverwritten(ra);
+
+            public override void visitMethodStmt(com.googlecode.d2j.reader.Op op, int[] args, com.googlecode.d2j.Method method)
+            {
+                if (method == null || method.getName() != "<init>" || args == null || args.Length == 0)
+                    return;
+                if (!ReferenceEquals(op, com.googlecode.d2j.reader.Op.INVOKE_DIRECT) &&
+                    !ReferenceEquals(op, com.googlecode.d2j.reader.Op.INVOKE_DIRECT_RANGE))
+                    return;
+                int receiver = args[0];
+                // Most recent pending allocation aliased to the receiver; no match means a this()/super()
+                // call inside a constructor, which is not an allocation site.
+                for (int i = _pending.Count - 1; i >= 0; i--)
+                {
+                    if (_pending[i].Regs.Contains(receiver))
+                    {
+                        _ctorOrdered.Add(_pending[i].Type);
+                        _pending.RemoveAt(i);
+                        return;
+                    }
+                }
             }
 
             public override void visitEnd()
-                => _oracle.Record(_className, _methodName, _methodDesc, _types);
+            {
+                // Construction order is only trustworthy when every allocation was matched to exactly
+                // one <init>; otherwise keep the legacy allocation order.
+                var ordered = (_pending.Count == 0 && _ctorOrdered.Count == _types.Count)
+                    ? _ctorOrdered
+                    : _types;
+                _oracle.Record(_className, _methodName, _methodDesc, ordered);
+            }
         }
     }
 
@@ -633,30 +724,13 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
             // dex2jar's stripped-constructor mistranslation emits `NEW <super>` + `invokespecial
             // <super>.<init>(...)` where the DEX allocated a subclass whose R8-stripped constructor is
-            // gone. It also *delays* such a NEW to its <init> site, so it can slide past neighbouring
-            // NEWs — index-by-index pairing would mispair. Align the two equal-length lists on their
-            // longest common subsequence (the correctly translated NEWs); what remains on each side is
-            // the mistranslated NEWs and their true DEX types, in matching order.
-            var leftovers = AlignLeftovers(jvmNews, normDex);
+            // gone. NEW placement is not order-stable: dex2jar sinks some NEWs to their <init> site and
+            // leaves others at the (R8-hoisted) DEX allocation position, so any purely positional
+            // pairing of the two lists mispairs. Instead: anchor exact type matches as multisets, then
+            // let each mistranslated site (in <init> order) claim the earliest unclaimed DEX type that
+            // is actually compatible with the site's emitted super and constructor shape.
 
-            // java/lang/Object leftovers follow the validated legacy path (retype + ()V ctor rewrite);
-            // everything else must pass the strict shape checks below before anything is rewritten.
-            var newToType = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
-            var generalCandidates = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
-            foreach (var (tin, target) in leftovers)
-            {
-                if (tin.desc == target || target == "java/lang/Object")
-                    continue; // alignment artifact or genuine new Object
-                if (tin.desc == "java/lang/Object")
-                    newToType[tin] = target;
-                else
-                    generalCandidates[tin] = target;
-            }
-
-            if (newToType.Count == 0 && generalCandidates.Count == 0)
-                return (0, 0);
-
-            // Pair each retyped NEW with its <init> invokespecial through origin tracking.
+            // Pair every NEW with its <init> invokespecial through origin tracking.
             Frame[] frames;
             try
             {
@@ -671,7 +745,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 return (0, 1);
             }
 
-            var committedGeneral = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
+            // NEW -> (init instruction, init index). First <init> reached wins; conflicting owners bail the site.
+            var initOf = new Dictionary<TypeInsnNode, (MethodInsnNode min, int index)>(ReferenceEqualityComparer.Instance);
             var insns = mn.instructions.toArray();
             for (int i = 0; i < insns.Length; i++)
             {
@@ -691,101 +766,109 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 var recv = (SourceValue)fr.getStack(recvIndex);
                 foreach (var src in IterateInsns(recv.insns))
                 {
-                    if (src is not TypeInsnNode tin)
-                        continue;
-
-                    if (newToType.TryGetValue(tin, out var target))
-                    {
-                        // Only the mistranslated ()V pattern is safe to rewrite; leave any non-()V ctor alone.
-                        if (min.desc == "()V")
-                        {
-                            min.owner = target;
-                            ctorNeeded.Add((target, "()V", null));
-                        }
-                    }
-                    else if (generalCandidates.TryGetValue(tin, out var genTarget))
-                    {
-                        // Strict shape checks for the general path:
-                        //  1. the ctor being invoked is owned by the (wrong) type dex2jar emitted for the NEW,
-                        //  2. that emitted type is an ancestor of the recovered DEX type (the stripped-ctor
-                        //     signature; also rejects unrelated mismatches such as replaced android classes),
-                        //  3. a constructor chain from the recovered type down to the invoked super ctor can
-                        //     be synthesised from classes present in this JAR.
-                        if (min.owner != tin.desc)
-                            continue;
-                        if (!IsAncestor(byName, genTarget, tin.desc))
-                            continue;
-                        var links = PlanConstructorChain(byName, genTarget, min.desc, tin.desc);
-                        if (links == null)
-                            continue;
-
-                        min.owner = genTarget;
-                        foreach (var link in links)
-                            ctorNeeded.Add(link);
-                        committedGeneral[tin] = genTarget;
-                    }
+                    if (src is TypeInsnNode tin && !initOf.ContainsKey(tin))
+                        initOf[tin] = (min, i);
                 }
             }
+
+            // Multiset anchoring on exact types: the k-th JVM NEW of type X consumes the k-th DEX
+            // occurrence of X (up to the smaller count). Whatever remains on each side is the
+            // mistranslated sites and their true DEX types.
+            var dexRemaining = new List<(string type, int pos)>();
+            {
+                var jvmCount = new Dictionary<string, int>(System.StringComparer.Ordinal);
+                foreach (var tin in jvmNews)
+                    jvmCount[tin.desc] = jvmCount.TryGetValue(tin.desc, out var c) ? c + 1 : 1;
+                var consumed = new Dictionary<string, int>(System.StringComparer.Ordinal);
+                for (int pos = 0; pos < normDex.Count; pos++)
+                {
+                    var t = normDex[pos];
+                    int used = consumed.TryGetValue(t, out var u) ? u : 0;
+                    if (jvmCount.TryGetValue(t, out var avail) && used < avail)
+                        consumed[t] = used + 1;
+                    else
+                        dexRemaining.Add((t, pos));
+                }
+            }
+            var jvmLeftovers = new List<TypeInsnNode>();
+            {
+                var dexCount = new Dictionary<string, int>(System.StringComparer.Ordinal);
+                foreach (var t in normDex)
+                    dexCount[t] = dexCount.TryGetValue(t, out var c) ? c + 1 : 1;
+                var consumed = new Dictionary<string, int>(System.StringComparer.Ordinal);
+                foreach (var tin in jvmNews)
+                {
+                    int used = consumed.TryGetValue(tin.desc, out var u) ? u : 0;
+                    if (dexCount.TryGetValue(tin.desc, out var avail) && used < avail)
+                        consumed[tin.desc] = used + 1;
+                    else
+                        jvmLeftovers.Add(tin);
+                }
+            }
+
+            if (jvmLeftovers.Count == 0)
+                return (0, 0);
+
+            // Sites are processed in construction order (<init> position); a site without a traceable
+            // <init> cannot be validated, so it stays untouched.
+            jvmLeftovers.Sort((x, y) =>
+            {
+                int ix = initOf.TryGetValue(x, out var a) ? a.index : int.MaxValue;
+                int iy = initOf.TryGetValue(y, out var b) ? b.index : int.MaxValue;
+                return ix.CompareTo(iy);
+            });
 
             int n = 0;
-            foreach (var kv in newToType)
+            var claimed = new bool[dexRemaining.Count];
+            foreach (var tin in jvmLeftovers)
             {
-                kv.Key.desc = kv.Value;
-                n++;
+                if (!initOf.TryGetValue(tin, out var init))
+                    continue;
+                var min = init.min;
+                if (min.owner != tin.desc)
+                    continue; // the invoked ctor is not the emitted super: not the stripped-ctor shape
+
+                for (int k = 0; k < dexRemaining.Count; k++)
+                {
+                    if (claimed[k])
+                        continue;
+                    var target = dexRemaining[k].type;
+                    if (target == tin.desc || target == "java/lang/Object")
+                        continue;
+
+                    // Legacy validated path: NEW java/lang/Object + ()V ctor rewrites directly.
+                    if (tin.desc == "java/lang/Object" && min.desc == "()V")
+                    {
+                        claimed[k] = true;
+                        min.owner = target;
+                        ctorNeeded.Add((target, "()V", null));
+                        tin.desc = target;
+                        n++;
+                        break;
+                    }
+
+                    // Strict shape checks for the general path:
+                    //  1. the emitted type is an ancestor of the recovered DEX type (the stripped-ctor
+                    //     signature; also rejects unrelated mismatches such as replaced android classes),
+                    //  2. a constructor chain from the recovered type down to the invoked super ctor can
+                    //     be synthesised from classes present in this JAR.
+                    if (!IsAncestor(byName, target, tin.desc))
+                        continue;
+                    var links = PlanConstructorChain(byName, target, min.desc, tin.desc);
+                    if (links == null)
+                        continue;
+
+                    claimed[k] = true;
+                    min.owner = target;
+                    foreach (var link in links)
+                        ctorNeeded.Add(link);
+                    tin.desc = target;
+                    n++;
+                    break;
+                }
             }
-            foreach (var kv in committedGeneral)
-            {
-                kv.Key.desc = kv.Value;
-                n++;
-            }
+
             return (n, 0);
-        }
-
-        /// <summary>
-        /// Aligns the (equal-length) JVM NEW list and DEX new-instance list on their longest common
-        /// subsequence and returns the leftover pairs: the k-th unmatched JVM NEW paired with the k-th
-        /// unmatched DEX type. Correctly translated NEWs anchor the alignment, so mistranslated NEWs
-        /// pair with their true DEX types even when dex2jar moved them past neighbouring NEWs.
-        /// </summary>
-        private static List<(TypeInsnNode tin, string dexType)> AlignLeftovers(List<TypeInsnNode> jvmNews, List<string> dex)
-        {
-            int n = jvmNews.Count; // caller guarantees jvmNews.Count == dex.Count
-            var lcs = new int[n + 1, n + 1];
-            for (int i = n - 1; i >= 0; i--)
-                for (int j = n - 1; j >= 0; j--)
-                    lcs[i, j] = jvmNews[i].desc == dex[j]
-                        ? lcs[i + 1, j + 1] + 1
-                        : System.Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
-
-            var unmatchedJvm = new List<TypeInsnNode>();
-            var unmatchedDex = new List<string>();
-            int a = 0, b = 0;
-            while (a < n && b < n)
-            {
-                if (jvmNews[a].desc == dex[b] && lcs[a, b] == lcs[a + 1, b + 1] + 1)
-                {
-                    a++;
-                    b++;
-                }
-                else if (lcs[a + 1, b] >= lcs[a, b + 1])
-                {
-                    unmatchedJvm.Add(jvmNews[a++]);
-                }
-                else
-                {
-                    unmatchedDex.Add(dex[b++]);
-                }
-            }
-            while (a < n)
-                unmatchedJvm.Add(jvmNews[a++]);
-            while (b < n)
-                unmatchedDex.Add(dex[b++]);
-
-            // Equal-length inputs minus an equal-length common subsequence leave equal-length remainders.
-            var result = new List<(TypeInsnNode, string)>(unmatchedJvm.Count);
-            for (int i = 0; i < unmatchedJvm.Count && i < unmatchedDex.Count; i++)
-                result.Add((unmatchedJvm[i], unmatchedDex[i]));
-            return result;
         }
 
         /// <summary>
