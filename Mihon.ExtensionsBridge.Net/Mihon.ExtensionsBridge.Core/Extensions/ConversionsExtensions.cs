@@ -98,16 +98,23 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 HasNextPage = mangaPage.getHasNextPage()
             };
         }
-        public static MangaUpdate ToMangaUpdate(this eu.kanade.tachiyomi.source.model.SMangaUpdate mangaUpdate, eu.kanade.tachiyomi.source.online.HttpSource source)
+        public static MangaUpdate ToMangaUpdate(this eu.kanade.tachiyomi.source.model.SMangaUpdate mangaUpdate, eu.kanade.tachiyomi.source.online.HttpSource source, Manga original = null)
         {
             if (mangaUpdate == null)
                 throw new ArgumentNullException(nameof(mangaUpdate));
+            var smanga = mangaUpdate.getManga();
+            // Extensions may return a partial SManga from fetchMangaDetails without
+            // title/url set (Mihon merges it into the existing manga app-side).
+            // Those are lateinit in Kotlin, so fill them from the request manga
+            // before any getter (getTitle, getMangaUrl) touches them.
+            PrefillMissing(smanga, original);
+            string title = ReadField<string>(smanga, "title", original?.Title ?? string.Empty);
             var update = new MangaUpdate
             {
-                Manga = mangaUpdate.getManga().ToManga<ParsedManga>(),
-                Chapters = mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(mangaUpdate.getManga().getTitle(), mangaUpdate.getManga(), source)
+                Manga = smanga.ToManga<ParsedManga>(original),
+                Chapters = mangaUpdate.getChapters().toArray().Cast<SChapter>().ToParsedChapters(title, smanga, source)
             };
-            update.Manga.RealUrl = source.getMangaUrl(mangaUpdate.getManga());
+            update.Manga.RealUrl = source.getMangaUrl(smanga);
             return update;
         }
         public static string GetString(java.lang.CharSequence seq)
@@ -367,10 +374,13 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
         {
             if (details == null)
                 return;
+            // title/url are lateinit in Kotlin: initialize them even without an
+            // original, so Kotlin-side getters (getMangaUrl, prepareNewChapter)
+            // can't throw UninitializedPropertyAccessException on a partial SManga
+            ReplaceFieldIfNeeded(details, original?.Title, "title", details.setTitle);
+            ReplaceFieldIfNeeded(details, original?.Url, "url", details.setUrl);
             if (original == null)
                 return;
-            ReplaceFieldIfNeeded(details, original.Title, "title", details.setTitle);
-            ReplaceFieldIfNeeded(details, original.Url, "url", details.setUrl);
             ReplaceFieldIfNeeded(details, original.Artist, "artist", details.setArtist);
             ReplaceFieldIfNeeded(details, original.Author, "author", details.setAuthor);
             ReplaceFieldIfNeeded(details, original.Description, "description", details.setDescription);
