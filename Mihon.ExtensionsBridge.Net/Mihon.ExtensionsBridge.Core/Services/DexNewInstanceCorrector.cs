@@ -154,14 +154,21 @@ namespace Mihon.ExtensionsBridge.Core.Services
     {
         private readonly DexNewInstanceOracle _oracle;
         private readonly ILogger _logger;
+        private readonly System.Func<string, string>? _normalizeDexType;
 
         /// <summary>Java class-file major version 49 (Java 5) — forces HotSpot's type-inference verifier.</summary>
         private const int TargetMajorVersion = 49;
 
-        public DexNewInstanceCorrector(DexNewInstanceOracle oracle, ILogger logger)
+        /// <param name="normalizeDexType">
+        /// Maps a raw DEX internal type name to the name it carries in the converted JAR (the
+        /// class-replacement mapping applied during conversion, e.g. SimpleDateFormat → the
+        /// androidcompat replacement). Null means identity.
+        /// </param>
+        public DexNewInstanceCorrector(DexNewInstanceOracle oracle, ILogger logger, System.Func<string, string>? normalizeDexType = null)
         {
             _oracle = oracle;
             _logger = logger;
+            _normalizeDexType = normalizeDexType;
         }
 
         /// <summary>
@@ -175,7 +182,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
             foreach (var cn in nodes)
                 byName[cn.name] = cn;
 
-            var ctorNeeded = new HashSet<string>(System.StringComparer.Ordinal);
+            // (class, ctor descriptor, super <init> to call — null means the class's own superName)
+            var ctorNeeded = new HashSet<(string cls, string desc, string? superToCall)>();
             int retyped = 0, skippedMethods = 0, splitLocals = 0;
 
             foreach (var cn in nodes)
@@ -187,7 +195,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                         continue;
                     try
                     {
-                        var result = FixMethod(cn, mn, ctorNeeded);
+                        var result = FixMethod(cn, mn, byName, ctorNeeded);
                         retyped += result.retyped;
                         skippedMethods += result.skipped;
                     }
@@ -592,7 +600,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
         }
 
 
-        private (int retyped, int skipped) FixMethod(ClassNode cn, MethodNode mn, HashSet<string> ctorNeeded)
+        private (int retyped, int skipped) FixMethod(ClassNode cn, MethodNode mn,
+            Dictionary<string, ClassNode> byName,
+            HashSet<(string cls, string desc, string? superToCall)> ctorNeeded)
         {
             // Ordered JVM NEW instructions.
             var jvmNews = new List<TypeInsnNode>();
@@ -600,9 +610,6 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 if (p.getOpcode() == Opcodes.NEW)
                     jvmNews.Add((TypeInsnNode)p);
             if (jvmNews.Count == 0)
-                return (0, 0);
-
-            if (!jvmNews.Any(t => t.desc == "java/lang/Object"))
                 return (0, 0);
 
             var dex = _oracle.Get(cn.name, mn.name, mn.desc);
@@ -614,30 +621,39 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 _logger.LogTrace(
                     "DexNewInstanceCorrector: oracle mismatch, skipping {Class}.{Method}{Desc} (jvmNews={JvmNews}, dexNews={DexNews})",
                     cn.name, mn.name, mn.desc, jvmNews.Count, dex == null ? -1 : dex.Count);
-                return (0, 1); // guard: counts disagree -> leave method untouched
+                return (0, jvmNews.Any(t => t.desc == "java/lang/Object") ? 1 : 0);
             }
 
-            // Residual matching: remove concrete (non-Object) JVM types from a copy of the DEX list (order-preserving
-            // multiset), then assign the leftover DEX types, in order, to the Object-typed NEWs, in order.
-            var residual = new List<string>(dex);
-            foreach (var t in jvmNews)
-                if (t.desc != "java/lang/Object")
-                    residual.Remove(t.desc);
+            // Normalise DEX types through the same class-replacement map applied during conversion
+            // (e.g. java/text/SimpleDateFormat → xyz/nulldev/.../SimpleDateFormat), so a replaced
+            // reference never counts as a mistranslation nor shadows one.
+            var normDex = new List<string>(dex.Count);
+            foreach (var d in dex)
+                normDex.Add(_normalizeDexType?.Invoke(d) ?? d);
 
+            // dex2jar's stripped-constructor mistranslation emits `NEW <super>` + `invokespecial
+            // <super>.<init>(...)` where the DEX allocated a subclass whose R8-stripped constructor is
+            // gone. It also *delays* such a NEW to its <init> site, so it can slide past neighbouring
+            // NEWs — index-by-index pairing would mispair. Align the two equal-length lists on their
+            // longest common subsequence (the correctly translated NEWs); what remains on each side is
+            // the mistranslated NEWs and their true DEX types, in matching order.
+            var leftovers = AlignLeftovers(jvmNews, normDex);
+
+            // java/lang/Object leftovers follow the validated legacy path (retype + ()V ctor rewrite);
+            // everything else must pass the strict shape checks below before anything is rewritten.
             var newToType = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
-            int ri = 0;
-            foreach (var t in jvmNews)
+            var generalCandidates = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
+            foreach (var (tin, target) in leftovers)
             {
-                if (t.desc != "java/lang/Object")
-                    continue;
-                if (ri >= residual.Count)
-                    break;
-                string target = residual[ri++];
-                if (target == "java/lang/Object")
-                    continue; // genuine new Object
-                newToType[t] = target;
+                if (tin.desc == target || target == "java/lang/Object")
+                    continue; // alignment artifact or genuine new Object
+                if (tin.desc == "java/lang/Object")
+                    newToType[tin] = target;
+                else
+                    generalCandidates[tin] = target;
             }
-            if (newToType.Count == 0)
+
+            if (newToType.Count == 0 && generalCandidates.Count == 0)
                 return (0, 0);
 
             // Pair each retyped NEW with its <init> invokespecial through origin tracking.
@@ -655,6 +671,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 return (0, 1);
             }
 
+            var committedGeneral = new Dictionary<TypeInsnNode, string>(ReferenceEqualityComparer.Instance);
             var insns = mn.instructions.toArray();
             for (int i = 0; i < insns.Length; i++)
             {
@@ -674,14 +691,38 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 var recv = (SourceValue)fr.getStack(recvIndex);
                 foreach (var src in IterateInsns(recv.insns))
                 {
-                    if (src is TypeInsnNode tin && newToType.TryGetValue(tin, out var target))
+                    if (src is not TypeInsnNode tin)
+                        continue;
+
+                    if (newToType.TryGetValue(tin, out var target))
                     {
                         // Only the mistranslated ()V pattern is safe to rewrite; leave any non-()V ctor alone.
                         if (min.desc == "()V")
                         {
                             min.owner = target;
-                            ctorNeeded.Add(target);
+                            ctorNeeded.Add((target, "()V", null));
                         }
+                    }
+                    else if (generalCandidates.TryGetValue(tin, out var genTarget))
+                    {
+                        // Strict shape checks for the general path:
+                        //  1. the ctor being invoked is owned by the (wrong) type dex2jar emitted for the NEW,
+                        //  2. that emitted type is an ancestor of the recovered DEX type (the stripped-ctor
+                        //     signature; also rejects unrelated mismatches such as replaced android classes),
+                        //  3. a constructor chain from the recovered type down to the invoked super ctor can
+                        //     be synthesised from classes present in this JAR.
+                        if (min.owner != tin.desc)
+                            continue;
+                        if (!IsAncestor(byName, genTarget, tin.desc))
+                            continue;
+                        var links = PlanConstructorChain(byName, genTarget, min.desc, tin.desc);
+                        if (links == null)
+                            continue;
+
+                        min.owner = genTarget;
+                        foreach (var link in links)
+                            ctorNeeded.Add(link);
+                        committedGeneral[tin] = genTarget;
                     }
                 }
             }
@@ -692,38 +733,148 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 kv.Key.desc = kv.Value;
                 n++;
             }
+            foreach (var kv in committedGeneral)
+            {
+                kv.Key.desc = kv.Value;
+                n++;
+            }
             return (n, 0);
         }
 
-        private int SynthesizeConstructors(Dictionary<string, ClassNode> byName, HashSet<string> ctorNeeded)
+        /// <summary>
+        /// Aligns the (equal-length) JVM NEW list and DEX new-instance list on their longest common
+        /// subsequence and returns the leftover pairs: the k-th unmatched JVM NEW paired with the k-th
+        /// unmatched DEX type. Correctly translated NEWs anchor the alignment, so mistranslated NEWs
+        /// pair with their true DEX types even when dex2jar moved them past neighbouring NEWs.
+        /// </summary>
+        private static List<(TypeInsnNode tin, string dexType)> AlignLeftovers(List<TypeInsnNode> jvmNews, List<string> dex)
+        {
+            int n = jvmNews.Count; // caller guarantees jvmNews.Count == dex.Count
+            var lcs = new int[n + 1, n + 1];
+            for (int i = n - 1; i >= 0; i--)
+                for (int j = n - 1; j >= 0; j--)
+                    lcs[i, j] = jvmNews[i].desc == dex[j]
+                        ? lcs[i + 1, j + 1] + 1
+                        : System.Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+
+            var unmatchedJvm = new List<TypeInsnNode>();
+            var unmatchedDex = new List<string>();
+            int a = 0, b = 0;
+            while (a < n && b < n)
+            {
+                if (jvmNews[a].desc == dex[b] && lcs[a, b] == lcs[a + 1, b + 1] + 1)
+                {
+                    a++;
+                    b++;
+                }
+                else if (lcs[a + 1, b] >= lcs[a, b + 1])
+                {
+                    unmatchedJvm.Add(jvmNews[a++]);
+                }
+                else
+                {
+                    unmatchedDex.Add(dex[b++]);
+                }
+            }
+            while (a < n)
+                unmatchedJvm.Add(jvmNews[a++]);
+            while (b < n)
+                unmatchedDex.Add(dex[b++]);
+
+            // Equal-length inputs minus an equal-length common subsequence leave equal-length remainders.
+            var result = new List<(TypeInsnNode, string)>(unmatchedJvm.Count);
+            for (int i = 0; i < unmatchedJvm.Count && i < unmatchedDex.Count; i++)
+                result.Add((unmatchedJvm[i], unmatchedDex[i]));
+            return result;
+        }
+
+        /// <summary>
+        /// True if <paramref name="ancestor"/> is <c>java/lang/Object</c> or appears on
+        /// <paramref name="type"/>'s superclass chain, walking only classes present in the JAR.
+        /// </summary>
+        private static bool IsAncestor(Dictionary<string, ClassNode> byName, string type, string ancestor)
+        {
+            if (ancestor == "java/lang/Object")
+                return true;
+            string cur = type;
+            for (int depth = 0; depth < 16; depth++)
+            {
+                if (!byName.TryGetValue(cur, out var node) || node.superName == null)
+                    return false;
+                if (node.superName == ancestor)
+                    return true;
+                cur = node.superName;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Plans the constructor synthesis needed so that <c>new target; target.&lt;init&gt;(desc)</c> is valid,
+        /// given the original code proved only that <paramref name="provenOwner"/> has an <c>&lt;init&gt;(desc)</c>.
+        /// Walks the super chain from <paramref name="target"/>: a class that already declares the ctor ends the
+        /// chain; otherwise a pass-through ctor calling its direct super is planned. Returns null if the chain
+        /// leaves the JAR before reaching <paramref name="provenOwner"/> (synthesis would be a guess).
+        /// </summary>
+        private static List<(string cls, string desc, string? superToCall)>? PlanConstructorChain(
+            Dictionary<string, ClassNode> byName, string target, string ctorDesc, string provenOwner)
+        {
+            var links = new List<(string cls, string desc, string? superToCall)>();
+            string cur = target;
+            for (int depth = 0; depth < 16; depth++)
+            {
+                if (cur == provenOwner)
+                    return links;
+                if (!byName.TryGetValue(cur, out var node))
+                    return null; // left the JAR before reaching the proven ctor owner
+                if (HasConstructor(node, ctorDesc))
+                    return links; // already constructible from here
+                string sup = node.superName ?? "java/lang/Object";
+                links.Add((cur, ctorDesc, sup));
+                cur = sup;
+            }
+            return null;
+        }
+
+        private static bool HasConstructor(ClassNode cn, string desc)
+        {
+            for (int i = 0; i < cn.methods.size(); i++)
+            {
+                var m = (MethodNode)cn.methods.get(i);
+                if (m.name == "<init>" && m.desc == desc)
+                    return true;
+            }
+            return false;
+        }
+
+        private int SynthesizeConstructors(
+            Dictionary<string, ClassNode> byName,
+            HashSet<(string cls, string desc, string? superToCall)> ctorNeeded)
         {
             int synth = 0;
-            foreach (var target in ctorNeeded)
+            foreach (var (target, desc, superToCall) in ctorNeeded)
             {
                 if (!byName.TryGetValue(target, out var cn))
                     continue; // target lives in a library, not this JAR
 
-                bool has = false;
-                for (int i = 0; i < cn.methods.size(); i++)
-                {
-                    var m = (MethodNode)cn.methods.get(i);
-                    if (m.name == "<init>" && m.desc == "()V")
-                    {
-                        has = true;
-                        break;
-                    }
-                }
-                if (has)
+                if (HasConstructor(cn, desc))
                     continue;
 
-                string sup = cn.superName ?? "java/lang/Object";
-                var ctor = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC, "<init>", "()V", (string?)null, (string[]?)null);
+                // superToCall is planned for the general (non-Object) path; the legacy ()V path
+                // passes null and calls the class's own superclass constructor.
+                string sup = superToCall ?? cn.superName ?? "java/lang/Object";
+                var ctor = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC, "<init>", desc, (string?)null, (string[]?)null);
                 var il = ctor.instructions;
                 il.add(new VarInsnNode(Opcodes.ALOAD, 0));
-                il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, sup, "<init>", "()V", false));
+                int slot = 1;
+                foreach (var at in org.objectweb.asm.Type.getArgumentTypes(desc))
+                {
+                    il.add(new VarInsnNode(at.getOpcode(Opcodes.ILOAD), slot));
+                    slot += at.getSize();
+                }
+                il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, sup, "<init>", desc, false));
                 il.add(new InsnNode(Opcodes.RETURN));
-                ctor.maxStack = 1;
-                ctor.maxLocals = 1;
+                ctor.maxStack = slot;
+                ctor.maxLocals = slot;
                 cn.methods.add(ctor);
                 synth++;
             }
