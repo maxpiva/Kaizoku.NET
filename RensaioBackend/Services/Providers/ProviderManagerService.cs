@@ -25,15 +25,26 @@ namespace RensaioBackend.Services.Providers
         private readonly ProviderCacheService _providerCache;
         private readonly ILogger<ProviderManagerService> _logger;
         private readonly AppDbContext _db;
+        private readonly IHostApplicationLifetime _lifetime;
 
-        public ProviderManagerService(MihonBridgeService mihon, AppDbContext db, SettingsService settingsService, ProviderCacheService providerCache, ILogger<ProviderManagerService> logger)
+        public ProviderManagerService(MihonBridgeService mihon, AppDbContext db, SettingsService settingsService, ProviderCacheService providerCache, ILogger<ProviderManagerService> logger, IHostApplicationLifetime lifetime)
         {
             _mihon = mihon;
             _providerCache = providerCache;
             _logger = logger;
             _db = db;
             _settingsService = settingsService;
+            _lifetime = lifetime;
         }
+
+        /// <summary>
+        /// Install/uninstall mutate the database, the extension store and the job schedule across
+        /// many await points; honoring the HTTP request token means a client disconnect (or a
+        /// reverse-proxy timeout, e.g. Cloudflare's ~100s cap) aborts them halfway through and
+        /// leaves the provider cache and schedule stale. Once one of these operations starts it
+        /// must only be cancelled by application shutdown.
+        /// </summary>
+        private CancellationToken DetachedToken => _lifetime.ApplicationStopping;
         /// <summary>
         /// Gets required extensions for a list of provider infos
         /// </summary>
@@ -199,6 +210,7 @@ namespace RensaioBackend.Services.Providers
         /// <returns>True if installation was successful</returns>
         public async Task<bool> InstallProviderAsync(string pkgName, string? repoName, bool force, CancellationToken token = default)
         {
+            token = DetachedToken;
             try
             {
                 _logger.LogInformation("Installing provider: {PkgName}", pkgName);
@@ -264,6 +276,7 @@ namespace RensaioBackend.Services.Providers
         /// <returns>True if installation was successful</returns>
         public async Task<string?> InstallProviderFromFileAsync(byte[] content, bool force, CancellationToken token = default)
         {
+            token = DetachedToken;
             try
             {
                 _logger.LogInformation("Installing provider...");
@@ -335,6 +348,7 @@ namespace RensaioBackend.Services.Providers
         /// <returns>True if uninstallation was successful</returns>
         public async Task<bool> DisableProviderAsync(string pkgName, CancellationToken token = default)
         {
+            token = DetachedToken;
             try
             {
                 _logger.LogInformation("Uninstalling provider: {PkgName}", pkgName);
@@ -386,6 +400,7 @@ namespace RensaioBackend.Services.Providers
 
         public async Task<bool> SetProviderVersionAsync(string pkgName, string version, bool autoUpdate = true, CancellationToken token = default)
         {
+            token = DetachedToken;
             try
             {
                 _logger.LogInformation("Activating provider: {PkgName} version {version}", pkgName, version);
