@@ -1112,7 +1112,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
 
     @Override
     public final void layout(int l, int t, int r, int b) {
-        throw new RuntimeException("Stub!");
+        super.layout(l, t, r, b);
     }
 
     @Override

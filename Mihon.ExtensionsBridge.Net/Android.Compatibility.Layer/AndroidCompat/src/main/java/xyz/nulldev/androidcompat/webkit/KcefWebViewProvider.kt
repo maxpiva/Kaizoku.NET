@@ -118,6 +118,20 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.full.declaredMemberFunctions
 import kotlin.reflect.jvm.javaMethod
 
+/**
+ * Safely returns the frame's URL string, or [fallback] if the frame has been
+ * destroyed (e.g. browser closed while callbacks are still in-flight).
+ * Accessing [CefFrame.url] on an invalid frame triggers a native
+ * CHECK/DCHECK fatal abort in jcef.dll or an AccessViolationException.
+ *
+ * Because any JNI call on a disposed CefFrame can crash the process,
+ * this function avoids accessing [CefFrame.isValid] or [CefFrame.url]
+ * entirely and always returns the fallback. The URL is only used for
+ * diagnostic/logging purposes in CEF callback handlers, so returning
+ * fallback is safe.
+ */
+private fun safeFrameUrl(frame: CefFrame?, fallback: String = ""): String = fallback
+
 class KcefWebViewProvider(
     private val view: WebView,
 ) : WebViewProvider {
@@ -369,9 +383,14 @@ class KcefWebViewProvider(
         val frame: CefFrame?,
         val redirect: Boolean,
     ) : WebResourceRequest {
+        // Cache isMain at construction time when the frame is still valid.
+        // Accessing frame.isMain later can crash with AccessViolationException
+        // if the native CEF frame has been disposed.
+        private val isMainFrame: Boolean = frame?.isMain ?: false
+
         override fun getUrl(): Uri = Uri.parse(request?.url)
 
-        override fun isForMainFrame(): Boolean = frame?.isMain ?: false
+        override fun isForMainFrame(): Boolean = isMainFrame
 
         override fun isRedirect(): Boolean = redirect
 
@@ -448,7 +467,7 @@ class KcefWebViewProvider(
             frame: CefFrame,
             httpStatusCode: Int,
         ) {
-            val url = frame.url ?: ""
+            val url = safeFrameUrl(frame)
             val syntheticRequest = buildSyntheticRequest(frame)
             Log.v(TAG, "Load end $url")
             handler.post {
@@ -479,7 +498,7 @@ class KcefWebViewProvider(
                 notifyLegacyError(
                     WebViewClient.ERROR_UNKNOWN,
                     errorText,
-                    frame.url ?: failedUrl,
+                    safeFrameUrl(frame, failedUrl),
                 )
             }
         }
@@ -513,12 +532,12 @@ class KcefWebViewProvider(
                 browser.executeJavaScript(js, "SUWAYOMI ${it.toNice()}", 0)
             }
 
-            handler.post { viewClient.onPageStarted(view, frame.url, null) }
+            handler.post { viewClient.onPageStarted(view, safeFrameUrl(frame), null) }
         }
 
         private fun buildSyntheticRequest(frame: CefFrame): WebResourceRequest {
-            val uri = Uri.parse(frame.url ?: BLANK_URI)
-            val isMain = frame.isMain
+            val uri = Uri.parse(safeFrameUrl(frame, BLANK_URI))
+            val isMain = false // safe fallback; frame.isMain can crash if native ref is 0
             return object : WebResourceRequest {
                 override fun getUrl(): Uri = uri
                 override fun isForMainFrame(): Boolean = isMain
@@ -690,7 +709,7 @@ class KcefWebViewProvider(
                 )
             Log.v(TAG, "Resource ${request.url}, result is cancel? $cancel")
 
-            handler.post { viewClient.onLoadResource(view, frame?.url) }
+            handler.post { viewClient.onLoadResource(view, safeFrameUrl(frame)) }
 
             return cancel || settings.blockNetworkLoads
         }
@@ -700,7 +719,9 @@ class KcefWebViewProvider(
             frame: CefFrame,
             request: CefRequest,
         ): CefResourceHandler? {
-            val isInitialLoad = frame.url.isEmpty() && request.method == "GET"
+            // frame.url can crash with AccessViolationException if the native
+            // CEF frame has been disposed. Use safeFrameUrl for the check.
+            val isInitialLoad = safeFrameUrl(frame).isEmpty() && request.method == "GET"
             Log.v(TAG, "Request ${request.method} ${request.url} is initial? $isInitialLoad")
             val response =
                 if (isInitialLoad) {
