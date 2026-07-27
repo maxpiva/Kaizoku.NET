@@ -328,6 +328,34 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                 return pages!.toArray().Cast<eu.kanade.tachiyomi.source.model.Page>().Select(a => a.ToPage()).ToList();
             }).ConfigureAwait(false);
         }
+        /// <summary>
+        /// Snapshot of the headers this source's own OkHttp client sends (the same headers
+        /// <see cref="DownloadUrlAsync"/> uses for cover fetches). Empty for non-HTTP sources.
+        /// </summary>
+        public Dictionary<string, string> GetImageRequestHeaders()
+        {
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var h = _httpSource?.getHeaders();
+                if (h != null)
+                {
+                    for (int i = 0; i < h.size(); i++)
+                    {
+                        string? name = h.name(i);
+                        string? value = h.value(i);
+                        if (!string.IsNullOrEmpty(name) && value != null)
+                            headers[name] = value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not read image request headers for source {Name}.", Name);
+            }
+            return headers;
+        }
+
         public async Task<ContentTypeStream> DownloadUrlAsync(string url, CancellationToken token = default)
         {
             return await WrapHttpException(async () =>

@@ -22,6 +22,12 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         Task<List<Page>> GetPagesAsync(Chapter chapter, CancellationToken token = default);
         Task<MangaList> GetPopularAsync(int page, CancellationToken token = default);
         Task<MangaList> SearchAsync(int page, string query, CancellationToken token = default);
+        /// <summary>
+        /// The HTTP headers this source's own client sends for image/cover requests
+        /// (User-Agent, Referer, ...). Empty for non-HTTP sources. Lets callers replay a
+        /// cover fetch with the source's identity when no interop is available.
+        /// </summary>
+        Dictionary<string, string> GetImageRequestHeaders();
         List<KeyPreference> GetPreferences();
         void SetPreference(int position, string value);
         void SetPreference(KeyPreference preference);
