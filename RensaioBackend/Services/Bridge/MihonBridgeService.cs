@@ -149,6 +149,15 @@ namespace RensaioBackend.Services.Bridge
             return GetFromNameAsync(entry.Name, token);
         }
 
+        /// <summary>
+        /// Shadow-loads a not-installed online extension for discovery search.
+        /// Never registers the extension as installed anywhere.
+        /// </summary>
+        public Task<IExtensionInterop> GetDiscoveryInteropAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            return _bridgeManager.LocalExtensionManager.GetDiscoveryInteropAsync(extension, token);
+        }
+
         public List<RepositoryGroup> ListExtensions()
         {
             return _bridgeManager.LocalExtensionManager.ListExtensions();
