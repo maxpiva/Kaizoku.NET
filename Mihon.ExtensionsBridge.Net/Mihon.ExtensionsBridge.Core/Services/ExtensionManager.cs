@@ -312,9 +312,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 throw new InvalidOperationException("Local extensions not initialized.");
             if (extension == null) throw new ArgumentNullException(nameof(extension));
 
-            // If the extension is actually installed, always use the normal installed interop.
-            (RepositoryGroup? group, RepositoryEntry? installedEntry) = await FindRepositoryEntryFromExtensionAsync(extension, token).ConfigureAwait(false);
-            if (group != null && installedEntry != null)
+            // If the extension is actually installed (any version), always use the normal installed interop.
+            (RepositoryGroup? group, RepositoryEntry? _) = await FindRepositoryEntryFromExtensionAsync(extension, token).ConfigureAwait(false);
+            if (group != null)
                 return await GetInteropAsync(group, token).ConfigureAwait(false);
 
             string key = extension.GetName();
