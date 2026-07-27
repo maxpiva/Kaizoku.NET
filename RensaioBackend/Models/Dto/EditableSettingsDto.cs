@@ -13,6 +13,13 @@ public class EditableSettingsDto
 
     [JsonPropertyName("numberOfSimultaneousSearches")]
     public int NumberOfSimultaneousSearches { get; set; } = 10;
+
+    /// <summary>
+    /// Upper bound on how many not-installed extensions a single discovery
+    /// ("search more sources") request will shadow-load and search.
+    /// </summary>
+    [JsonPropertyName("maxDiscoverySearchExtensions")]
+    public int MaxDiscoverySearchExtensions { get; set; } = 30;
     [JsonPropertyName("chapterDownloadFailRetryTime")]
     public TimeSpan ChapterDownloadFailRetryTime { get; set; } = TimeSpan.FromMinutes(30);
     [JsonPropertyName("chapterDownloadFailRetries")]

@@ -155,6 +155,7 @@ namespace RensaioBackend.Services
             // CQRS Search Services
             services.TryAddScoped<SearchQueryService>();
             services.TryAddScoped<SearchCommandService>();
+            services.TryAddScoped<DiscoverySearchService>();
             
             return services;
         }

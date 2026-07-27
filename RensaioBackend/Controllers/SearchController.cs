@@ -16,21 +16,32 @@ namespace RensaioBackend.Controllers
         private readonly ILogger _logger;
         private readonly SearchQueryService _searchQueryService;
         private readonly SearchCommandService _searchCommandService;
+        private readonly DiscoverySearchService _discoverySearchService;
         private readonly ThumbCacheService _thumbs;
         private readonly SettingsService _settings;
-        
+
         public SearchController(
-            ILogger<SearchController> logger, 
+            ILogger<SearchController> logger,
             SearchQueryService searchQueryService,
             SearchCommandService searchCommandService,
+            DiscoverySearchService discoverySearchService,
             ThumbCacheService thumbs,
-            SettingsService settingsService) 
+            SettingsService settingsService)
         {
             _searchQueryService = searchQueryService;
             _searchCommandService = searchCommandService;
+            _discoverySearchService = discoverySearchService;
             _settings = settingsService;
             _thumbs = thumbs;
             _logger = logger;
+        }
+
+        private static List<string> ParseLanguages(string? languages)
+        {
+            return (languages ?? string.Empty).Split(',')
+                .Select(l => l.Trim().ToLowerInvariant())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
         }
         /// <summary>
         /// Augments a list of linked series with full details and type information
@@ -83,6 +94,66 @@ namespace RensaioBackend.Controllers
             {
                 _logger.LogError(ex, "Error retrieving search sources: {Message}", ex.Message);
                 return StatusCode(500, new { error = "An error occurred while retrieving search sources" });
+            }
+        }
+
+        /// <summary>
+        /// Gets the number of not-installed extensions/sources eligible for discovery search,
+        /// so the UI can show "Search N more sources".
+        /// </summary>
+        /// <param name="languages">Comma-separated list of language codes (defaults to preferred languages)</param>
+        [HttpGet("discovery/sources")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<DiscoverySourcesDto>> GetDiscoverySourcesAsync(
+            [FromQuery] string? languages = null,
+            CancellationToken token = default)
+        {
+            try
+            {
+                var result = await _discoverySearchService.GetDiscoverySourcesAsync(ParseLanguages(languages), token).ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving discovery sources: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while retrieving discovery sources" });
+            }
+        }
+
+        /// <summary>
+        /// Searches for series across sources whose extensions are NOT installed, by shadow-loading
+        /// them server-side. Results carry installed=false plus the extension package/repository so
+        /// the client can install the extension when a result is selected.
+        /// </summary>
+        /// <param name="keyword">Search keyword</param>
+        /// <param name="languages">Comma-separated list of language codes (defaults to preferred languages)</param>
+        /// <remarks>
+        /// The first search against a given extension downloads and converts its APK, which can take
+        /// a while; subsequent searches reuse the shadow-loaded extension.
+        /// </remarks>
+        [HttpGet("discovery")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<List<DiscoverySeriesDto>>> SearchDiscoveryAsync(
+            [FromQuery] string keyword,
+            [FromQuery] string? languages = null,
+            CancellationToken token = default)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                return BadRequest("Search keyword is required");
+            }
+            try
+            {
+                var results = await _discoverySearchService.SearchSeriesAsync(keyword, ParseLanguages(languages), 0.1f, token).ConfigureAwait(false);
+                await _thumbs.PopulateThumbsAsync(results, "/api/image/", token).ConfigureAwait(false);
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in discovery search: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while searching not-installed sources" });
             }
         }
 
