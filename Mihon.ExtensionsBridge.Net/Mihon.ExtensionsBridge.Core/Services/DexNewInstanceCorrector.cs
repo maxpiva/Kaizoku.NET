@@ -246,6 +246,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
         private readonly DexNewInstanceOracle _oracle;
         private readonly ILogger _logger;
         private readonly System.Func<string, string>? _normalizeDexType;
+        private readonly System.Func<string, bool>? _isExternalInterface;
+        private readonly Dictionary<string, bool> _externalInterfaceCache = new(System.StringComparer.Ordinal);
 
         /// <summary>Java class-file major version 49 (Java 5) — forces HotSpot's type-inference verifier.</summary>
         private const int TargetMajorVersion = 49;
@@ -255,11 +257,18 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// class-replacement mapping applied during conversion, e.g. SimpleDateFormat → the
         /// androidcompat replacement). Null means identity.
         /// </param>
-        public DexNewInstanceCorrector(DexNewInstanceOracle oracle, ILogger logger, System.Func<string, string>? normalizeDexType = null)
+        /// <param name="isExternalInterface">
+        /// Resolves whether a library type (not present in the JAR) is an interface, e.g. via the
+        /// compat classloader the extension will run under. Null means unknown (treated as class).
+        /// </param>
+        public DexNewInstanceCorrector(DexNewInstanceOracle oracle, ILogger logger,
+            System.Func<string, string>? normalizeDexType = null,
+            System.Func<string, bool>? isExternalInterface = null)
         {
             _oracle = oracle;
             _logger = logger;
             _normalizeDexType = normalizeDexType;
+            _isExternalInterface = isExternalInterface;
         }
 
         /// <summary>
@@ -275,7 +284,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
             // (class, ctor descriptor, super <init> to call — null means the class's own superName)
             var ctorNeeded = new HashSet<(string cls, string desc, string? superToCall)>();
-            int retyped = 0, skippedMethods = 0, splitLocals = 0;
+            int retyped = 0, skippedMethods = 0, splitLocals = 0, itfFixed = 0;
 
             foreach (var cn in nodes)
             {
@@ -284,6 +293,13 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     var mn = (MethodNode)cn.methods.get(i);
                     if (mn.instructions.size() == 0)
                         continue;
+
+                    // dex2jar frequently declares max_stack a few slots too small, which makes ASM's
+                    // Analyzer abort with "Insufficient maximum stack size" and silently skips the whole
+                    // method (Bookwalker's wrong-<init> site hid behind this). WriteClass recomputes the
+                    // real value via COMPUTE_MAXS, so padding the declared one here is free.
+                    mn.maxStack = System.Math.Min(mn.maxStack + 32, 65535);
+
                     try
                     {
                         var result = FixMethod(cn, mn, byName, ctorNeeded);
@@ -308,15 +324,60 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     {
                         _logger.LogTrace(ex, "DexNewInstanceCorrector: local-web split skipped {Class}.{Method}{Desc}", cn.name, mn.name, mn.desc);
                     }
+
+                    itfFixed += FixInterfaceStaticCalls(cn, mn, byName);
                 }
             }
 
             int synth = SynthesizeConstructors(byName, ctorNeeded);
 
-            if (retyped > 0 || synth > 0 || splitLocals > 0)
+            if (retyped > 0 || synth > 0 || splitLocals > 0 || itfFixed > 0)
                 _logger.LogDebug(
-                    "DexNewInstanceCorrector: retypedNew={Retyped} synthCtors={Synth} splitLocals={SplitLocals} skippedMethods={Skipped}",
-                    retyped, synth, splitLocals, skippedMethods);
+                    "DexNewInstanceCorrector: retypedNew={Retyped} synthCtors={Synth} splitLocals={SplitLocals} itfStaticFixed={ItfFixed} skippedMethods={Skipped}",
+                    retyped, synth, splitLocals, itfFixed, skippedMethods);
+        }
+
+        /// <summary>
+        /// Repairs dex2jar's interface-blindness on static calls to library types: DEX
+        /// <c>invoke-static</c> carries no interface bit and the owner (e.g.
+        /// <c>kotlinx/coroutines/Job.cancel$default</c>, a static interface method) is not in the DEX,
+        /// so dex2jar emits a plain <c>Methodref</c> (<c>itf=false</c>). Resolving an interface method
+        /// through a <c>Methodref</c> raises <c>IncompatibleClassChangeError</c> at runtime. In-JAR
+        /// owners are classified by their access flags, library owners through
+        /// <see cref="_isExternalInterface"/> (cached).
+        /// </summary>
+        /// <returns>The number of call sites whose interface flag was corrected.</returns>
+        private int FixInterfaceStaticCalls(ClassNode cn, MethodNode mn, Dictionary<string, ClassNode> byName)
+        {
+            int n = 0;
+            for (AbstractInsnNode p = mn.instructions.getFirst(); p != null; p = p.getNext())
+            {
+                if (p.getOpcode() != Opcodes.INVOKESTATIC)
+                    continue;
+                var min = (MethodInsnNode)p;
+                if (min.itf || min.owner == null || min.owner.Length == 0 || min.owner[0] == '[')
+                    continue;
+
+                bool isInterface;
+                if (byName.TryGetValue(min.owner, out var target))
+                {
+                    isInterface = (target.access & Opcodes.ACC_INTERFACE) != 0;
+                }
+                else if (!_externalInterfaceCache.TryGetValue(min.owner, out isInterface))
+                {
+                    isInterface = _isExternalInterface?.Invoke(min.owner) ?? false;
+                    _externalInterfaceCache[min.owner] = isInterface;
+                }
+
+                if (!isInterface)
+                    continue;
+                min.itf = true;
+                n++;
+                _logger.LogTrace(
+                    "DexNewInstanceCorrector: marked static interface call {Owner}.{Name}{CallDesc} in {Class}.{Method}{Desc}",
+                    min.owner, min.name, min.desc, cn.name, mn.name, mn.desc);
+            }
+            return n;
         }
 
         /// <summary>
@@ -678,7 +739,14 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (!HasInvokeDynamic(cn))
             {
                 StripFrames(cn);
-                cn.version = TargetMajorVersion;
+                // invokestatic with an InterfaceMethodref (static interface methods, e.g. kotlinx
+                // Job.cancel$default as repaired by FixInterfaceStaticCalls) is only legal in class-file
+                // v52+, and IKVM enforces that gate ("Illegal constant pool index" at v49). IKVM's own
+                // inference verifier ignores StackMapTable, so such classes keep v52 with frames
+                // stripped; everything else keeps the validated v49 lowering.
+                cn.version = HasStaticInterfaceCall(cn)
+                    ? System.Math.Max(cn.version & 0xFFFF, Opcodes.V1_8)
+                    : TargetMajorVersion;
             }
 
             // COMPUTE_MAXS: dex2jar's declared max_stack is frequently too small for HotSpot's v49
@@ -703,34 +771,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (jvmNews.Count == 0)
                 return (0, 0);
 
-            var dex = _oracle.Get(cn.name, mn.name, mn.desc);
-            if (dex == null || dex.Count != jvmNews.Count)
-            {
-                // Diagnostic: this guard leaves an Object-typed NEW unrepaired. If the method
-                // that builds chapters (references 'r' / returns SChapter) lands here, that is a
-                // strong signal the R8 mistranslation for this method is not oracle-recoverable.
-                _logger.LogTrace(
-                    "DexNewInstanceCorrector: oracle mismatch, skipping {Class}.{Method}{Desc} (jvmNews={JvmNews}, dexNews={DexNews})",
-                    cn.name, mn.name, mn.desc, jvmNews.Count, dex == null ? -1 : dex.Count);
-                return (0, jvmNews.Any(t => t.desc == "java/lang/Object") ? 1 : 0);
-            }
-
-            // Normalise DEX types through the same class-replacement map applied during conversion
-            // (e.g. java/text/SimpleDateFormat → xyz/nulldev/.../SimpleDateFormat), so a replaced
-            // reference never counts as a mistranslation nor shadows one.
-            var normDex = new List<string>(dex.Count);
-            foreach (var d in dex)
-                normDex.Add(_normalizeDexType?.Invoke(d) ?? d);
-
-            // dex2jar's stripped-constructor mistranslation emits `NEW <super>` + `invokespecial
-            // <super>.<init>(...)` where the DEX allocated a subclass whose R8-stripped constructor is
-            // gone. NEW placement is not order-stable: dex2jar sinks some NEWs to their <init> site and
-            // leaves others at the (R8-hoisted) DEX allocation position, so any purely positional
-            // pairing of the two lists mispairs. Instead: anchor exact type matches as multisets, then
-            // let each mistranslated site (in <init> order) claim the earliest unclaimed DEX type that
-            // is actually compatible with the site's emitted super and constructor shape.
-
-            // Pair every NEW with its <init> invokespecial through origin tracking.
+            // Pair every NEW with its <init> invokespecial through origin tracking. Runs before the
+            // oracle gate because the ancestor-<init> retarget below is oracle-independent.
             Frame[] frames;
             try
             {
@@ -748,6 +790,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             // NEW -> (init instruction, init index). First <init> reached wins; conflicting owners bail the site.
             var initOf = new Dictionary<TypeInsnNode, (MethodInsnNode min, int index)>(ReferenceEqualityComparer.Instance);
             var insns = mn.instructions.toArray();
+            int retargeted = 0;
             for (int i = 0; i < insns.Length; i++)
             {
                 if (insns[i].getOpcode() != Opcodes.INVOKESPECIAL)
@@ -764,12 +807,72 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 if (recvIndex < 0)
                     continue;
                 var recv = (SourceValue)fr.getStack(recvIndex);
+                var recvNews = new List<TypeInsnNode>();
+                bool nonNewSource = false;
                 foreach (var src in IterateInsns(recv.insns))
                 {
                     if (src is TypeInsnNode tin && !initOf.ContainsKey(tin))
                         initOf[tin] = (min, i);
+                    if (src is TypeInsnNode nt && nt.getOpcode() == Opcodes.NEW)
+                        recvNews.Add(nt);
+                    else
+                        nonNewSource = true;
                 }
+
+                // Third stripped-ctor shape: the NEW keeps the correct DEX type but the DEX's literal
+                // `invoke-direct <ancestor>.<init>` is translated verbatim, yielding `NEW T` +
+                // `invokespecial U.<init>` with U != T ("Call to wrong initialization method", e.g.
+                // `new b1` initialised via Exception.<init> in a coroutine invokeSuspend). The oracle
+                // cannot flag it — every NEW type matches the DEX — but the bytecode alone proves it:
+                // an object created by `NEW T` may only be initialised by `T.<init>`. Retarget the call
+                // to T and synthesise the pass-through constructor chain T→…→U.
+                if (nonNewSource || recvNews.Count == 0)
+                    continue;
+                string newType = recvNews[0].desc;
+                if (min.owner == newType || !recvNews.TrueForAll(t => t.desc == newType))
+                    continue;
+                if (!IsAncestor(byName, newType, min.owner))
+                    continue;
+                var chain = PlanConstructorChain(byName, newType, min.desc, min.owner);
+                if (chain == null)
+                {
+                    _logger.LogTrace(
+                        "DexNewInstanceCorrector: cannot synthesise ctor chain {Type}->{Owner}{CtorDesc} in {Class}.{Method}{Desc}",
+                        newType, min.owner, min.desc, cn.name, mn.name, mn.desc);
+                    continue;
+                }
+                min.owner = newType;
+                foreach (var link in chain)
+                    ctorNeeded.Add(link);
+                retargeted++;
             }
+
+            var dex = _oracle.Get(cn.name, mn.name, mn.desc);
+            if (dex == null || dex.Count != jvmNews.Count)
+            {
+                // Diagnostic: this guard leaves an Object-typed NEW unrepaired. If the method
+                // that builds chapters (references 'r' / returns SChapter) lands here, that is a
+                // strong signal the R8 mistranslation for this method is not oracle-recoverable.
+                _logger.LogTrace(
+                    "DexNewInstanceCorrector: oracle mismatch, skipping {Class}.{Method}{Desc} (jvmNews={JvmNews}, dexNews={DexNews})",
+                    cn.name, mn.name, mn.desc, jvmNews.Count, dex == null ? -1 : dex.Count);
+                return (retargeted, jvmNews.Any(t => t.desc == "java/lang/Object") ? 1 : 0);
+            }
+
+            // Normalise DEX types through the same class-replacement map applied during conversion
+            // (e.g. java/text/SimpleDateFormat → xyz/nulldev/.../SimpleDateFormat), so a replaced
+            // reference never counts as a mistranslation nor shadows one.
+            var normDex = new List<string>(dex.Count);
+            foreach (var d in dex)
+                normDex.Add(_normalizeDexType?.Invoke(d) ?? d);
+
+            // dex2jar's stripped-constructor mistranslation emits `NEW <super>` + `invokespecial
+            // <super>.<init>(...)` where the DEX allocated a subclass whose R8-stripped constructor is
+            // gone. NEW placement is not order-stable: dex2jar sinks some NEWs to their <init> site and
+            // leaves others at the (R8-hoisted) DEX allocation position, so any purely positional
+            // pairing of the two lists mispairs. Instead: anchor exact type matches as multisets, then
+            // let each mistranslated site (in <init> order) claim the earliest unclaimed DEX type that
+            // is actually compatible with the site's emitted super and constructor shape.
 
             // Multiset anchoring on exact types: the k-th JVM NEW of type X consumes the k-th DEX
             // occurrence of X (up to the smaller count). Whatever remains on each side is the
@@ -807,7 +910,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             }
 
             if (jvmLeftovers.Count == 0)
-                return (0, 0);
+                return (retargeted, 0);
 
             // Sites are processed in construction order (<init> position); a site without a traceable
             // <init> cannot be validated, so it stays untouched.
@@ -868,7 +971,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 }
             }
 
-            return (n, 0);
+            return (n + retargeted, 0);
         }
 
         /// <summary>
@@ -977,6 +1080,18 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     p = next;
                 }
             }
+        }
+
+        private static bool HasStaticInterfaceCall(ClassNode cn)
+        {
+            for (int i = 0; i < cn.methods.size(); i++)
+            {
+                var mn = (MethodNode)cn.methods.get(i);
+                for (AbstractInsnNode p = mn.instructions.getFirst(); p != null; p = p.getNext())
+                    if (p.getOpcode() == Opcodes.INVOKESTATIC && ((MethodInsnNode)p).itf)
+                        return true;
+            }
+            return false;
         }
 
         private static bool HasInvokeDynamic(ClassNode cn)
