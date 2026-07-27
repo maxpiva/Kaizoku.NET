@@ -223,7 +223,17 @@ namespace RensaioBackend.Services.Images
                 string key = Guid.NewGuid().ToString("N");
                 var existingEntry = await _db.ETagCache.FirstOrDefaultAsync(e => e.Url == url, token).ConfigureAwait(false);
                 if (existingEntry != null)
+                {
+                    // Backfill the provider id on rows created without one (e.g. discovery thumbs
+                    // registered via PopulateThumbsAsync before the source association was known),
+                    // so the image cache's source-interop fallback can fetch protected covers.
+                    if (string.IsNullOrEmpty(existingEntry.MihonProviderId) && !string.IsNullOrEmpty(mihonProviderId))
+                    {
+                        existingEntry.MihonProviderId = mihonProviderId;
+                        await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                    }
                     return existingEntry;
+                }
                 var newCacheEntry = new Models.Database.EtagCacheEntity
                 {
                     Key = key,
