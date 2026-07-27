@@ -29,6 +29,8 @@ public class DiscoveryWorkerContext
     public required int BatchSize { get; init; }
     public required bool WarmPoolEnabled { get; init; }
     public required TimeSpan IdleTimeout { get; init; }
+    /// <summary>Hard ceiling on live worker processes, not just concurrent ones.</summary>
+    public required int MaxWorkers { get; init; }
 }
 
 /// <summary>
@@ -69,6 +71,10 @@ public class DiscoveryWorkerPool : IDisposable
     private volatile bool _warmEnabled = true;
     private TimeSpan _idleTimeout = TimeSpan.FromMinutes(10);
     private int _batchSize = 10;
+    private int _maxWorkers = 2;
+    /// <summary>Signalled whenever a worker is released or removed, so acquirers waiting on the
+    /// process ceiling can re-check instead of spawning past it.</summary>
+    private readonly SemaphoreSlim _slotFreed = new(0);
 
     public DiscoveryWorkerPool(ILogger<DiscoveryWorkerPool> logger)
     {
@@ -106,6 +112,7 @@ public class DiscoveryWorkerPool : IDisposable
         _warmEnabled = context.WarmPoolEnabled;
         _idleTimeout = context.IdleTimeout > TimeSpan.Zero ? context.IdleTimeout : TimeSpan.FromMinutes(10);
         _batchSize = Math.Max(1, context.BatchSize);
+        _maxWorkers = Math.Max(1, context.MaxWorkers);
         if (!_warmEnabled)
             ReapAll("warm pool disabled");
     }
@@ -172,7 +179,7 @@ public class DiscoveryWorkerPool : IDisposable
             MaxParallelExtensions = parallelism,
             Extensions = batch
         };
-        WorkerHandle handle = AcquireWorker(batch, context);
+        WorkerHandle handle = await AcquireWorkerAsync(batch, context, token).ConfigureAwait(false);
         var outcome = new DiscoveryWorkerBatchOutcome();
         try
         {
@@ -212,7 +219,7 @@ public class DiscoveryWorkerPool : IDisposable
             SourceId = sourceId,
             MangaJson = mangaJson
         };
-        WorkerHandle handle = AcquireWorker(request.Extensions, context);
+        WorkerHandle handle = await AcquireWorkerAsync(request.Extensions, context, token).ConfigureAwait(false);
         DiscoveryWorkerEvent? answer = null;
         var outcome = new DiscoveryWorkerBatchOutcome();
         string identity = extension.Entry.Extension.Package + "|" + sourceId;
@@ -255,8 +262,39 @@ public class DiscoveryWorkerPool : IDisposable
 
     // ----------------------------------------------------------------- internals
 
-    private WorkerHandle AcquireWorker(List<DiscoveryWorkerExtension> batch, DiscoveryWorkerContext context)
+    /// <summary>
+    /// Gets a worker for this batch, never letting the pool hold more than
+    /// <see cref="DiscoveryWorkerContext.MaxWorkers"/> live processes. Reuse is preferred; at the
+    /// ceiling an idle worker that cannot take this batch (grown past the recycle cap) is retired to
+    /// make room, and when every worker is busy the caller waits for one to be released rather than
+    /// spawning past the ceiling.
+    /// </summary>
+    private async Task<WorkerHandle> AcquireWorkerAsync(List<DiscoveryWorkerExtension> batch,
+        DiscoveryWorkerContext context, CancellationToken token)
     {
+        // The details path does not go through Configure(), so keep the ceiling current here too.
+        _maxWorkers = Math.Max(1, context.MaxWorkers);
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            WorkerHandle? acquired = TryAcquireWorker(batch, context, out WorkerHandle? retire);
+            if (retire != null)
+                KillWorker(retire, "retired to stay within max workers");
+            if (acquired != null)
+                return acquired;
+            // Either we just made room, or every worker is busy — wait for a release and re-check.
+            await _slotFreed.WaitAsync(TimeSpan.FromMilliseconds(250), token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// One attempt at the acquire loop. Returns null when the pool is at its ceiling with every
+    /// worker busy; <paramref name="retire"/> is a worker the caller must kill outside the lock.
+    /// </summary>
+    private WorkerHandle? TryAcquireWorker(List<DiscoveryWorkerExtension> batch,
+        DiscoveryWorkerContext context, out WorkerHandle? retire)
+    {
+        retire = null;
         lock (_lock)
         {
             // 1) An idle worker that already has every extension of this batch loaded (version match).
@@ -288,7 +326,23 @@ public class DiscoveryWorkerPool : IDisposable
                 best.Busy = true;
                 return best;
             }
-            // 3) Spawn a fresh worker.
+            // 3) Spawn a fresh worker, but never past the process ceiling.
+            _workers.RemoveAll(w => w.Doomed && !w.Busy);
+            if (_workers.Count >= _maxWorkers)
+            {
+                // At the ceiling. Retire the least recently used idle worker — it is one we could
+                // not reuse above (grown past the recycle cap), so it would otherwise sit resident
+                // holding its heap until the idle reaper eventually collected it.
+                WorkerHandle? victim = _workers
+                    .Where(w => !w.Busy)
+                    .OrderBy(w => w.LastUsedUtc)
+                    .FirstOrDefault();
+                if (victim == null)
+                    return null; // every worker is busy; caller waits for a release
+                _workers.Remove(victim);
+                retire = victim;
+                return null; // retry after the caller kills it, so we never overlap processes
+            }
             WorkerHandle spawned = Spawn(context);
             spawned.Busy = true;
             _workers.Add(spawned);
@@ -324,6 +378,13 @@ public class DiscoveryWorkerPool : IDisposable
         }
         if (kill)
             KillWorker(handle, "recycled");
+        SignalSlotFreed();
+    }
+
+    /// <summary>Wakes one acquirer waiting on the process ceiling.</summary>
+    private void SignalSlotFreed()
+    {
+        try { _slotFreed.Release(); } catch (ObjectDisposedException) { }
     }
 
     private WorkerHandle Spawn(DiscoveryWorkerContext context)
@@ -568,7 +629,10 @@ public class DiscoveryWorkerPool : IDisposable
                 _workers.Remove(v);
         }
         foreach (WorkerHandle v in victims)
+        {
             KillWorker(v, "idle timeout");
+            SignalSlotFreed();
+        }
     }
 
     private void ReapAll(string reason)
@@ -581,7 +645,10 @@ public class DiscoveryWorkerPool : IDisposable
                 _workers.Remove(v);
         }
         foreach (WorkerHandle v in victims)
+        {
             KillWorker(v, reason);
+            SignalSlotFreed();
+        }
     }
 
     public void Dispose()

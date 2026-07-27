@@ -491,7 +491,8 @@ namespace RensaioBackend.Services.Search
                 InactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90),
                 BatchSize = batchSize,
                 WarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
-                IdleTimeout = settings.DiscoveryWorkerIdleTimeout
+                IdleTimeout = settings.DiscoveryWorkerIdleTimeout,
+                MaxWorkers = maxWorkers
             };
             _pool.Configure(context);
             using var semaphore = new SemaphoreSlim(maxWorkers);
@@ -748,7 +749,8 @@ namespace RensaioBackend.Services.Search
                 InactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90),
                 BatchSize = Math.Max(1, settings.DiscoveryWorkerBatchSize),
                 WarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
-                IdleTimeout = settings.DiscoveryWorkerIdleTimeout
+                IdleTimeout = settings.DiscoveryWorkerIdleTimeout,
+                MaxWorkers = Math.Max(1, settings.MaxDiscoveryWorkers)
             };
         }
 
