@@ -63,6 +63,17 @@ export interface LinkedSeries {
   useCover: boolean;
   isStorage: boolean;
   isLocal: boolean;
+  // Discovery-search extras (present only on results from not-installed sources)
+  installed?: boolean;
+  extensionPkg?: string;
+  extensionRepoName?: string;
+  extensionName?: string;
+}
+
+/** Counts of not-installed extensions/sources eligible for discovery search. */
+export interface DiscoverySources {
+  extensionCount: number;
+  sourceCount: number;
 }
 
 export interface FullSeries {
