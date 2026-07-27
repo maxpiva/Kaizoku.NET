@@ -119,7 +119,9 @@ public static class DiscoveryWorkerProgram
                             var result = await SourceTimeout
                                 .RunAsync(c => src.SearchAsync(1, input.Query, c), searchTimeout, ct)
                                 .ConfigureAwait(false);
-                            if (result == null || result.Mangas.Count == 0)
+                            // Mangas itself can be null when a source doesn't implement search
+                            // (same guard as the parent's in-process path).
+                            if (result?.Mangas == null || result.Mangas.Count == 0)
                                 continue;
                             Emit(new DiscoveryWorkerEvent
                             {
@@ -161,14 +163,19 @@ public static class DiscoveryWorkerProgram
     /// <summary>
     /// An unset <see cref="Manga.Memo"/> is an Undefined JsonElement, which System.Text.Json
     /// refuses to serialize — replace it with an explicit null before the mangas cross the pipe.
+    /// Null list entries (a misbehaving extension can hand those back) are dropped.
     /// </summary>
     private static List<ParsedManga> Sanitize(List<ParsedManga> mangas)
     {
+        var sane = new List<ParsedManga>(mangas.Count);
         foreach (ParsedManga manga in mangas)
         {
+            if (manga == null)
+                continue;
             if (manga.Memo.ValueKind == JsonValueKind.Undefined)
                 manga.Memo = NullMemo;
+            sane.Add(manga);
         }
-        return mangas;
+        return sane;
     }
 }
