@@ -19,7 +19,7 @@ public class EditableSettingsDto
     /// ("search more sources") request will shadow-load and search.
     /// </summary>
     [JsonPropertyName("maxDiscoverySearchExtensions")]
-    public int MaxDiscoverySearchExtensions { get; set; } = 30;
+    public int MaxDiscoverySearchExtensions { get; set; } = 0;
     [JsonPropertyName("chapterDownloadFailRetryTime")]
     public TimeSpan ChapterDownloadFailRetryTime { get; set; } = TimeSpan.FromMinutes(30);
     [JsonPropertyName("chapterDownloadFailRetries")]

@@ -94,8 +94,9 @@ namespace RensaioBackend.Services.Search
                 }
             }
 
-            int cap = Math.Max(1, settings.MaxDiscoverySearchExtensions);
-            if (eligible.Count > cap)
+            // <= 0 means unlimited: search every eligible not-installed extension.
+            int cap = settings.MaxDiscoverySearchExtensions;
+            if (cap > 0 && eligible.Count > cap)
                 eligible = eligible.Take(cap).ToList();
             return eligible;
         }
