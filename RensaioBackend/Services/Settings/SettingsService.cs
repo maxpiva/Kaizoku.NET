@@ -244,6 +244,20 @@ namespace RensaioBackend.Services.Settings
             {
                 await SetTimesSettingsAsync(set, token).ConfigureAwait(false);
             }
+            // The discovery-eligible extension set depends on preferred languages and NSFW
+            // visibility; re-run the artifact precache job when they (or its own toggles) change.
+            if (_settings != null &&
+                (JoinAndSortArray(set.PreferredLanguages) != JoinAndSortArray(_settings.PreferredLanguages) ||
+                 set.NsfwVisibility != _settings.NsfwVisibility ||
+                 set.DiscoveryPrecacheEnabled != _settings.DiscoveryPrecacheEnabled ||
+                 set.DiscoveryIncludeInSearch != _settings.DiscoveryIncludeInSearch ||
+                 set.MaxDiscoverySearchExtensions != _settings.MaxDiscoverySearchExtensions))
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageDiscoveryPrecacheAsync(
+                    set.DiscoveryIncludeInSearch && set.DiscoveryPrecacheEnabled, runNow: true, token).ConfigureAwait(false);
+            }
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();

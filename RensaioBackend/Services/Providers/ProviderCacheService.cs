@@ -296,9 +296,14 @@ namespace RensaioBackend.Services.Providers
         private async Task UpdateExtensionJobsAsync(CancellationToken token = default)
         {
             if (_providers == null) return;
-            
+
             bool hasEnabledProviders = _providers.Any(p => p.IsActive);
             await _jobBusinessService.ManageExtensionUpdatesAsync(hasEnabledProviders, token).ConfigureAwait(false);
+
+            // Keep the discovery artifact precache job in sync with its settings.
+            var settings = await _settingsService.GetSettingsAsync(token).ConfigureAwait(false);
+            await _jobBusinessService.ManageDiscoveryPrecacheAsync(
+                settings.DiscoveryIncludeInSearch && settings.DiscoveryPrecacheEnabled, false, token).ConfigureAwait(false);
         }
 
     

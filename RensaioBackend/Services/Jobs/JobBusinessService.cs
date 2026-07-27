@@ -72,6 +72,30 @@ namespace RensaioBackend.Services.Jobs
             }
         }
 
+        /// <summary>
+        /// Schedules (or disables) the low-priority discovery precache job that pre-downloads and
+        /// pre-converts artifacts for eligible not-installed extensions, so automatic discovery
+        /// searches never hit the cold download+dex2jar path. Pass runNow=true when something that
+        /// changes the eligible set just happened (extension index refresh, language/NSFW settings
+        /// change) — the job itself no-ops cheaply when the eligible set is unchanged.
+        /// </summary>
+        public async Task ManageDiscoveryPrecacheAsync(bool enable, bool runNow = false, CancellationToken token = default)
+        {
+            string groupKey = nameof(JobType.PrepareDiscovery);
+
+            if (!enable)
+            {
+                await _jobManagement.DisableRecurringJobAsync(JobType.PrepareDiscovery, groupKey, token)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await _jobManagement.ScheduleRecurringJobAsync(JobType.PrepareDiscovery, groupKey,
+                    groupKey, groupKey, runNow, priority: Priority.Low, token: token)
+                    .ConfigureAwait(false);
+            }
+        }
+
         #endregion
 
         #region Source Management

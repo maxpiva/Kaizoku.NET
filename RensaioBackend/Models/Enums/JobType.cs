@@ -14,5 +14,6 @@ public enum JobType
     DailyUpdate,
     StatusCheck,
     ScrobblerSync,
-    VerifyAllSeries
+    VerifyAllSeries,
+    PrepareDiscovery
 }
