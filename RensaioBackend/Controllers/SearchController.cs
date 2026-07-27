@@ -132,6 +132,34 @@ namespace RensaioBackend.Controllers
         }
 
         /// <summary>
+        /// Requests detail augmentation (chapter count + status) for the next batch of cached
+        /// discovery results that lack them; updates stream as "details" SignalR events.
+        /// </summary>
+        [HttpPost("discovery/details")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult> StartDiscoveryDetailsAsync(
+            [FromBody] DiscoveryStartRequestDto request,
+            [FromQuery] int count = DiscoverySearchCoordinator.DefaultDetailsCount,
+            CancellationToken token = default)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Keyword))
+            {
+                return BadRequest("Search keyword is required");
+            }
+            try
+            {
+                int queued = await _discoveryCoordinator.StartDetailsAsync(request.Keyword, request.Languages, count, token).ConfigureAwait(false);
+                return Ok(new { queued });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting discovery detail augmentation: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while loading discovery details" });
+            }
+        }
+
+        /// <summary>
         /// Cancels an in-flight discovery sweep (retyped query or closed dialog); its worker
         /// processes are terminated and its partial results are discarded.
         /// </summary>

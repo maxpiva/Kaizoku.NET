@@ -1,3 +1,4 @@
+using RensaioBackend.Models.Enums;
 using System.Text.Json.Serialization;
 
 namespace RensaioBackend.Models.Dto;
@@ -24,6 +25,14 @@ public class DiscoverySeriesDto : LinkedSeriesDto
     /// <summary>Display name of the extension.</summary>
     [JsonPropertyName("extensionName")]
     public string ExtensionName { get; set; } = string.Empty;
+
+    /// <summary>Number of chapters, filled by the background details augmentation.</summary>
+    [JsonPropertyName("chapterCount")]
+    public int? ChapterCount { get; set; }
+
+    /// <summary>Series status, filled by the background details augmentation.</summary>
+    [JsonPropertyName("seriesStatus")]
+    public SeriesStatus? SeriesStatus { get; set; }
 }
 
 /// <summary>

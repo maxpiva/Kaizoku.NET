@@ -2,9 +2,12 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
 using RensaioBackend.Hubs;
 using RensaioBackend.Models.Dto;
+using RensaioBackend.Models.Enums;
 using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Settings;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace RensaioBackend.Services.Search.Discovery;
 
@@ -64,6 +67,14 @@ public class DiscoverySearchCoordinator
     private static string CacheKey(string key) => "DS:" + key;
 
     /// <summary>
+    /// searchId is a deterministic hash of the query key, so post-sweep events (details
+    /// augmentation) stay addressable after the sweep object is gone and every client searching
+    /// the same query filters on the same id.
+    /// </summary>
+    private static string BuildSearchId(string key)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..32].ToLowerInvariant();
+
+    /// <summary>
     /// Starts a streaming discovery sweep for the query, or attaches to the identical sweep already
     /// running, or returns the cached complete result. Never blocks on the sweep itself.
     /// </summary>
@@ -84,7 +95,9 @@ public class DiscoverySearchCoordinator
 
         if (_memoryCache.TryGetValue(CacheKey(key), out List<DiscoverySeriesDto>? cached))
         {
-            return new DiscoveryStartDto { Done = true, Results = cached! };
+            // SearchId included so the client can receive detail-augmentation events for a
+            // cached (re-opened) result set too.
+            return new DiscoveryStartDto { Done = true, SearchId = BuildSearchId(key), Results = cached! };
         }
 
         // Counts are cheap (in-memory list scans) and let the client label the progress affordance
@@ -101,7 +114,7 @@ public class DiscoverySearchCoordinator
             {
                 sweep = new Sweep
                 {
-                    SearchId = Guid.NewGuid().ToString("N"),
+                    SearchId = BuildSearchId(key),
                     Key = key,
                     Cts = new CancellationTokenSource(),
                     TotalExtensions = counts.ExtensionCount,
@@ -200,6 +213,10 @@ public class DiscoverySearchCoordinator
 
             await SendFinalEventAsync(sweep, "completed", final.Count).ConfigureAwait(false);
             _logger.LogInformation("Discovery sweep {SearchId} completed with {Count} results.", sweep.SearchId, final.Count);
+
+            // Progressive enhancement: background-augment the top results with chapter counts +
+            // status through the warm workers (they still hold the extensions this sweep loaded).
+            _ = Task.Run(() => AugmentDetailsAsync(sweep.SearchId, final, DefaultDetailsCount), CancellationToken.None);
         }
         catch (OperationCanceledException)
         {
@@ -217,6 +234,109 @@ public class DiscoverySearchCoordinator
             _byKey.TryRemove(sweep.Key, out _);
             _byId.TryRemove(sweep.SearchId, out _);
             sweep.Cts.Dispose();
+        }
+    }
+
+    public const int DefaultDetailsCount = 20;
+
+    /// <summary>Guards against overlapping detail-augmentation runs for the same search.</summary>
+    private readonly ConcurrentDictionary<string, byte> _detailsRunning = new();
+
+    /// <summary>
+    /// On-demand detail augmentation for a query whose sweep already completed (cached): fills
+    /// chapter counts for the next <paramref name="count"/> results that lack them and streams
+    /// them as "details" events. Returns how many results were queued (0 = nothing left / no cache).
+    /// </summary>
+    public async Task<int> StartDetailsAsync(string keyword, List<string>? languages, int count, CancellationToken token = default)
+    {
+        if (string.IsNullOrWhiteSpace(keyword))
+            return 0;
+        using var scope = _scopeFactory.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<DiscoverySearchService>();
+        List<string> normalizedLanguages = await service.NormalizeLanguagesAsync(languages, token).ConfigureAwait(false);
+        string key = BuildKey(keyword, normalizedLanguages);
+        if (!_memoryCache.TryGetValue(CacheKey(key), out List<DiscoverySeriesDto>? cached) || cached == null)
+            return 0;
+        string searchId = BuildSearchId(key);
+        List<DiscoverySeriesDto> targets = cached.Where(r => r.ChapterCount == null).Take(Math.Clamp(count, 1, 100)).ToList();
+        if (targets.Count == 0)
+            return 0;
+        _ = Task.Run(() => AugmentDetailsAsync(searchId, targets, targets.Count), CancellationToken.None);
+        return targets.Count;
+    }
+
+    /// <summary>
+    /// Fetches chapter count + status for up to <paramref name="count"/> results lacking them and
+    /// streams each onto the clients' result cards as a "details" event, ending with "detailsDone".
+    /// Mutates the DTO instances held by the 15-minute result cache, so re-opening the dialog
+    /// keeps the counts without refetching.
+    /// </summary>
+    private async Task AugmentDetailsAsync(string searchId, List<DiscoverySeriesDto> results, int count)
+    {
+        if (!_detailsRunning.TryAdd(searchId, 0))
+            return;
+        try
+        {
+            List<DiscoverySeriesDto> targets = results.Where(r => r.ChapterCount == null).Take(count).ToList();
+            if (targets.Count == 0)
+                return;
+            using var scope = _scopeFactory.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<DiscoverySearchService>();
+            var settingsService = scope.ServiceProvider.GetRequiredService<SettingsService>();
+            var settings = await settingsService.GetSettingsAsync(CancellationToken.None).ConfigureAwait(false);
+            int maxConcurrency = Math.Clamp(settings.NumberOfSimultaneousSearches, 1, 8);
+            int updated = 0;
+            _logger.LogInformation("Discovery details augmentation for {SearchId}: {Count} results.", searchId, targets.Count);
+
+            await Parallel.ForEachAsync(
+                targets,
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency },
+                async (dto, ct) =>
+                {
+                    (int? ChapterCount, int? Status)? details = await service.GetDiscoveryDetailsAsync(dto, ct).ConfigureAwait(false);
+                    if (details == null || details.Value.ChapterCount == null)
+                        return;
+                    dto.ChapterCount = details.Value.ChapterCount;
+                    dto.SeriesStatus = details.Value.Status != null ? (SeriesStatus)details.Value.Status.Value : null;
+                    Interlocked.Increment(ref updated);
+                    try
+                    {
+                        await _hub.Clients.All.SendAsync(HubEventName, new DiscoverySearchEventDto
+                        {
+                            SearchId = searchId,
+                            Type = "details",
+                            Results = [dto]
+                        }, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to send a discovery details event for {SearchId}.", searchId);
+                    }
+                }).ConfigureAwait(false);
+
+            try
+            {
+                await _hub.Clients.All.SendAsync(HubEventName, new DiscoverySearchEventDto
+                {
+                    SearchId = searchId,
+                    Type = "detailsDone",
+                    TotalResults = updated
+                }, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to send the detailsDone event for {SearchId}.", searchId);
+            }
+            _logger.LogInformation("Discovery details augmentation for {SearchId} finished: {Updated} of {Count} updated.",
+                searchId, updated, targets.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Discovery details augmentation for {SearchId} failed.", searchId);
+        }
+        finally
+        {
+            _detailsRunning.TryRemove(searchId, out _);
         }
     }
 
