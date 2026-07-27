@@ -217,8 +217,21 @@ public static class DiscoveryWorkerPool
         }
         else
         {
-            logger.LogInformation("Discovery worker {Pid} finished cleanly: {Done} done, {Failed} failed.",
-                pid, outcome.Completed.Count, outcome.FailedManaged.Count);
+            int exitCode = process.HasExited ? process.ExitCode : 0;
+            if (exitCode != 0)
+            {
+                // Known IKVM/CEF teardown race on Windows: a WebView-using worker can crash while
+                // exiting, AFTER its batch completed and the final done event was streamed. All
+                // results and per-extension outcomes are already in hand, so this is NOT a crash —
+                // no suspects, no retries. Containment working as designed.
+                logger.LogInformation("Discovery worker {Pid} completed its batch ({Done} done, {Failed} failed) but exited with code {Code} during teardown; ignoring.",
+                    pid, outcome.Completed.Count, outcome.FailedManaged.Count, exitCode);
+            }
+            else
+            {
+                logger.LogInformation("Discovery worker {Pid} finished cleanly: {Done} done, {Failed} failed.",
+                    pid, outcome.Completed.Count, outcome.FailedManaged.Count);
+            }
         }
         return outcome;
     }
