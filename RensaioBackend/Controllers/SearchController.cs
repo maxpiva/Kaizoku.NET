@@ -1,6 +1,7 @@
 ﻿using RensaioBackend.Models.Dto;
 using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Search;
+using RensaioBackend.Services.Search.Discovery;
 using RensaioBackend.Services.Settings;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,6 +18,7 @@ namespace RensaioBackend.Controllers
         private readonly SearchQueryService _searchQueryService;
         private readonly SearchCommandService _searchCommandService;
         private readonly DiscoverySearchService _discoverySearchService;
+        private readonly DiscoverySearchCoordinator _discoveryCoordinator;
         private readonly ThumbCacheService _thumbs;
         private readonly SettingsService _settings;
 
@@ -25,12 +27,14 @@ namespace RensaioBackend.Controllers
             SearchQueryService searchQueryService,
             SearchCommandService searchCommandService,
             DiscoverySearchService discoverySearchService,
+            DiscoverySearchCoordinator discoveryCoordinator,
             ThumbCacheService thumbs,
             SettingsService settingsService)
         {
             _searchQueryService = searchQueryService;
             _searchCommandService = searchCommandService;
             _discoverySearchService = discoverySearchService;
+            _discoveryCoordinator = discoveryCoordinator;
             _settings = settingsService;
             _thumbs = thumbs;
             _logger = logger;
@@ -95,6 +99,48 @@ namespace RensaioBackend.Controllers
                 _logger.LogError(ex, "Error retrieving search sources: {Message}", ex.Message);
                 return StatusCode(500, new { error = "An error occurred while retrieving search sources" });
             }
+        }
+
+        /// <summary>
+        /// Starts (or attaches to) an automatic streaming discovery sweep for the query. Returns
+        /// immediately: when done=true the results are complete (cache hit / disabled / nothing
+        /// eligible); otherwise the client keeps searchId and listens for "DiscoverySearch" events
+        /// on the /progress SignalR hub for incremental results and per-extension progress.
+        /// </summary>
+        [HttpPost("discovery/start")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<DiscoveryStartDto>> StartDiscoveryAsync(
+            [FromBody] DiscoveryStartRequestDto request,
+            CancellationToken token = default)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Keyword))
+            {
+                return BadRequest("Search keyword is required");
+            }
+            try
+            {
+                var result = await _discoveryCoordinator.StartOrAttachAsync(request.Keyword, request.Languages, token).ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting discovery search: {Message}", ex.Message);
+                return StatusCode(500, new { error = "An error occurred while starting the discovery search" });
+            }
+        }
+
+        /// <summary>
+        /// Cancels an in-flight discovery sweep (retyped query or closed dialog); its worker
+        /// processes are terminated and its partial results are discarded.
+        /// </summary>
+        [HttpPost("discovery/cancel/{searchId}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult CancelDiscovery([FromRoute] string searchId)
+        {
+            bool cancelled = _discoveryCoordinator.Cancel(searchId);
+            return Ok(new { cancelled });
         }
 
         /// <summary>

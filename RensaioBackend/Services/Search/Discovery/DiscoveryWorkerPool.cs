@@ -54,7 +54,7 @@ public static class DiscoveryWorkerPool
         (string FileName, string? DllPath) launch,
         DiscoveryWorkerInput input,
         TimeSpan inactivityTimeout,
-        Action<DiscoveryWorkerEvent> onEvent,
+        Func<DiscoveryWorkerEvent, Task> onEvent,
         ILogger logger,
         CancellationToken token)
     {
@@ -145,17 +145,19 @@ public static class DiscoveryWorkerPool
                         break;
                     case DiscoveryWorkerEventTypes.ExtensionDone when evt.Package != null:
                         outcome.Completed.Add(evt.Package);
+                        await onEvent(evt).ConfigureAwait(false); // per-extension progress for streaming UIs
                         break;
                     case DiscoveryWorkerEventTypes.ExtensionFailed when evt.Package != null:
                         outcome.FailedManaged.Add(evt.Package);
                         logger.LogWarning("Discovery worker {Pid} could not process extension {Package}: {Error}",
                             pid, evt.Package, evt.Error);
+                        await onEvent(evt).ConfigureAwait(false);
                         break;
                     case DiscoveryWorkerEventTypes.Done:
                         outcome.CleanExit = true;
                         break;
                     case DiscoveryWorkerEventTypes.SourceResult:
-                        onEvent(evt);
+                        await onEvent(evt).ConfigureAwait(false);
                         break;
                 }
             }

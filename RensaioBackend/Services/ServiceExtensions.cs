@@ -156,6 +156,7 @@ namespace RensaioBackend.Services
             services.TryAddScoped<SearchQueryService>();
             services.TryAddScoped<SearchCommandService>();
             services.TryAddScoped<DiscoverySearchService>();
+            services.TryAddSingleton<Search.Discovery.DiscoverySearchCoordinator>();
             
             return services;
         }

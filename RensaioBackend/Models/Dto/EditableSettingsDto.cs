@@ -42,6 +42,22 @@ public class EditableSettingsDto
     /// </summary>
     [JsonPropertyName("maxDiscoveryWorkers")]
     public int MaxDiscoveryWorkers { get; set; } = 2;
+
+    /// <summary>
+    /// Master toggle: when true (default), every search automatically also sweeps eligible
+    /// not-installed sources and streams those results into the same list. When false, search is
+    /// installed-sources only and no discovery affordance is shown.
+    /// </summary>
+    [JsonPropertyName("discoveryIncludeInSearch")]
+    public bool DiscoveryIncludeInSearch { get; set; } = true;
+
+    /// <summary>
+    /// When true (default), a low-priority background job pre-downloads and pre-converts the
+    /// artifacts of all eligible not-installed extensions so the first discovery search never pays
+    /// the cold download+dex2jar cost.
+    /// </summary>
+    [JsonPropertyName("discoveryPrecacheEnabled")]
+    public bool DiscoveryPrecacheEnabled { get; set; } = true;
     [JsonPropertyName("chapterDownloadFailRetryTime")]
     public TimeSpan ChapterDownloadFailRetryTime { get; set; } = TimeSpan.FromMinutes(30);
     [JsonPropertyName("chapterDownloadFailRetries")]

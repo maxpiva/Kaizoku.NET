@@ -1,3 +1,4 @@
+using RensaioBackend.Extensions;
 using RensaioBackend.Models.Dto;
 using RensaioBackend.Services.Bridge;
 using RensaioBackend.Services.Images;
@@ -50,7 +51,7 @@ namespace RensaioBackend.Services.Search
             _logger = logger;
         }
 
-        private async Task<List<string>> NormalizeLanguagesAsync(List<string>? languages, CancellationToken token)
+        public async Task<List<string>> NormalizeLanguagesAsync(List<string>? languages, CancellationToken token)
         {
             if (languages == null || languages.Count == 0)
             {
@@ -149,7 +150,7 @@ namespace RensaioBackend.Services.Search
         /// cancelled pointlessly.
         /// </summary>
         public async Task<List<DiscoverySeriesDto>> SearchSeriesAsync(string keyword, List<string>? languages,
-            double threshold = 0.1f, CancellationToken token = default)
+            double threshold = 0.1f, CancellationToken token = default, DiscoveryStreamCallbacks? stream = null)
         {
             if (string.IsNullOrWhiteSpace(keyword))
                 return [];
@@ -176,13 +177,74 @@ namespace RensaioBackend.Services.Search
             var results = new ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)>();
             int maxConcurrency = Math.Min(settings.NumberOfSimultaneousSearches, eligible.Count);
 
+            // Streaming plumbing: convert each per-source batch into ready-to-render DTOs and push
+            // them to the caller as they arrive. DTO building touches scoped services (thumb cache /
+            // DbContext), so it is serialized behind a gate — batches can arrive from concurrent
+            // worker readers.
+            StreamHooks? hooks = null;
+            if (stream != null)
+            {
+                int totalExtensions = eligible.Count;
+                int preparedExtensions = 0;
+                int searchedExtensions = 0;
+                var streamGate = new SemaphoreSlim(1, 1);
+
+                async Task EmitProgressAsync(string stage, int done)
+                {
+                    if (stream.OnProgress == null)
+                        return;
+                    try
+                    {
+                        await stream.OnProgress(stage, done, totalExtensions).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Discovery progress callback failed; continuing search.");
+                    }
+                }
+
+                hooks = new StreamHooks
+                {
+                    EmitBatch = async batch =>
+                    {
+                        if (stream.OnResults == null || batch.Count == 0)
+                            return;
+                        await streamGate.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            List<DiscoverySeriesDto> dtos = await BuildStreamedDtosAsync(keyword, batch, sourceInfo, token).ConfigureAwait(false);
+                            if (dtos.Count > 0)
+                                await stream.OnResults(dtos).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Discovery result streaming failed for one batch; continuing search.");
+                        }
+                        finally
+                        {
+                            streamGate.Release();
+                        }
+                    },
+                    OnPrepared = () => EmitProgressAsync(DiscoveryStreamCallbacks.StagePreparing, Interlocked.Increment(ref preparedExtensions)),
+                    OnSearched = () => EmitProgressAsync(DiscoveryStreamCallbacks.StageSearching, Interlocked.Increment(ref searchedExtensions))
+                };
+            }
+
             bool searched = false;
             if (settings.DiscoverySearchWorkersEnabled)
             {
                 try
                 {
                     searched = await SearchViaWorkersAsync(keyword, languageSet, eligible, settings, maxConcurrency,
-                        sourceInfo, results, token).ConfigureAwait(false);
+                        sourceInfo, results, hooks, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -196,7 +258,7 @@ namespace RensaioBackend.Services.Search
             }
             if (!searched)
             {
-                await SearchInProcessAsync(keyword, languageSet, eligible, maxConcurrency, sourceInfo, results, token).ConfigureAwait(false);
+                await SearchInProcessAsync(keyword, languageSet, eligible, maxConcurrency, sourceInfo, results, hooks, token).ConfigureAwait(false);
             }
 
             // Register every thumb URL with its provider id (same as the normal search path) so the
@@ -252,6 +314,8 @@ namespace RensaioBackend.Services.Search
                         candidates: candidates,
                         minimumScore: 0);
                     var scoreLookup = scored.ToDictionary(s => s.Id, s => s.Percentage);
+                    finalResults.ForEach(r =>
+                        r.Relevance = r.MihonId != null && scoreLookup.TryGetValue(r.MihonId, out var score) ? score : 0);
                     finalResults = finalResults
                         .OrderByDescending(r => r.MihonId != null && scoreLookup.TryGetValue(r.MihonId, out var score) ? score : -1)
                         .ThenBy(r => r.Title)
@@ -273,6 +337,7 @@ namespace RensaioBackend.Services.Search
             List<(TachiyomiRepository Repository, TachiyomiExtension Extension)> eligible, int maxConcurrency,
             ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
             ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)> results,
+            StreamHooks? hooks,
             CancellationToken token)
         {
             await Parallel.ForEachAsync(
@@ -296,6 +361,8 @@ namespace RensaioBackend.Services.Search
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Skipping discovery extension {Package}: shadow-load failed.", ext.Package);
+                        if (hooks?.OnSearched != null)
+                            await hooks.OnSearched().ConfigureAwait(false);
                         return;
                     }
 
@@ -313,11 +380,17 @@ namespace RensaioBackend.Services.Search
                             if (searchResult?.Mangas == null || searchResult.Mangas.Count == 0)
                                 continue;
                             var seenUrls = new HashSet<string>();
+                            var fresh = new List<(ParsedManga Manga, string MihonProviderId, string Language)>();
                             foreach (ParsedManga manga in searchResult.Mangas)
                             {
                                 if (seenUrls.Add(manga.Url))
+                                {
                                     results.Add((manga, mihonProviderId, src.Language));
+                                    fresh.Add((manga, mihonProviderId, src.Language));
+                                }
                             }
+                            if (hooks?.EmitBatch != null && fresh.Count > 0)
+                                await hooks.EmitBatch(fresh).ConfigureAwait(false);
                         }
                         catch (OperationCanceledException) when (ct.IsCancellationRequested)
                         {
@@ -337,6 +410,8 @@ namespace RensaioBackend.Services.Search
                             _logger.LogError(ex, "Error in discovery search for source {Name}: {Message}", src.Name, ex.Message);
                         }
                     }
+                    if (hooks?.OnSearched != null)
+                        await hooks.OnSearched().ConfigureAwait(false);
                 }).ConfigureAwait(false);
         }
 
@@ -353,6 +428,7 @@ namespace RensaioBackend.Services.Search
             List<(TachiyomiRepository Repository, TachiyomiExtension Extension)> eligible, EditableSettingsDto settings, int maxConcurrency,
             ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
             ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)> results,
+            StreamHooks? hooks,
             CancellationToken token)
         {
             (string FileName, string? DllPath)? launch = DiscoveryWorkerPool.ResolveWorkerLaunch();
@@ -386,6 +462,8 @@ namespace RensaioBackend.Services.Search
                     {
                         _logger.LogWarning(ex, "Skipping discovery extension {Package}: artifact preparation failed.", candidate.Extension.Package);
                     }
+                    if (hooks?.OnPrepared != null)
+                        await hooks.OnPrepared().ConfigureAwait(false);
                 }).ConfigureAwait(false);
             if (prepared.IsEmpty)
                 return true;
@@ -399,19 +477,31 @@ namespace RensaioBackend.Services.Search
             var slots = new ConcurrentStack<int>(Enumerable.Range(0, maxWorkers));
             using var semaphore = new SemaphoreSlim(maxWorkers);
 
-            void OnSourceResult(DiscoveryWorkerEvent evt)
+            async Task OnWorkerEventAsync(DiscoveryWorkerEvent evt)
             {
+                if (evt.Type == DiscoveryWorkerEventTypes.ExtensionDone || evt.Type == DiscoveryWorkerEventTypes.ExtensionFailed)
+                {
+                    if (hooks?.OnSearched != null)
+                        await hooks.OnSearched().ConfigureAwait(false);
+                    return;
+                }
                 if (evt.Package == null || evt.SourceId == null || evt.Mangas == null)
                     return;
                 string mihonProviderId = evt.Package + "|" + evt.SourceId;
                 infoByPackage.TryGetValue(evt.Package, out (string? RepoName, string ExtensionName) info);
                 sourceInfo.TryAdd(mihonProviderId, (evt.SourceName ?? evt.Package, evt.Package, info.RepoName, info.ExtensionName ?? evt.Package));
                 var seenUrls = new HashSet<string>();
+                var fresh = new List<(ParsedManga Manga, string MihonProviderId, string Language)>();
                 foreach (ParsedManga manga in evt.Mangas)
                 {
                     if (seenUrls.Add(manga.Url))
+                    {
                         results.Add((manga, mihonProviderId, evt.SourceLanguage ?? ""));
+                        fresh.Add((manga, mihonProviderId, evt.SourceLanguage ?? ""));
+                    }
                 }
+                if (hooks?.EmitBatch != null && fresh.Count > 0)
+                    await hooks.EmitBatch(fresh).ConfigureAwait(false);
             }
 
             async Task<DiscoveryWorkerBatchOutcome> RunBatchAsync(List<DiscoveryWorkerExtension> batch, int parallelism)
@@ -434,7 +524,7 @@ namespace RensaioBackend.Services.Search
                             Extensions = batch
                         };
                         return await DiscoveryWorkerPool.RunWorkerAsync(launch.Value, input, inactivityTimeout,
-                            OnSourceResult, _logger, token).ConfigureAwait(false);
+                            OnWorkerEventAsync, _logger, token).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -504,6 +594,127 @@ namespace RensaioBackend.Services.Search
                 })).ConfigureAwait(false);
             }
             return true;
+        }
+
+        /// <summary>
+        /// Internal streaming hooks threaded through the two search paths.
+        /// </summary>
+        private sealed class StreamHooks
+        {
+            /// <summary>One per-source batch of raw results arrived.</summary>
+            public Func<List<(ParsedManga Manga, string MihonProviderId, string Language)>, Task>? EmitBatch { get; init; }
+            /// <summary>One extension's artifacts finished preparing (or failed to).</summary>
+            public Func<Task>? OnPrepared { get; init; }
+            /// <summary>One extension finished searching (done or failed).</summary>
+            public Func<Task>? OnSearched { get; init; }
+        }
+
+        /// <summary>
+        /// Converts one raw per-source batch into ready-to-render DTOs: bridge item info filled,
+        /// relevance scored against the keyword and thumbnails registered + rewritten to the local
+        /// image cache, so the client can drop them straight into the results list.
+        /// </summary>
+        private async Task<List<DiscoverySeriesDto>> BuildStreamedDtosAsync(string keyword,
+            List<(ParsedManga Manga, string MihonProviderId, string Language)> batch,
+            ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
+            CancellationToken token)
+        {
+            var dtos = new List<DiscoverySeriesDto>();
+            foreach ((ParsedManga manga, string mihonProviderId, string language) in batch)
+            {
+                if (string.IsNullOrWhiteSpace(manga.Title) || !sourceInfo.TryGetValue(mihonProviderId, out var info))
+                    continue;
+                string id = mihonProviderId + "|" + manga.Url;
+                var dto = new DiscoverySeriesDto
+                {
+                    MihonId = id,
+                    MihonProviderId = mihonProviderId,
+                    Provider = info.SourceName,
+                    Lang = language == "all" ? string.Empty : language,
+                    Title = manga.Title,
+                    ThumbnailUrl = manga.ThumbnailUrl,
+                    LinkedIds = [id],
+                    IsStorage = false,
+                    IsLocal = false,
+                    Installed = false,
+                    ExtensionPkg = info.Package,
+                    ExtensionRepoName = info.RepoName,
+                    ExtensionName = info.ExtensionName
+                };
+                manga.FillBridgeItemInfo(dto);
+                dtos.Add(dto);
+                if (!string.IsNullOrEmpty(manga.ThumbnailUrl))
+                    await _thumb.AddUrlAsync(manga.ThumbnailUrl, mihonProviderId, token).ConfigureAwait(false);
+            }
+            if (dtos.Count > 0)
+            {
+                var scored = TitleMatcher.MatchTitles(
+                    originalTitles: new[] { keyword },
+                    candidates: dtos.Select(d => (d.Title, Id: d.MihonId!)).ToList(),
+                    minimumScore: 0);
+                var scoreLookup = scored.ToDictionary(s => s.Id, s => s.Percentage);
+                foreach (DiscoverySeriesDto dto in dtos)
+                {
+                    if (dto.MihonId != null && scoreLookup.TryGetValue(dto.MihonId, out int pct))
+                        dto.Relevance = pct;
+                }
+                await _thumb.PopulateThumbsAsync(dtos, "/api/image/", token).ConfigureAwait(false);
+            }
+            return dtos;
+        }
+
+        /// <summary>
+        /// Fingerprint of the eligible set the last fully successful precache run covered, so the
+        /// recurring job is a no-op (no per-file hashing) while nothing changed.
+        /// </summary>
+        private static string? _lastPrecacheFingerprint;
+
+        /// <summary>
+        /// Pre-converts the discovery artifacts (APK download + dex2jar, no classloading) for every
+        /// eligible not-installed extension, so the first automatic discovery search of the day never
+        /// pays the cold conversion cost. Runs sequentially — dex2jar is globally serialized anyway,
+        /// so this self-throttles and stays out of the way of interactive searches.
+        /// </summary>
+        public async Task<int> PrepareEligibleArtifactsAsync(CancellationToken token = default)
+        {
+            var settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            if (!settings.DiscoveryIncludeInSearch || !settings.DiscoveryPrecacheEnabled)
+                return 0;
+
+            var eligible = await GetEligibleExtensionsAsync(null, token).ConfigureAwait(false);
+            string fingerprint = string.Join('|', eligible.Select(e => e.Extension.Package + ":" + e.Extension.Version).OrderBy(a => a));
+            if (fingerprint == _lastPrecacheFingerprint)
+            {
+                _logger.LogInformation("Discovery precache: eligible set unchanged ({Count} extensions); nothing to do.", eligible.Count);
+                return 0;
+            }
+
+            _logger.LogInformation("Discovery precache: preparing artifacts for {Count} eligible extensions.", eligible.Count);
+            int prepared = 0;
+            int failed = 0;
+            foreach ((_, TachiyomiExtension ext) in eligible)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    await _mihon.PrepareDiscoveryArtifactsAsync(ext, token).ConfigureAwait(false);
+                    prepared++;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogWarning(ex, "Discovery precache: artifact preparation failed for {Package}.", ext.Package);
+                }
+            }
+            // Only remember a fully clean sweep so failed extensions are retried on the next run.
+            if (failed == 0)
+                _lastPrecacheFingerprint = fingerprint;
+            _logger.LogInformation("Discovery precache finished: {Prepared} prepared, {Failed} failed.", prepared, failed);
+            return prepared;
         }
     }
 }

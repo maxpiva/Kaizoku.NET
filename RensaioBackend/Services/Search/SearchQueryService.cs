@@ -314,6 +314,11 @@ namespace RensaioBackend.Services.Search
 
                         var scoreLookup = scored.ToDictionary(s => s.Id, s => s.Percentage);
 
+                        // Expose the score so the client can merge these with streamed discovery
+                        // results into one relevance-ordered list.
+                        finalResults.ForEach(r =>
+                            r.Relevance = r.MihonId != null && scoreLookup.TryGetValue(r.MihonId, out var score) ? score : 0);
+
                         finalResults = finalResults
                             .OrderByDescending(r => r.MihonId != null && scoreLookup.TryGetValue(r.MihonId, out var score) ? score : -1)
                             .ThenBy(r => r.Title)
