@@ -196,7 +196,7 @@ namespace RensaioBackend.Services.Search
                             var searchResult = await SourceTimeout
                                 .RunAsync(c => src.SearchAsync(1, keyword, c), ct)
                                 .ConfigureAwait(false);
-                            if (searchResult == null || searchResult.Mangas.Count == 0)
+                            if (searchResult?.Mangas == null || searchResult.Mangas.Count == 0)
                                 continue;
                             var seenUrls = new HashSet<string>();
                             foreach (ParsedManga manga in searchResult.Mangas)
