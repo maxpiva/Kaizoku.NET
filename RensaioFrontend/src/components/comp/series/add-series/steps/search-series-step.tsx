@@ -1,12 +1,20 @@
 "use client";
 
 import { type AddSeriesState } from "@/components/comp/series/add-series";
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Loader2, Search } from "lucide-react";
 import { type LinkedSeries, type ExistingSource } from "@/lib/api/types";
 import { useSearchSeries, useAvailableSearchSources } from "@/lib/api/hooks/useSearch";
 import { useSettings } from "@/lib/api/hooks/useSettings";
 import { searchService } from "@/lib/api/services/searchService";
 import { getProgressHub } from "@/lib/api/signalr/progressHub";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import React from "react";
 import { useDebounce } from "use-debounce";
 import Image from "next/image";
@@ -25,6 +33,53 @@ const STATUS_LABELS: Record<number, string> = {
   5: "Cancelled",
   6: "Hiatus",
 };
+
+/** Single-select dropdown matching the MultiSelectSources look (shadcn outline button + menu). */
+function FilterDropdown({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const current = options.find((o) => o.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-label={ariaLabel}
+          className="bg-card h-7 justify-between px-2 text-xs font-normal"
+        >
+          <span className="truncate">{current?.label ?? ariaLabel}</span>
+          <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-44" align="end">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            className="cursor-pointer text-sm"
+            onSelect={() => onChange(option.value)}
+          >
+            <Check
+              className={cn(
+                "mr-2 h-3.5 w-3.5",
+                option.value === value ? "opacity-100" : "opacity-0",
+              )}
+            />
+            {option.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -166,10 +221,10 @@ export function SearchSeriesStep({
   const detailsAutoRequestedRef = React.useRef(false);
   const [detailsLoading, setDetailsLoading] = React.useState(false);
 
-  // Result display controls (client-side view over the unified list)
+  // Result display controls (client-side view over the unified list). Which sources get
+  // searched stays with the pre-existing sources dropdown above the results.
   const [sortBy, setSortBy] = React.useState<'relevance' | 'chapters' | 'title'>('relevance');
   const [langFilter, setLangFilter] = React.useState('all');
-  const [sourceFilter, setSourceFilter] = React.useState<'all' | 'installed' | 'notinstalled'>('all');
 
   /** Merge installed + discovery results into one relevance-ordered list. */
   const mergeSorted = React.useCallback((installed: LinkedSeries[], discovery: LinkedSeries[]): LinkedSeries[] => {
@@ -437,8 +492,6 @@ export function SearchSeriesStep({
   const displaySeries = React.useMemo(() => {
     let list = allSeries;
     if (langFilter !== 'all') list = list.filter(s => s.lang === langFilter);
-    if (sourceFilter === 'installed') list = list.filter(s => s.installed !== false);
-    else if (sourceFilter === 'notinstalled') list = list.filter(s => s.installed === false);
     if (sortBy === 'chapters') {
       list = [...list].sort((a, b) =>
         ((b.chapterCount ?? -1) - (a.chapterCount ?? -1)) ||
@@ -447,7 +500,7 @@ export function SearchSeriesStep({
       list = [...list].sort((a, b) => a.title.localeCompare(b.title));
     }
     return list;
-  }, [allSeries, sortBy, langFilter, sourceFilter]);
+  }, [allSeries, sortBy, langFilter]);
 
   const missingDetailsCount = React.useMemo(
     () => formState.discoveryLinkedSeries.filter(s => s.chapterCount == null).length,
@@ -460,15 +513,6 @@ export function SearchSeriesStep({
     searchService.startDiscoveryDetails(debouncedSearchValue)
       .then(r => { if (r.queued === 0) setDetailsLoading(false); })
       .catch(() => setDetailsLoading(false));
-  };
-
-  const controlStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "1px solid hsla(0 0% 100% / 0.12)",
-    borderRadius: 4,
-    color: "hsl(var(--as-fg-muted))",
-    fontSize: 11,
-    padding: "2px 6px",
   };
 
   const renderSeriesRow = (series: LinkedSeries) => {
@@ -635,7 +679,8 @@ export function SearchSeriesStep({
           </div>
         ) : (
           <>
-            {/* Sort/filter bar over the unified results list */}
+            {/* Sort/filter bar over the unified results list (which sources are searched is
+                governed by the pre-existing sources dropdown above) */}
             {hasResults && (
               <div
                 className="font-mono"
@@ -650,40 +695,28 @@ export function SearchSeriesStep({
                   color: "hsl(var(--as-fg-muted))",
                 }}
               >
-                <label htmlFor="disc-sort" style={{ opacity: 0.6 }}>sort</label>
-                <select
-                  id="disc-sort"
-                  style={controlStyle}
+                <span className="eyebrow" style={{ opacity: 0.6, fontSize: 10 }}>SORT</span>
+                <FilterDropdown
+                  ariaLabel="Sort results"
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                >
-                  <option value="relevance">Relevance</option>
-                  <option value="chapters">Chapters</option>
-                  <option value="title">Title</option>
-                </select>
+                  onChange={(v) => setSortBy(v as typeof sortBy)}
+                  options={[
+                    { value: "relevance", label: "Relevance" },
+                    { value: "chapters", label: "Chapters" },
+                    { value: "title", label: "Title" },
+                  ]}
+                />
                 {availableLangs.length > 1 && (
-                  <select
-                    aria-label="Filter language"
-                    style={controlStyle}
+                  <FilterDropdown
+                    ariaLabel="Filter language"
                     value={langFilter}
-                    onChange={(e) => setLangFilter(e.target.value)}
-                  >
-                    <option value="all">All languages</option>
-                    {availableLangs.map((l) => (
-                      <option key={l} value={l}>{l.toUpperCase()}</option>
-                    ))}
-                  </select>
+                    onChange={setLangFilter}
+                    options={[
+                      { value: "all", label: "All languages" },
+                      ...availableLangs.map((l) => ({ value: l as string, label: (l as string).toUpperCase() })),
+                    ]}
+                  />
                 )}
-                <select
-                  aria-label="Filter installed"
-                  style={controlStyle}
-                  value={sourceFilter}
-                  onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
-                >
-                  <option value="all">All sources</option>
-                  <option value="installed">Installed</option>
-                  <option value="notinstalled">Not installed</option>
-                </select>
               </div>
             )}
             <div className="res-list" data-vaul-no-drag>
@@ -715,10 +748,8 @@ export function SearchSeriesStep({
             <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ flexShrink: 0 }} />
             <span>
               {discoveryProgress.stage === 'preparing'
-                ? `Preparing ${discoveryProgress.totalSources} more sources…`
-                : `Checking ${discoveryProgress.totalSources} more sources…`}
-              {" "}
-              {Math.min(discoveryProgress.completed, discoveryProgress.total)} of {discoveryProgress.total} extensions done
+                ? `Preparing ${discoveryProgress.total} more extensions… ${Math.min(discoveryProgress.completed, discoveryProgress.total)} ready`
+                : `Checking ${discoveryProgress.total} more extensions… ${Math.min(discoveryProgress.completed, discoveryProgress.total)} done`}
             </span>
           </p>
         )}
