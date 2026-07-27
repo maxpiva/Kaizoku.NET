@@ -16,6 +16,16 @@ import { usePermission } from "@/hooks/use-permission";
 import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 import { MultiSelectSources } from "@/components/ui/multi-select-sources";
 
+/** Compact labels for the chapter-count badge ("80 ch · Ongoing"). */
+const STATUS_LABELS: Record<number, string> = {
+  1: "Ongoing",
+  2: "Completed",
+  3: "Licensed",
+  4: "Finished",
+  5: "Cancelled",
+  6: "Hiatus",
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -153,6 +163,13 @@ export function SearchSeriesStep({
     totalSources: number;
   } | null>(null);
   const discoverySearchIdRef = React.useRef<string | null>(null);
+  const detailsAutoRequestedRef = React.useRef(false);
+  const [detailsLoading, setDetailsLoading] = React.useState(false);
+
+  // Result display controls (client-side view over the unified list)
+  const [sortBy, setSortBy] = React.useState<'relevance' | 'chapters' | 'title'>('relevance');
+  const [langFilter, setLangFilter] = React.useState('all');
+  const [sourceFilter, setSourceFilter] = React.useState<'all' | 'installed' | 'notinstalled'>('all');
 
   /** Merge installed + discovery results into one relevance-ordered list. */
   const mergeSorted = React.useCallback((installed: LinkedSeries[], discovery: LinkedSeries[]): LinkedSeries[] => {
@@ -185,7 +202,10 @@ export function SearchSeriesStep({
   // so its worker processes are killed server-side.
   React.useEffect(() => {
     discoverySearchIdRef.current = null;
+    detailsAutoRequestedRef.current = false;
+    let sweepActive = false;
     setDiscoveryProgress(null);
+    setDetailsLoading(false);
     setFormState(prev => {
       if (prev.discoveryLinkedSeries.length === 0) return prev;
       return {
@@ -202,9 +222,21 @@ export function SearchSeriesStep({
     // start call returned). Checked right after the searchId becomes known.
     const finalEvents = new Map<string, string>();
 
+    // Chapter counts are a progressive enhancement; when a (cached) result set still lacks
+    // them, nudge the server once. The server no-ops when an augmentation is already running
+    // or nothing is missing.
+    const maybeRequestDetails = (results: { chapterCount?: number | null }[]) => {
+      if (detailsAutoRequestedRef.current) return;
+      if (!results.some(s => s.chapterCount == null)) return;
+      detailsAutoRequestedRef.current = true;
+      void searchService.startDiscoveryDetails(debouncedSearchValue).catch(() => undefined);
+    };
+
     const finishWithAuthoritativeResults = async () => {
       // The completed sweep is now cached server-side; re-fetching heals any events that
-      // slipped between the attach snapshot and our subscription.
+      // slipped between the attach snapshot and our subscription. The searchId stays set so
+      // the background details augmentation keeps streaming onto the cards.
+      sweepActive = false;
       try {
         const finalRes = await searchService.startDiscovery(debouncedSearchValue);
         if (!disposed && finalRes.done) {
@@ -214,7 +246,6 @@ export function SearchSeriesStep({
         console.warn('[SearchSeriesStep] failed to fetch final discovery results:', err);
       } finally {
         if (!disposed) {
-          discoverySearchIdRef.current = null;
           setDiscoveryProgress(null);
         }
       }
@@ -231,7 +262,7 @@ export function SearchSeriesStep({
       }
       if (evt.searchId !== currentId) return;
 
-      if (evt.type === 'results' && evt.results && evt.results.length > 0) {
+      if ((evt.type === 'results' || evt.type === 'details') && evt.results && evt.results.length > 0) {
         applyDiscoveryResults(evt.results, false);
       }
       if (evt.type === 'results' || evt.type === 'progress') {
@@ -245,7 +276,10 @@ export function SearchSeriesStep({
         }));
       } else if (evt.type === 'completed') {
         void finishWithAuthoritativeResults();
+      } else if (evt.type === 'detailsDone') {
+        setDetailsLoading(false);
       } else if (evt.type === 'cancelled' || evt.type === 'failed') {
+        sweepActive = false;
         discoverySearchIdRef.current = null;
         setDiscoveryProgress(null);
       }
@@ -256,7 +290,7 @@ export function SearchSeriesStep({
         await getProgressHub().startConnection();
         const start = await searchService.startDiscovery(debouncedSearchValue);
         if (disposed) {
-          if (start.searchId) {
+          if (start.searchId && !start.done) {
             void searchService.cancelDiscovery(start.searchId).catch(() => undefined);
           }
           return;
@@ -264,8 +298,15 @@ export function SearchSeriesStep({
         if (start.results.length > 0) {
           applyDiscoveryResults(start.results, true);
         }
-        if (start.done || !start.searchId) return; // cache hit, disabled, or nothing eligible
+        if (start.done || !start.searchId) {
+          // Cache hit (or disabled/nothing eligible): keep the id for details events and
+          // fill in any counts the cached set is still missing.
+          discoverySearchIdRef.current = start.searchId ?? null;
+          if (start.searchId && start.results.length > 0) maybeRequestDetails(start.results);
+          return;
+        }
         discoverySearchIdRef.current = start.searchId;
+        sweepActive = true;
         setDiscoveryProgress({
           stage: start.stage ?? 'preparing',
           completed: start.completedExtensions,
@@ -277,6 +318,7 @@ export function SearchSeriesStep({
         if (final === 'completed') {
           void finishWithAuthoritativeResults();
         } else if (final === 'cancelled' || final === 'failed') {
+          sweepActive = false;
           discoverySearchIdRef.current = null;
           setDiscoveryProgress(null);
         }
@@ -289,10 +331,11 @@ export function SearchSeriesStep({
     return () => {
       disposed = true;
       unsubscribe();
-      if (discoverySearchIdRef.current) {
+      // Only an in-flight sweep needs cancelling; a completed one is just a cache entry.
+      if (discoverySearchIdRef.current && sweepActive) {
         void searchService.cancelDiscovery(discoverySearchIdRef.current).catch(() => undefined);
-        discoverySearchIdRef.current = null;
       }
+      discoverySearchIdRef.current = null;
     };
   }, [debouncedSearchValue, discoveryEnabled, setFormState, applyDiscoveryResults]);
 
@@ -386,6 +429,48 @@ export function SearchSeriesStep({
   const hasResults = allSeries.length > 0;
   const isDiscoveryRunning = discoveryProgress !== null;
 
+  // Client-side view (sort + filters) over the canonical relevance-merged list.
+  const availableLangs = React.useMemo(
+    () => Array.from(new Set(allSeries.map(s => s.lang).filter(Boolean))).sort(),
+    [allSeries]
+  );
+  const displaySeries = React.useMemo(() => {
+    let list = allSeries;
+    if (langFilter !== 'all') list = list.filter(s => s.lang === langFilter);
+    if (sourceFilter === 'installed') list = list.filter(s => s.installed !== false);
+    else if (sourceFilter === 'notinstalled') list = list.filter(s => s.installed === false);
+    if (sortBy === 'chapters') {
+      list = [...list].sort((a, b) =>
+        ((b.chapterCount ?? -1) - (a.chapterCount ?? -1)) ||
+        ((b.relevance ?? -1) - (a.relevance ?? -1)));
+    } else if (sortBy === 'title') {
+      list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return list;
+  }, [allSeries, sortBy, langFilter, sourceFilter]);
+
+  const missingDetailsCount = React.useMemo(
+    () => formState.discoveryLinkedSeries.filter(s => s.chapterCount == null).length,
+    [formState.discoveryLinkedSeries]
+  );
+
+  const requestMoreDetails = () => {
+    if (detailsLoading) return;
+    setDetailsLoading(true);
+    searchService.startDiscoveryDetails(debouncedSearchValue)
+      .then(r => { if (r.queued === 0) setDetailsLoading(false); })
+      .catch(() => setDetailsLoading(false));
+  };
+
+  const controlStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "1px solid hsla(0 0% 100% / 0.12)",
+    borderRadius: 4,
+    color: "hsl(var(--as-fg-muted))",
+    fontSize: 11,
+    padding: "2px 6px",
+  };
+
   const renderSeriesRow = (series: LinkedSeries) => {
     const seriesId = getSeriesId(series);
     const isSelected = isSeriesSelected(seriesId);
@@ -445,6 +530,17 @@ export function SearchSeriesStep({
                 title={`Selecting this will install the ${series.extensionName ?? series.extensionPkg ?? ""} extension`}
               >
                 Not installed
+              </span>
+            )}
+            {series.chapterCount != null && (
+              <span
+                className="font-mono"
+                style={{ fontSize: 10, opacity: 0.75, whiteSpace: "nowrap" }}
+              >
+                {series.chapterCount} ch
+                {series.seriesStatus != null && STATUS_LABELS[series.seriesStatus]
+                  ? ` · ${STATUS_LABELS[series.seriesStatus]}`
+                  : ""}
               </span>
             )}
           </div>
@@ -538,9 +634,67 @@ export function SearchSeriesStep({
             </p>
           </div>
         ) : (
-          <div className="res-list" data-vaul-no-drag>
-            {allSeries.map(renderSeriesRow)}
-          </div>
+          <>
+            {/* Sort/filter bar over the unified results list */}
+            {hasResults && (
+              <div
+                className="font-mono"
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                  gap: 6,
+                  padding: "4px 22px 6px",
+                  fontSize: 11,
+                  color: "hsl(var(--as-fg-muted))",
+                }}
+              >
+                <label htmlFor="disc-sort" style={{ opacity: 0.6 }}>sort</label>
+                <select
+                  id="disc-sort"
+                  style={controlStyle}
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                >
+                  <option value="relevance">Relevance</option>
+                  <option value="chapters">Chapters</option>
+                  <option value="title">Title</option>
+                </select>
+                {availableLangs.length > 1 && (
+                  <select
+                    aria-label="Filter language"
+                    style={controlStyle}
+                    value={langFilter}
+                    onChange={(e) => setLangFilter(e.target.value)}
+                  >
+                    <option value="all">All languages</option>
+                    {availableLangs.map((l) => (
+                      <option key={l} value={l}>{l.toUpperCase()}</option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  aria-label="Filter installed"
+                  style={controlStyle}
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
+                >
+                  <option value="all">All sources</option>
+                  <option value="installed">Installed</option>
+                  <option value="notinstalled">Not installed</option>
+                </select>
+              </div>
+            )}
+            <div className="res-list" data-vaul-no-drag>
+              {displaySeries.map(renderSeriesRow)}
+              {hasResults && displaySeries.length === 0 && (
+                <p style={{ color: "hsl(var(--as-fg-muted))", fontSize: 12, padding: "16px 22px" }}>
+                  No results match the current filters.
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         {/* Subtle streaming-discovery progress affordance; disappears when the sweep completes */}
@@ -567,6 +721,39 @@ export function SearchSeriesStep({
               {Math.min(discoveryProgress.completed, discoveryProgress.total)} of {discoveryProgress.total} extensions done
             </span>
           </p>
+        )}
+
+        {/* Load chapter counts for results beyond the automatically augmented top batch */}
+        {!error && !isDiscoveryRunning && missingDetailsCount > 0 && hasResults && (
+          <button
+            type="button"
+            className="font-mono"
+            onClick={requestMoreDetails}
+            onPointerDown={(e) => e.stopPropagation()}
+            disabled={detailsLoading}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "8px 22px",
+              fontSize: 11,
+              color: "hsl(var(--as-fg-muted))",
+              background: "transparent",
+              border: "none",
+              borderTop: "1px solid hsla(0 0% 100% / 0.06)",
+              cursor: detailsLoading ? "default" : "pointer",
+              textAlign: "left",
+              opacity: detailsLoading ? 0.6 : 0.85,
+            }}
+          >
+            {detailsLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ flexShrink: 0 }} />}
+            <span>
+              {detailsLoading
+                ? "Loading chapter counts…"
+                : `Load details for ${Math.min(20, missingDetailsCount)} more result${missingDetailsCount === 1 ? "" : "s"}`}
+            </span>
+          </button>
         )}
     </div>
   );

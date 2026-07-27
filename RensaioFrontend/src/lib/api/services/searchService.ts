@@ -68,6 +68,15 @@ export const searchService = {
   },
 
   /**
+   * Requests chapter-count/status augmentation for the next batch of cached discovery results;
+   * updates stream in as "details" events on the progress hub.
+   */
+  async startDiscoveryDetails(keyword: string, count?: number): Promise<{ queued: number }> {
+    const query = count ? `?count=${count}` : '';
+    return apiClient.post<{ queued: number }>(`/api/search/discovery/details${query}`, { keyword });
+  },
+
+  /**
    * Augments a list of linked series with full details and type information
    * @param linkedSeries List of linked series to augment
    * @returns Promise resolving to augmented response with series and metadata

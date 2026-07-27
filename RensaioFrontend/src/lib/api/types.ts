@@ -78,6 +78,9 @@ export interface LinkedSeries {
   extensionPkg?: string;
   extensionRepoName?: string;
   extensionName?: string;
+  /** Filled by the background details augmentation ("80 ch · Ongoing" badge). */
+  chapterCount?: number | null;
+  seriesStatus?: SeriesStatus | null;
 }
 
 /** Counts of not-installed extensions/sources eligible for discovery search. */
@@ -101,7 +104,7 @@ export interface DiscoveryStart {
 /** "DiscoverySearch" SignalR event streamed on the /progress hub during a sweep. */
 export interface DiscoverySearchEvent {
   searchId: string;
-  type: 'results' | 'progress' | 'completed' | 'cancelled' | 'failed';
+  type: 'results' | 'progress' | 'completed' | 'cancelled' | 'failed' | 'details' | 'detailsDone';
   stage?: string | null;
   completedExtensions: number;
   totalExtensions: number;
