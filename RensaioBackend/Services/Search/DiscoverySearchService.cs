@@ -478,7 +478,12 @@ namespace RensaioBackend.Services.Search
             Preferences preferences = await _mihon.GetPreferencesAsync(token).ConfigureAwait(false);
             int batchSize = Math.Max(1, settings.DiscoveryWorkerBatchSize);
             int maxWorkers = Math.Max(1, settings.MaxDiscoveryWorkers);
-            int parallelInWorker = Math.Clamp(settings.NumberOfSimultaneousSearches / maxWorkers, 1, 4);
+            // Per-worker search concurrency. Deliberately NOT divided by the worker count (the old
+            // formula made total in-flight searches invariant in maxWorkers — adding workers halved
+            // per-worker parallelism and sweeps didn't speed up). Each worker runs up to
+            // NumberOfSimultaneousSearches concurrent extension searches, capped by its batch size,
+            // so total concurrency = workers x this and the worker knob actually scales the sweep.
+            int parallelInWorker = Math.Clamp(settings.NumberOfSimultaneousSearches, 1, batchSize);
             var context = new DiscoveryWorkerContext
             {
                 Launch = launch.Value,

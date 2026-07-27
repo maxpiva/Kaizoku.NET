@@ -191,11 +191,16 @@ public static class DiscoveryWorkerProgram
                 {
                     if (!MatchesLanguage(src.Language, languageSet))
                         continue;
+                    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                     try
                     {
                         var result = await SourceTimeout
                             .RunAsync(c => src.SearchAsync(1, request.Query, c), searchTimeout, ct)
                             .ConfigureAwait(false);
+                        // Per-source timing instrumentation: lets the parent (debug log) show how
+                        // batch wall time is composed and whether searches overlap.
+                        logger.LogInformation("Source {Name} searched in {Ms}ms ({Count} results).",
+                            src.Name, stopwatch.ElapsedMilliseconds, result?.Mangas?.Count ?? 0);
                         // Mangas itself can be null when a source doesn't implement search
                         // (same guard as the parent's in-process path).
                         if (result?.Mangas == null || result.Mangas.Count == 0)
@@ -218,7 +223,8 @@ public static class DiscoveryWorkerProgram
                     }
                     catch (Exception ex)
                     {
-                        logger.LogWarning(ex, "Error in discovery search for source {Name}: {Message}", src.Name, ex.Message);
+                        logger.LogWarning(ex, "Error in discovery search for source {Name}: {Message} ({Ms}ms)",
+                            src.Name, ex.Message, stopwatch.ElapsedMilliseconds);
                     }
                 }
                 emit(new DiscoveryWorkerEvent { Type = DiscoveryWorkerEventTypes.ExtensionDone, Package = package });
