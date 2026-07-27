@@ -17,6 +17,13 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         /// <param name="extension">The online repository extension to shadow-load.</param>
         /// <param name="token">Cancellation token for the caller's wait; a shared load keeps running in the background.</param>
         Task<IExtensionInterop> GetDiscoveryInteropAsync(TachiyomiExtension extension, CancellationToken token = default);
+        /// <summary>
+        /// Prepares the on-disk artifacts (APK download + dex2jar conversion) for a not-installed
+        /// extension WITHOUT classloading it, so a short-lived worker process can load the JAR instead.
+        /// Artifacts land in the same private discovery cache used by <see cref="GetDiscoveryInteropAsync"/>;
+        /// the extension is never registered as installed. Concurrent calls share one preparation.
+        /// </summary>
+        Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default);
         List<RepositoryGroup> ListExtensions();
         RepositoryGroup? FindExtension(string name);
         Task<bool> RemoveExtensionAsync(RepositoryGroup group, CancellationToken token = default);
