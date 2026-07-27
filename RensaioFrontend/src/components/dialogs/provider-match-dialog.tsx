@@ -30,44 +30,54 @@ const ChapterRow = memo(({
   onChapterChange: (index: number, field: keyof ProviderMatchChapter, value: string | number | null) => void;
   renderProviderWithFlag: (matchInfoId: string | null | undefined) => React.ReactNode;
 }) => {
+  const fieldLabel = "mb-1 block text-[11px] font-medium uppercase tracking-wide opacity-70 sm:hidden";
+
   return (
-    <div 
-      className={`flex items-center gap-4 p-2 rounded cursor-pointer transition-colors ${
-        isSelected 
-          ? 'm-1 bg-primary' 
-          : 'm-1 hover:bg-muted/50'
+    <div
+      className={`m-1 flex flex-col gap-2 rounded border p-2 cursor-pointer transition-colors sm:flex-row sm:items-center sm:gap-4 sm:border-transparent ${
+        isSelected
+          ? 'bg-primary text-primary-foreground border-primary'
+          : 'bg-card hover:bg-muted sm:bg-transparent'
       }`}
       onMouseDown={() => onMouseDown(index)}
       onMouseEnter={() => onMouseEnter(index)}
-    >      <div className="w-[35%]">
-        <Input 
-          className="h-7 text-sm" 
+    >
+      <div className="w-full min-w-0 sm:w-[35%]">
+        <span className={fieldLabel}>Filename</span>
+        <Input
+          className="h-8 text-sm sm:h-7"
           value={chapter.filename}
           onChange={(e) => onChapterChange(index, 'filename', e.target.value)}
           onMouseDown={(e) => e.stopPropagation()}
         />
       </div>
-      <div className="w-[35%]">
+      <div className="w-full min-w-0 sm:w-[35%]">
+        <span className={fieldLabel}>Name</span>
         <Input
           value={chapter.chapterName}
           onChange={(e) => onChapterChange(index, 'chapterName', e.target.value)}
-          className="h-7 text-sm"
+          className="h-8 text-sm sm:h-7"
           onMouseDown={(e) => e.stopPropagation()}
         />
-      </div>      <div className="w-[20%]">
-        <div className="h-7 px-3 py-1 text-sm bg-muted rounded border border-input flex items-center pointer-events-none select-none">
-          {renderProviderWithFlag(chapter.matchInfoId)}
-        </div>
       </div>
-      <div className="w-[10%]">
-        <Input
-          type="number"
-          step="0.1"
-          value={chapter.chapterNumber || ""}
-          onChange={(e) => onChapterChange(index, 'chapterNumber', e.target.value ? parseFloat(e.target.value) : null)}
-          className="h-7 text-sm text-right tabular-nums font-mono"
-          onMouseDown={(e) => e.stopPropagation()}
-        />
+      <div className="flex w-full items-end gap-2 sm:contents">
+        <div className="min-w-0 flex-1 sm:w-[20%] sm:flex-none">
+          <span className={fieldLabel}>Source</span>
+          <div className="h-8 px-3 py-1 text-sm text-foreground bg-muted rounded border border-input flex items-center pointer-events-none select-none sm:h-7">
+            {renderProviderWithFlag(chapter.matchInfoId)}
+          </div>
+        </div>
+        <div className="w-20 shrink-0 sm:w-[10%]">
+          <span className={fieldLabel}>Number</span>
+          <Input
+            type="number"
+            step="0.1"
+            value={chapter.chapterNumber || ""}
+            onChange={(e) => onChapterChange(index, 'chapterNumber', e.target.value ? parseFloat(e.target.value) : null)}
+            className="h-8 text-sm text-right tabular-nums font-mono sm:h-7"
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        </div>
       </div>
     </div>
   );
@@ -496,8 +506,8 @@ export function ProviderMatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[85vw] h-auto flex flex-col">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-[85vw] h-[92dvh] max-h-[92dvh] sm:h-[88vh] sm:max-h-[88vh] flex flex-col gap-3 sm:gap-4 bg-background overflow-x-hidden overflow-y-hidden">
+        <DialogHeader className="shrink-0 pr-10">
           <DialogTitle>Match Source to Chapters</DialogTitle>
         </DialogHeader>
 
@@ -517,24 +527,24 @@ export function ProviderMatchDialog({
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col gap-4 min-h-0">
-            {/* Selection controls */}
-           {
-           /* Upper scrollable area with chapter rows */}<div className="flex-1 border rounded-md min-h-0">
-              <div className="p-3 border-b bg-muted/50">
+          <div className="flex-1 flex flex-col gap-3 sm:gap-4 min-h-0">
+            {/* Chapter list container — owns its own scrolling, never overlaps the controls */}
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden border rounded-md bg-card">
+              <div className="shrink-0 p-3 border-b bg-muted">
                 <div className="flex items-center gap-4 text-sm font-medium">
                   <Checkbox
                     checked={selectedChapterIndexes.size === chapters.length && chapters.length > 0}
                     onCheckedChange={handleSelectAll}
                   />
-                  <div className="w-[35%]">Filename</div>
-                  <div className="w-[35%]">Name</div>
-                  <div className="w-[20%]">Source</div>
-                  <div className="w-[10%]">Number</div>
+                  <span className="sm:hidden">Select all</span>
+                  <div className="hidden sm:block sm:w-[35%]">Filename</div>
+                  <div className="hidden sm:block sm:w-[35%]">Name</div>
+                  <div className="hidden sm:block sm:w-[20%]">Source</div>
+                  <div className="hidden sm:block sm:w-[10%]">Number</div>
                 </div>
               </div>
-              <div 
-                className="h-[70vh] overflow-y-auto" 
+              <div
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
                 onMouseUp={handleMouseUp}
                 onMouseMove={handleMouseMove}
                 ref={setScrollContainer}
@@ -556,16 +566,16 @@ export function ProviderMatchDialog({
               </div>
             </div>
 
-            {/* Bottom control area */}
-            <div className="flex flex-col gap-3 p-3 border rounded-md bg-muted/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Label className="text-sm font-medium">Providers:</Label>
-                  <Select 
-                    value={selectedMatchInfoId === NEW_PROVIDER_SENTINEL ? "__new__" : selectedMatchInfoId} 
+            {/* Bottom control area — separate solid container, sits below the list */}
+            <div className="shrink-0 flex flex-col gap-3 p-3 border rounded-md bg-card">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <Label className="text-sm font-medium shrink-0">Providers:</Label>
+                  <Select
+                    value={selectedMatchInfoId === NEW_PROVIDER_SENTINEL ? "__new__" : selectedMatchInfoId}
                     onValueChange={handleProviderSelect}
                   >
-                    <SelectTrigger className="w-48">
+                    <SelectTrigger className="flex-1 min-w-0 sm:flex-none sm:w-48">
                       <SelectValue placeholder="Select source">
                         {selectedMatchInfoId && renderProviderWithFlag(selectedMatchInfoId)}
                       </SelectValue>
@@ -588,20 +598,21 @@ export function ProviderMatchDialog({
                     onClick={handleMatchSelected}
                     disabled={!selectedMatchInfoId || selectedChapterIndexes.size === 0 || selectedMatchInfoId === "__new__"}
                     size="sm"
+                    className="shrink-0"
                   >
                     Match
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <Label className="text-sm font-medium">Range Fill:</Label>
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <Label className="text-sm font-medium shrink-0">Range Fill:</Label>
                   <Input
                     type="number"
                     step="0.1"
                     placeholder="Start"
                     value={rangeStart}
                     onChange={(e) => setRangeStart(e.target.value)}
-                    className="w-20 h-8"
+                    className="w-full min-w-0 h-8 sm:w-20"
                   />
                   <Input
                     type="number"
@@ -609,12 +620,13 @@ export function ProviderMatchDialog({
                     placeholder="Step"
                     value={rangeStep}
                     onChange={(e) => setRangeStep(e.target.value)}
-                    className="w-20 h-8"
+                    className="w-full min-w-0 h-8 sm:w-20"
                   />
                   <Button
                     onClick={handleFillRange}
                     disabled={!rangeStart || !rangeStep || selectedChapterIndexes.size === 0}
                     size="sm"
+                    className="shrink-0"
                   >
                     Fill
                   </Button>
@@ -623,14 +635,14 @@ export function ProviderMatchDialog({
 
               {/* New provider creation form - shown when "Create New Provider" is selected */}
               {showNewProviderForm && (
-                <div className="flex items-center gap-4 p-3 bg-background border rounded-md">
+                <div className="flex flex-col gap-3 p-3 bg-background border rounded-md sm:flex-row sm:items-end sm:gap-4">
                   <div className="flex flex-col gap-1">
                     <Label className="text-xs text-muted-foreground">Name</Label>
                     <Input
                       placeholder="Provider name"
                       value={newProviderName}
                       onChange={(e) => setNewProviderName(e.target.value)}
-                      className="h-8 w-44"
+                      className="h-8 w-full sm:w-44"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
@@ -639,7 +651,7 @@ export function ProviderMatchDialog({
                       placeholder="Scanlator (optional)"
                       value={newProviderScanlator}
                       onChange={(e) => setNewProviderScanlator(e.target.value)}
-                      className="h-8 w-36"
+                      className="h-8 w-full sm:w-36"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
@@ -648,10 +660,10 @@ export function ProviderMatchDialog({
                       placeholder="en"
                       value={newProviderLanguage}
                       onChange={(e) => setNewProviderLanguage(e.target.value)}
-                      className="h-8 w-20"
+                      className="h-8 w-full sm:w-20"
                     />
                   </div>
-                  <div className="flex items-end gap-2 mt-auto">
+                  <div className="flex items-end gap-2 sm:mt-auto">
                     <Button
                       onClick={handleNewProviderConfirm}
                       disabled={!newProviderName.trim()}
@@ -673,8 +685,8 @@ export function ProviderMatchDialog({
             </div>
           </div>
         )}
-        <DialogFooter>
-          <div className="flex items-center text-sm text-muted-foreground mr-auto">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0">
+          <div className="flex items-center justify-center text-sm text-muted-foreground sm:mr-auto">
             ({selectedChapterIndexes.size} of {chapters.length} selected)
           </div>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
