@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client';
-import { type LinkedSeries, type AugmentedResponse, type SearchSource, type DiscoverySources } from '@/lib/api/types';
+import { type LinkedSeries, type AugmentedResponse, type SearchSource, type DiscoverySources, type DiscoveryStart } from '@/lib/api/types';
 
 export interface SearchParams {
   keyword: string;
@@ -49,17 +49,22 @@ export const searchService = {
   },
 
   /**
-   * Searches for series across sources whose extensions are NOT installed (discovery search).
-   * The first search per extension shadow-loads it server-side and can take a while.
-   * @param params Search parameters containing keyword and optional languages
-   * @returns Promise resolving to list of linked series marked installed=false
+   * Starts (or attaches to) an automatic streaming discovery sweep for the query.
+   * When the response has done=true the results are already complete (cache hit or disabled);
+   * otherwise keep searchId and listen for "DiscoverySearch" events on the progress hub.
    */
-  async searchDiscovery(params: { keyword: string; languages?: string }): Promise<LinkedSeries[]> {
-    const searchParams = new URLSearchParams({
-      keyword: params.keyword,
-      ...(params.languages && { languages: params.languages }),
+  async startDiscovery(keyword: string, languages?: string[]): Promise<DiscoveryStart> {
+    return apiClient.post<DiscoveryStart>('/api/search/discovery/start', {
+      keyword,
+      ...(languages && languages.length > 0 ? { languages } : {}),
     });
-    return apiClient.get<LinkedSeries[]>(`/api/search/discovery?${searchParams.toString()}`);
+  },
+
+  /**
+   * Cancels an in-flight discovery sweep (retyped query or closed dialog).
+   */
+  async cancelDiscovery(searchId: string): Promise<{ cancelled: boolean }> {
+    return apiClient.post<{ cancelled: boolean }>(`/api/search/discovery/cancel/${searchId}`, null);
   },
 
   /**

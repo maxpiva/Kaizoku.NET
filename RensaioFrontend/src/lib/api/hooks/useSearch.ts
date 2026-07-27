@@ -31,36 +31,6 @@ export const useSearchSeries = (
 };
 
 /**
- * Hook for getting the count of not-installed extensions/sources eligible for discovery search
- */
-export const useDiscoverySources = (options?: { enabled?: boolean }) => {
-  return useQuery({
-    queryKey: ['search', 'discovery', 'sources'],
-    queryFn: () => searchService.getDiscoverySources(),
-    enabled: options?.enabled ?? true,
-    staleTime: 60_000,
-  });
-};
-
-/**
- * Hook for searching series across not-installed sources (discovery search).
- * Disabled by default; enable it when the user explicitly opts in.
- * First run per extension shadow-loads it server-side, so this can take a while.
- */
-export const useDiscoverySearch = (
-  keyword: string,
-  options?: { enabled?: boolean }
-) => {
-  return useQuery({
-    queryKey: ['search', 'discovery', 'series', keyword],
-    queryFn: () => searchService.searchDiscovery({ keyword }),
-    enabled: (options?.enabled ?? false) && !!keyword?.trim(),
-    staleTime: 30_000,
-    retry: false,
-  });
-};
-
-/**
  * Hook for augmenting linked series with full details
  * Returns the full AugmentedResponse with metadata and series
  */

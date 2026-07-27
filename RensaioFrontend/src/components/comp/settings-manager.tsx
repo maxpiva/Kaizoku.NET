@@ -532,6 +532,50 @@ function DownloadSettingsSection({
             Maximum number of searches that can run simultaneously
           </p>
         </div>
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="discovery-include-in-search"
+            checked={localSettings.discoveryIncludeInSearch ?? true}
+            onCheckedChange={(checked) =>
+              setLocalSettings((prev) => ({
+                ...prev,
+                discoveryIncludeInSearch: checked,
+              }))
+            }
+          />
+          <Label htmlFor="discovery-include-in-search">
+            Include not-installed sources in search results
+          </Label>
+        </div>
+        <p className="text-muted-foreground mt-1 text-sm">
+          When enabled, searching for a series also sweeps sources whose
+          extensions are not installed and streams the matches into the same
+          results list. Selecting one installs the extension automatically.
+        </p>
+        {(localSettings.discoveryIncludeInSearch ?? true) && (
+          <div className="border-muted space-y-2 border-l-2 pl-6">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="discovery-precache-enabled"
+                checked={localSettings.discoveryPrecacheEnabled ?? true}
+                onCheckedChange={(checked) =>
+                  setLocalSettings((prev) => ({
+                    ...prev,
+                    discoveryPrecacheEnabled: checked,
+                  }))
+                }
+              />
+              <Label htmlFor="discovery-precache-enabled">
+                Prepare not-installed sources in the background
+              </Label>
+            </div>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Pre-downloads and converts eligible extensions at low priority so
+              the first search of the day is never slowed down by cold
+              conversions.
+            </p>
+          </div>
+        )}
         <div>
           <Label htmlFor="download-retry-time">
             Chapter Download Retry Time

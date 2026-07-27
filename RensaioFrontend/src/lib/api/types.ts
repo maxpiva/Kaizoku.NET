@@ -42,6 +42,13 @@ export interface Settings {
   socksProxyUsername: string;
   socksProxyPassword: string;
   nsfwVisibility: NsfwVisibility;
+  // Discovery ("include not-installed sources in search") settings
+  discoveryIncludeInSearch?: boolean;
+  discoveryPrecacheEnabled?: boolean;
+  maxDiscoverySearchExtensions?: number;
+  discoverySearchWorkersEnabled?: boolean;
+  discoveryWorkerBatchSize?: number;
+  maxDiscoveryWorkers?: number;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -63,6 +70,9 @@ export interface LinkedSeries {
   useCover: boolean;
   isStorage: boolean;
   isLocal: boolean;
+  /** Fuzzy relevance (0-100) of the title against the search keyword; used to merge
+   *  installed and discovery results into one relevance-ordered list. */
+  relevance?: number;
   // Discovery-search extras (present only on results from not-installed sources)
   installed?: boolean;
   extensionPkg?: string;
@@ -74,6 +84,29 @@ export interface LinkedSeries {
 export interface DiscoverySources {
   extensionCount: number;
   sourceCount: number;
+}
+
+/** Response of POST /api/search/discovery/start. */
+export interface DiscoveryStart {
+  enabled: boolean;
+  done: boolean;
+  searchId?: string | null;
+  stage?: string | null;
+  totalExtensions: number;
+  totalSources: number;
+  completedExtensions: number;
+  results: LinkedSeries[];
+}
+
+/** "DiscoverySearch" SignalR event streamed on the /progress hub during a sweep. */
+export interface DiscoverySearchEvent {
+  searchId: string;
+  type: 'results' | 'progress' | 'completed' | 'cancelled' | 'failed';
+  stage?: string | null;
+  completedExtensions: number;
+  totalExtensions: number;
+  results?: LinkedSeries[] | null;
+  totalResults?: number | null;
 }
 
 export interface FullSeries {

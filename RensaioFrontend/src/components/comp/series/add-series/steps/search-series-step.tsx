@@ -1,9 +1,12 @@
 "use client";
 
 import { type AddSeriesState } from "@/components/comp/series/add-series";
-import { AlertTriangle, Globe, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Loader2, Search } from "lucide-react";
 import { type LinkedSeries, type ExistingSource } from "@/lib/api/types";
-import { useSearchSeries, useAvailableSearchSources, useDiscoverySources, useDiscoverySearch } from "@/lib/api/hooks/useSearch";
+import { useSearchSeries, useAvailableSearchSources } from "@/lib/api/hooks/useSearch";
+import { useSettings } from "@/lib/api/hooks/useSettings";
+import { searchService } from "@/lib/api/services/searchService";
+import { getProgressHub } from "@/lib/api/signalr/progressHub";
 import React from "react";
 import { useDebounce } from "use-debounce";
 import Image from "next/image";
@@ -132,17 +135,57 @@ export function SearchSeriesStep({
   );
 
   // ---------------------------------------------------------------------------
-  // Discovery search ("search more sources"): opt-in search across sources whose
-  // extensions are NOT installed. Only offered to users who can add series, since
-  // selecting a discovery result installs the extension.
+  // Automatic discovery search: whenever the normal search fires, a background
+  // sweep over eligible NOT-installed sources starts too (same query/debounce).
+  // Installed results render immediately as always; discovery results stream in
+  // over SignalR and merge into the same relevance-ordered list, badged
+  // "Not installed". Gated on the discoveryIncludeInSearch setting and on
+  // add-series rights (selecting a discovery result installs its extension).
   // ---------------------------------------------------------------------------
   const canAddSeries = usePermission('canAddSeries');
-  const { data: discoveryInfo } = useDiscoverySources({ enabled: canAddSeries });
-  const [discoveryRequested, setDiscoveryRequested] = React.useState(false);
+  const { data: appSettings } = useSettings();
+  const discoveryEnabled = canAddSeries && (appSettings?.discoveryIncludeInSearch ?? true);
 
-  // A new search term resets the opt-in and clears stale discovery results.
+  const [discoveryProgress, setDiscoveryProgress] = React.useState<{
+    stage: string;
+    completed: number;
+    total: number;
+    totalSources: number;
+  } | null>(null);
+  const discoverySearchIdRef = React.useRef<string | null>(null);
+
+  /** Merge installed + discovery results into one relevance-ordered list. */
+  const mergeSorted = React.useCallback((installed: LinkedSeries[], discovery: LinkedSeries[]): LinkedSeries[] => {
+    return [...installed, ...discovery].sort(
+      (a, b) => ((b.relevance ?? -1) - (a.relevance ?? -1)) || a.title.localeCompare(b.title)
+    );
+  }, []);
+
+  /** Upsert streamed discovery results (deduped by mihonId) into the unified list. */
+  const applyDiscoveryResults = React.useCallback((incoming: LinkedSeries[], replace: boolean) => {
+    setFormState(prev => {
+      const byId = new Map<string, LinkedSeries>();
+      if (!replace) {
+        prev.discoveryLinkedSeries.forEach(s => { if (s.mihonId) byId.set(s.mihonId, s); });
+      }
+      incoming.forEach(s => { if (s.mihonId) byId.set(s.mihonId, s); });
+      const discovery = Array.from(byId.values());
+      const installed = prev.allLinkedSeries.filter(s => s.installed !== false);
+      return {
+        ...prev,
+        discoveryLinkedSeries: discovery,
+        allLinkedSeries: mergeSorted(installed, discovery),
+      };
+    });
+  }, [setFormState, mergeSorted]);
+
+  // One effect owns the whole discovery lifecycle for the current query: it clears stale
+  // results, starts (or attaches to) the sweep, subscribes to its hub events, and on
+  // cleanup (query change / dialog close / leaving the step) cancels the in-flight sweep
+  // so its worker processes are killed server-side.
   React.useEffect(() => {
-    setDiscoveryRequested(false);
+    discoverySearchIdRef.current = null;
+    setDiscoveryProgress(null);
     setFormState(prev => {
       if (prev.discoveryLinkedSeries.length === 0) return prev;
       return {
@@ -151,31 +194,113 @@ export function SearchSeriesStep({
         allLinkedSeries: prev.allLinkedSeries.filter(s => s.installed !== false),
       };
     });
-  }, [debouncedSearchValue, setFormState]);
 
-  const {
-    data: discoveryResults,
-    isFetching: isDiscoverySearching,
-    error: discoveryError,
-  } = useDiscoverySearch(debouncedSearchValue, {
-    enabled: canAddSeries && discoveryRequested && debouncedSearchValue.length >= 3,
-  });
+    if (!discoveryEnabled || debouncedSearchValue.trim().length < 3) return;
 
-  React.useEffect(() => {
-    if (discoveryResults) {
-      setFormState(prev => ({
-        ...prev,
-        discoveryLinkedSeries: discoveryResults,
-        allLinkedSeries: [...prev.allLinkedSeries.filter(s => s.installed !== false), ...discoveryResults],
-      }));
-    }
-  }, [discoveryResults, setFormState]);
+    let disposed = false;
+    // Final events seen for sweeps we may not have identified yet (completed before the
+    // start call returned). Checked right after the searchId becomes known.
+    const finalEvents = new Map<string, string>();
+
+    const finishWithAuthoritativeResults = async () => {
+      // The completed sweep is now cached server-side; re-fetching heals any events that
+      // slipped between the attach snapshot and our subscription.
+      try {
+        const finalRes = await searchService.startDiscovery(debouncedSearchValue);
+        if (!disposed && finalRes.done) {
+          applyDiscoveryResults(finalRes.results, true);
+        }
+      } catch (err) {
+        console.warn('[SearchSeriesStep] failed to fetch final discovery results:', err);
+      } finally {
+        if (!disposed) {
+          discoverySearchIdRef.current = null;
+          setDiscoveryProgress(null);
+        }
+      }
+    };
+
+    const unsubscribe = getProgressHub().onDiscovery((evt) => {
+      if (disposed) return;
+      const currentId = discoverySearchIdRef.current;
+      if (!currentId) {
+        if (evt.type === 'completed' || evt.type === 'cancelled' || evt.type === 'failed') {
+          finalEvents.set(evt.searchId, evt.type);
+        }
+        return;
+      }
+      if (evt.searchId !== currentId) return;
+
+      if (evt.type === 'results' && evt.results && evt.results.length > 0) {
+        applyDiscoveryResults(evt.results, false);
+      }
+      if (evt.type === 'results' || evt.type === 'progress') {
+        setDiscoveryProgress(prev => ({
+          stage: evt.stage ?? prev?.stage ?? 'searching',
+          completed: evt.stage && evt.stage !== prev?.stage
+            ? evt.completedExtensions
+            : Math.max(prev?.completed ?? 0, evt.completedExtensions),
+          total: evt.totalExtensions > 0 ? evt.totalExtensions : (prev?.total ?? 0),
+          totalSources: prev?.totalSources ?? 0,
+        }));
+      } else if (evt.type === 'completed') {
+        void finishWithAuthoritativeResults();
+      } else if (evt.type === 'cancelled' || evt.type === 'failed') {
+        discoverySearchIdRef.current = null;
+        setDiscoveryProgress(null);
+      }
+    });
+
+    void (async () => {
+      try {
+        await getProgressHub().startConnection();
+        const start = await searchService.startDiscovery(debouncedSearchValue);
+        if (disposed) {
+          if (start.searchId) {
+            void searchService.cancelDiscovery(start.searchId).catch(() => undefined);
+          }
+          return;
+        }
+        if (start.results.length > 0) {
+          applyDiscoveryResults(start.results, true);
+        }
+        if (start.done || !start.searchId) return; // cache hit, disabled, or nothing eligible
+        discoverySearchIdRef.current = start.searchId;
+        setDiscoveryProgress({
+          stage: start.stage ?? 'preparing',
+          completed: start.completedExtensions,
+          total: start.totalExtensions,
+          totalSources: start.totalSources,
+        });
+        // Sweep may have finished while the start call was in flight.
+        const final = finalEvents.get(start.searchId);
+        if (final === 'completed') {
+          void finishWithAuthoritativeResults();
+        } else if (final === 'cancelled' || final === 'failed') {
+          discoverySearchIdRef.current = null;
+          setDiscoveryProgress(null);
+        }
+      } catch (err) {
+        console.warn('[SearchSeriesStep] discovery start failed:', err);
+        if (!disposed) setDiscoveryProgress(null);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+      if (discoverySearchIdRef.current) {
+        void searchService.cancelDiscovery(discoverySearchIdRef.current).catch(() => undefined);
+        discoverySearchIdRef.current = null;
+      }
+    };
+  }, [debouncedSearchValue, discoveryEnabled, setFormState, applyDiscoveryResults]);
 
   React.useEffect(() => {
     if (searchResults) {
       setFormState(prev => {
-        // Keep any discovery results appended after the regular results
-        const merged = [...searchResults, ...prev.discoveryLinkedSeries];
+        // Merge installed results with any streamed discovery results, relevance-ordered
+        const merged = mergeSorted(searchResults, prev.discoveryLinkedSeries);
         // Validate existing selections against new search results
         const newSearchResultIds = merged.map(series => series.mihonId ?? series.providerId);
         const validatedSelections = prev.selectedLinkedSeries.filter(selectedId =>
@@ -190,7 +315,7 @@ export function SearchSeriesStep({
         };
       });
     }
-  }, [searchResults, debouncedSearchValue, setFormState]);
+  }, [searchResults, debouncedSearchValue, setFormState, mergeSorted]);
 
   React.useEffect(() => {
     // Only set loading when we're fetching and don't have any search results yet
@@ -252,20 +377,14 @@ export function SearchSeriesStep({
   };
 
   const allSeries = formState.allLinkedSeries;
-  const installedSeries = allSeries.filter((s) => s.installed !== false);
-  const discoverySeries = formState.discoveryLinkedSeries;
 
   // Local-only focused row tracking — purely visual, not in AddSeriesState
   const [lastFocusedId, setLastFocusedId] = React.useState<string | null>(null);
 
   const isSearching = (isLoading || isFetching) && debouncedSearchValue.length >= 3;
   const hasQuery = searchValue.length > 0;
-  const hasResults = installedSeries.length > 0;
-  const showDiscovery =
-    canAddSeries &&
-    !error &&
-    debouncedSearchValue.length >= 3 &&
-    (discoveryInfo?.sourceCount ?? 0) > 0;
+  const hasResults = allSeries.length > 0;
+  const isDiscoveryRunning = discoveryProgress !== null;
 
   const renderSeriesRow = (series: LinkedSeries) => {
     const seriesId = getSeriesId(series);
@@ -403,7 +522,7 @@ export function SearchSeriesStep({
               Start typing to search…
             </p>
           </div>
-        ) : !hasResults && !isSearching ? (
+        ) : !hasResults && !isSearching && !isDiscoveryRunning ? (
           <div className="res-list">
             <p
               style={{
@@ -420,99 +539,34 @@ export function SearchSeriesStep({
           </div>
         ) : (
           <div className="res-list" data-vaul-no-drag>
-            {installedSeries.map(renderSeriesRow)}
+            {allSeries.map(renderSeriesRow)}
           </div>
         )}
 
-        {/* Discovery ("search more sources") section — sources from extensions not installed */}
-        {showDiscovery && (
-          <div
-            className="res-list"
-            data-vaul-no-drag
-            style={{ borderTop: "1px solid hsla(0 0% 100% / 0.08)" }}
+        {/* Subtle streaming-discovery progress affordance; disappears when the sweep completes */}
+        {!error && isDiscoveryRunning && discoveryProgress && (
+          <p
+            className="font-mono"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 22px",
+              fontSize: 11,
+              color: "hsl(var(--as-fg-muted))",
+              opacity: 0.75,
+              borderTop: "1px solid hsla(0 0% 100% / 0.06)",
+            }}
           >
-            {!discoveryRequested ? (
-              <button
-                type="button"
-                onClick={() => setDiscoveryRequested(true)}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="font-mono"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  padding: "12px 22px",
-                  fontSize: 12,
-                  color: "hsl(var(--as-fg-muted))",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <Globe style={{ width: 14, height: 14, flexShrink: 0 }} />
-                <span>
-                  Search {discoveryInfo!.sourceCount} more source{discoveryInfo!.sourceCount === 1 ? "" : "s"}
-                  <span style={{ opacity: 0.55, marginLeft: 8 }}>
-                    from extensions you haven&apos;t installed — first search may take a while
-                  </span>
-                </span>
-              </button>
-            ) : isDiscoverySearching ? (
-              <p
-                className="font-mono"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "12px 22px",
-                  fontSize: 12,
-                  color: "hsl(var(--as-fg-muted))",
-                }}
-              >
-                <Loader2 className="h-4 w-4 animate-spin" style={{ flexShrink: 0 }} />
-                <span>
-                  Searching {discoveryInfo!.sourceCount} more source{discoveryInfo!.sourceCount === 1 ? "" : "s"}…
-                  this can take several minutes the first time
-                </span>
-              </p>
-            ) : discoveryError ? (
-              <p
-                className="flex items-center gap-2"
-                style={{ color: "hsl(0 72% 51%)", fontSize: 12, padding: "12px 22px" }}
-              >
-                <AlertTriangle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                <span>{discoveryError.message}</span>
-              </p>
-            ) : discoverySeries.length === 0 ? (
-              <p
-                style={{
-                  color: "hsl(var(--as-fg-muted))",
-                  fontSize: 12,
-                  padding: "12px 22px",
-                }}
-              >
-                No additional results from not-installed sources
-              </p>
-            ) : (
-              <>
-                <p
-                  className="font-mono"
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    opacity: 0.55,
-                    padding: "10px 22px 4px",
-                  }}
-                >
-                  From sources not installed
-                </p>
-                {discoverySeries.map(renderSeriesRow)}
-              </>
-            )}
-          </div>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ flexShrink: 0 }} />
+            <span>
+              {discoveryProgress.stage === 'preparing'
+                ? `Preparing ${discoveryProgress.totalSources} more sources…`
+                : `Checking ${discoveryProgress.totalSources} more sources…`}
+              {" "}
+              {Math.min(discoveryProgress.completed, discoveryProgress.total)} of {discoveryProgress.total} extensions done
+            </span>
+          </p>
         )}
     </div>
   );

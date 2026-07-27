@@ -1,4 +1,4 @@
-import type { ProgressState } from '../types';
+import type { ProgressState, DiscoverySearchEvent } from '../types';
 import { buildSignalRUrl } from '../config';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -6,6 +6,7 @@ import { buildSignalRUrl } from '../config';
 export class ProgressHub {
   private connection: any = null;
   private listeners: ((progress: ProgressState) => void)[] = [];
+  private discoveryListeners: ((event: DiscoverySearchEvent) => void)[] = [];
   private isInitialized = false;
   private signalR: any = null;
   private healthCheckInterval: NodeJS.Timeout | null = null;
@@ -38,6 +39,10 @@ export class ProgressHub {
 
       this.connection.on('Progress', (progress: ProgressState) => {
         this.listeners.forEach(listener => listener(progress));
+      });
+
+      this.connection.on('DiscoverySearch', (event: DiscoverySearchEvent) => {
+        this.discoveryListeners.forEach(listener => listener(event));
       });
 
       // Add connection state event handlers
@@ -173,8 +178,21 @@ export class ProgressHub {
     };
   }
 
+  /** Subscribe to streaming discovery-search events ("DiscoverySearch" on the same hub). */
+  onDiscovery(callback: (event: DiscoverySearchEvent) => void): () => void {
+    this.discoveryListeners.push(callback);
+
+    return () => {
+      const index = this.discoveryListeners.indexOf(callback);
+      if (index > -1) {
+        this.discoveryListeners.splice(index, 1);
+      }
+    };
+  }
+
   dispose(): void {
     this.listeners = [];
+    this.discoveryListeners = [];
     this.stopHealthCheck();
     if (this.connection) {
       void this.stopConnection();
