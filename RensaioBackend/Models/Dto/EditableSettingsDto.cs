@@ -44,6 +44,20 @@ public class EditableSettingsDto
     public int MaxDiscoveryWorkers { get; set; } = 2;
 
     /// <summary>
+    /// When true (default), discovery workers stay resident between sweeps with their classloaded
+    /// extensions warm, so repeat searches skip the classload entirely. When false, every worker
+    /// exits after its batch (pre-warm-pool behavior).
+    /// </summary>
+    [JsonPropertyName("discoveryWarmPoolEnabled")]
+    public bool DiscoveryWarmPoolEnabled { get; set; } = true;
+
+    /// <summary>
+    /// How long an idle warm discovery worker stays resident before being recycled.
+    /// </summary>
+    [JsonPropertyName("discoveryWorkerIdleTimeout")]
+    public TimeSpan DiscoveryWorkerIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
     /// Master toggle: when true (default), every search automatically also sweeps eligible
     /// not-installed sources and streams those results into the same list. When false, search is
     /// installed-sources only and no discovery affordance is shown.

@@ -1,3 +1,4 @@
+using Mihon.ExtensionsBridge.Models;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -5,7 +6,7 @@ using System.Text.Json;
 namespace RensaioBackend.Services.Search.Discovery;
 
 /// <summary>
-/// Per-batch outcome of one worker process run, from the parent's point of view.
+/// Per-request outcome of one worker interaction, from the parent's point of view.
 /// </summary>
 public class DiscoveryWorkerBatchOutcome
 {
@@ -15,17 +16,66 @@ public class DiscoveryWorkerBatchOutcome
     public HashSet<string> FailedManaged { get; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Extensions that emitted begin but never finished when the worker died — crash suspects.</summary>
     public HashSet<string> Suspects { get; } = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>True when the worker emitted its final done event and exited on its own.</summary>
+    /// <summary>True when the worker emitted the request's final done event.</summary>
     public bool CleanExit { get; set; }
 }
 
-/// <summary>
-/// Spawns and supervises one discovery-search worker process (<c>RensaioBackend --discovery-worker</c>):
-/// writes the input document to its stdin, streams stdout JSON-line events back to the caller, logs
-/// stderr, and kills the worker if it goes silent for longer than the inactivity timeout.
-/// </summary>
-public static class DiscoveryWorkerPool
+/// <summary>Per-sweep launch/runtime parameters handed to the pool by the search service.</summary>
+public class DiscoveryWorkerContext
 {
+    public required (string FileName, string? DllPath) Launch { get; init; }
+    public required Preferences Preferences { get; init; }
+    public required TimeSpan InactivityTimeout { get; init; }
+    public required int BatchSize { get; init; }
+    public required bool WarmPoolEnabled { get; init; }
+    public required TimeSpan IdleTimeout { get; init; }
+}
+
+/// <summary>
+/// Warm pool of discovery worker processes (<c>RensaioBackend --discovery-worker</c>).
+///
+/// Workers stay resident between sweeps with their classloaded extensions warm (loaded JARs can
+/// never be unloaded, so re-spawning per sweep only re-pays classload time — keeping the process
+/// costs the same memory for a while but makes repeat sweeps pure search-network time). The pool
+/// plans batches so a warm worker gets exactly the extensions it already has loaded and only new
+/// extensions spawn fresh workers. Workers are recycled when idle past the configured timeout,
+/// when their loaded set grows past <see cref="GrowthCapFactor"/> × batch size, when their working
+/// set exceeds <see cref="MemoryLimitBytes"/>, or when the warm pool is disabled. A cancelled or
+/// crashed worker is simply removed — the next sweep respawns what it needs.
+/// </summary>
+public class DiscoveryWorkerPool : IDisposable
+{
+    private const int GrowthCapFactor = 4;
+    private const long MemoryLimitBytes = 1536L * 1024 * 1024;
+
+    private sealed class WorkerHandle
+    {
+        public required Process Process { get; init; }
+        public required string ScratchFolder { get; init; }
+        public int Pid => Process.Id;
+        /// <summary>package -> extension version currently classloaded in this worker.</summary>
+        public Dictionary<string, string> Loaded { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public DateTime LastUsedUtc { get; set; } = DateTime.UtcNow;
+        public bool Busy { get; set; }
+        public bool Doomed { get; set; }
+        public Queue<string> StderrTail { get; } = new();
+        public Task? StderrPump { get; set; }
+    }
+
+    private readonly object _lock = new();
+    private readonly List<WorkerHandle> _workers = new();
+    private readonly ILogger<DiscoveryWorkerPool> _logger;
+    private readonly Timer _reaper;
+    private volatile bool _warmEnabled = true;
+    private TimeSpan _idleTimeout = TimeSpan.FromMinutes(10);
+    private int _batchSize = 10;
+
+    public DiscoveryWorkerPool(ILogger<DiscoveryWorkerPool> logger)
+    {
+        _logger = logger;
+        _reaper = new Timer(_ => ReapIdleWorkers(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
     /// <summary>
     /// Locates how to launch a worker. Prefers our own executable (normal backend), then the
     /// published apphost next to us (RensaioTray hosting the backend in-process), then the dotnet
@@ -50,20 +100,224 @@ public static class DiscoveryWorkerPool
         return null;
     }
 
-    public static async Task<DiscoveryWorkerBatchOutcome> RunWorkerAsync(
-        (string FileName, string? DllPath) launch,
-        DiscoveryWorkerInput input,
-        TimeSpan inactivityTimeout,
+    /// <summary>Applies the sweep's pool-related settings (warm toggle, idle timeout, batch size).</summary>
+    public void Configure(DiscoveryWorkerContext context)
+    {
+        _warmEnabled = context.WarmPoolEnabled;
+        _idleTimeout = context.IdleTimeout > TimeSpan.Zero ? context.IdleTimeout : TimeSpan.FromMinutes(10);
+        _batchSize = Math.Max(1, context.BatchSize);
+        if (!_warmEnabled)
+            ReapAll("warm pool disabled");
+    }
+
+    /// <summary>
+    /// Splits the prepared extensions into batches aligned with the warm workers' loaded sets:
+    /// each warm worker gets one batch of exactly the extensions it already has loaded (version
+    /// matched), the remainder is chunked into fresh batches of <paramref name="batchSize"/>.
+    /// </summary>
+    public List<List<DiscoveryWorkerExtension>> PlanBatches(IReadOnlyCollection<DiscoveryWorkerExtension> prepared, int batchSize)
+    {
+        var batches = new List<List<DiscoveryWorkerExtension>>();
+        var remaining = prepared.ToDictionary(e => e.Entry.Extension.Package, e => e, StringComparer.OrdinalIgnoreCase);
+        lock (_lock)
+        {
+            foreach (WorkerHandle worker in _workers.Where(w => !w.Doomed))
+            {
+                var mine = new List<DiscoveryWorkerExtension>();
+                foreach (var kv in worker.Loaded)
+                {
+                    if (remaining.TryGetValue(kv.Key, out DiscoveryWorkerExtension? candidate) &&
+                        (candidate.Entry.Extension.Version ?? string.Empty) == kv.Value)
+                    {
+                        mine.Add(candidate);
+                        remaining.Remove(kv.Key);
+                    }
+                }
+                if (mine.Count > 0)
+                    batches.Add(mine);
+            }
+        }
+        batches.AddRange(remaining.Values.Chunk(batchSize).Select(c => c.ToList()));
+        return batches;
+    }
+
+    /// <summary>How many extensions of the given set are already warm in resident workers.</summary>
+    public int CountWarm(IEnumerable<DiscoveryWorkerExtension> extensions)
+    {
+        lock (_lock)
+        {
+            var loaded = _workers.Where(w => !w.Doomed)
+                .SelectMany(w => w.Loaded)
+                .GroupBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Value, StringComparer.OrdinalIgnoreCase);
+            return extensions.Count(e => loaded.TryGetValue(e.Entry.Extension.Package, out string? v) &&
+                                         (e.Entry.Extension.Version ?? string.Empty) == v);
+        }
+    }
+
+    /// <summary>Runs one search batch on a (preferably warm) worker, streaming its events.</summary>
+    public async Task<DiscoveryWorkerBatchOutcome> RunSearchBatchAsync(
+        List<DiscoveryWorkerExtension> batch,
+        string query, IReadOnlyCollection<string> languages, double searchTimeoutSeconds, int parallelism,
+        DiscoveryWorkerContext context,
         Func<DiscoveryWorkerEvent, Task> onEvent,
-        ILogger logger,
         CancellationToken token)
     {
+        var request = new DiscoveryWorkerRequest
+        {
+            Type = DiscoveryWorkerRequestTypes.Search,
+            Query = query,
+            Languages = languages.ToList(),
+            SearchTimeoutSeconds = searchTimeoutSeconds,
+            MaxParallelExtensions = parallelism,
+            Extensions = batch
+        };
+        WorkerHandle handle = AcquireWorker(batch, context);
         var outcome = new DiscoveryWorkerBatchOutcome();
-        var begun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            outcome = await RunRequestAsync(handle, request, context.InactivityTimeout, onEvent, token).ConfigureAwait(false);
+            if (outcome.CleanExit)
+            {
+                lock (_lock)
+                {
+                    foreach (DiscoveryWorkerExtension ext in batch)
+                    {
+                        if (!outcome.FailedManaged.Contains(ext.Entry.Extension.Package))
+                            handle.Loaded[ext.Entry.Extension.Package] = ext.Entry.Extension.Version ?? string.Empty;
+                    }
+                }
+            }
+            return outcome;
+        }
+        finally
+        {
+            ReleaseWorker(handle, outcome.CleanExit);
+        }
+    }
 
+    /// <summary>
+    /// Fetches details (chapter count + status) for one manga through a worker, preferring one
+    /// that already has the extension warm. Returns null on any failure.
+    /// </summary>
+    public async Task<DiscoveryWorkerEvent?> RunDetailsAsync(
+        DiscoveryWorkerExtension extension, long sourceId, string mangaJson, double timeoutSeconds,
+        DiscoveryWorkerContext context, CancellationToken token)
+    {
+        var request = new DiscoveryWorkerRequest
+        {
+            Type = DiscoveryWorkerRequestTypes.Details,
+            SearchTimeoutSeconds = timeoutSeconds,
+            Extensions = [extension],
+            SourceId = sourceId,
+            MangaJson = mangaJson
+        };
+        WorkerHandle handle = AcquireWorker(request.Extensions, context);
+        DiscoveryWorkerEvent? answer = null;
+        var outcome = new DiscoveryWorkerBatchOutcome();
+        try
+        {
+            outcome = await RunRequestAsync(handle, request, context.InactivityTimeout, evt =>
+            {
+                if (evt.Type == DiscoveryWorkerEventTypes.Details)
+                    answer = evt;
+                return Task.CompletedTask;
+            }, token).ConfigureAwait(false);
+            if (outcome.CleanExit && answer?.Error == null)
+            {
+                lock (_lock)
+                {
+                    handle.Loaded[extension.Entry.Extension.Package] = extension.Entry.Extension.Version ?? string.Empty;
+                }
+                return answer;
+            }
+            return answer?.Error == null ? answer : null;
+        }
+        finally
+        {
+            ReleaseWorker(handle, outcome.CleanExit);
+        }
+    }
+
+    // ----------------------------------------------------------------- internals
+
+    private WorkerHandle AcquireWorker(List<DiscoveryWorkerExtension> batch, DiscoveryWorkerContext context)
+    {
+        lock (_lock)
+        {
+            // 1) An idle worker that already has every extension of this batch loaded (version match).
+            WorkerHandle? best = null;
+            int bestCover = -1;
+            foreach (WorkerHandle w in _workers)
+            {
+                if (w.Busy || w.Doomed || w.Process.HasExited)
+                    continue;
+                int cover = batch.Count(e => w.Loaded.TryGetValue(e.Entry.Extension.Package, out string? v) &&
+                                             (e.Entry.Extension.Version ?? string.Empty) == v);
+                int newOnes = batch.Count - cover;
+                if (w.Loaded.Count + newOnes > _batchSize * GrowthCapFactor)
+                    continue; // would grow past the recycle cap; don't feed it more
+                if (cover > bestCover)
+                {
+                    bestCover = cover;
+                    best = w;
+                }
+            }
+            if (best != null && bestCover > 0)
+            {
+                best.Busy = true;
+                return best;
+            }
+            // 2) Any idle worker with capacity (avoids a spawn even without warm overlap).
+            if (best != null && _warmEnabled)
+            {
+                best.Busy = true;
+                return best;
+            }
+            // 3) Spawn a fresh worker.
+            WorkerHandle spawned = Spawn(context);
+            spawned.Busy = true;
+            _workers.Add(spawned);
+            return spawned;
+        }
+    }
+
+    private void ReleaseWorker(WorkerHandle handle, bool clean)
+    {
+        bool kill;
+        lock (_lock)
+        {
+            handle.LastUsedUtc = DateTime.UtcNow;
+            handle.Busy = false;
+            long memory = 0;
+            try
+            {
+                if (!handle.Process.HasExited)
+                {
+                    handle.Process.Refresh();
+                    memory = handle.Process.WorkingSet64;
+                }
+            }
+            catch { }
+            kill = !clean || !_warmEnabled || handle.Doomed || handle.Process.HasExited
+                   || handle.Loaded.Count > _batchSize * GrowthCapFactor
+                   || memory > MemoryLimitBytes;
+            if (kill)
+                _workers.Remove(handle);
+            else if (memory > 0)
+                _logger.LogDebug("Discovery worker {Pid} stays warm: {Count} extensions loaded, {Memory}MB.",
+                    handle.Pid, handle.Loaded.Count, memory / (1024 * 1024));
+        }
+        if (kill)
+            KillWorker(handle, "recycled");
+    }
+
+    private WorkerHandle Spawn(DiscoveryWorkerContext context)
+    {
+        string scratch = Path.Combine(Path.GetTempPath(), "rensaio-discovery-workers", Guid.NewGuid().ToString("N")[..8]);
         var psi = new ProcessStartInfo
         {
-            FileName = launch.FileName,
+            FileName = context.Launch.FileName,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
@@ -73,38 +327,54 @@ public static class DiscoveryWorkerPool
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = AppContext.BaseDirectory
         };
-        if (launch.DllPath != null)
-            psi.ArgumentList.Add(launch.DllPath);
+        if (context.Launch.DllPath != null)
+            psi.ArgumentList.Add(context.Launch.DllPath);
         psi.ArgumentList.Add(DiscoveryWorkerProgram.ModeArg);
 
-        using Process process = Process.Start(psi)
+        Process process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start discovery worker process.");
-        int pid = process.Id;
-        logger.LogInformation("Discovery worker {Pid} started for a batch of {Count} extensions.", pid, input.Extensions.Count);
-
-        // Keep a stderr tail so a crashed worker leaves something actionable in the parent log.
-        var stderrTail = new Queue<string>();
-        Task stderrTask = Task.Run(async () =>
+        var handle = new WorkerHandle { Process = process, ScratchFolder = scratch };
+        handle.StderrPump = Task.Run(async () =>
         {
-            string? line;
-            while ((line = await process.StandardError.ReadLineAsync().ConfigureAwait(false)) != null)
+            try
             {
-                logger.LogDebug("[worker {Pid}] {Line}", pid, line);
-                lock (stderrTail)
+                string? line;
+                while ((line = await process.StandardError.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    stderrTail.Enqueue(line);
-                    if (stderrTail.Count > 40)
-                        stderrTail.Dequeue();
+                    _logger.LogDebug("[worker {Pid}] {Line}", handle.Pid, line);
+                    lock (handle.StderrTail)
+                    {
+                        handle.StderrTail.Enqueue(line);
+                        if (handle.StderrTail.Count > 40)
+                            handle.StderrTail.Dequeue();
+                    }
                 }
             }
-        }, CancellationToken.None);
+            catch { }
+        });
+        var init = new DiscoveryWorkerInit { ScratchFolder = scratch, Preferences = context.Preferences };
+        process.StandardInput.WriteLine(JsonSerializer.Serialize(init, DiscoveryWorkerJson.Options));
+        process.StandardInput.Flush();
+        _logger.LogInformation("Discovery worker {Pid} spawned (scratch {Scratch}).", handle.Pid, scratch);
+        return handle;
+    }
+
+    private async Task<DiscoveryWorkerBatchOutcome> RunRequestAsync(
+        WorkerHandle handle, DiscoveryWorkerRequest request, TimeSpan inactivityTimeout,
+        Func<DiscoveryWorkerEvent, Task> onEvent, CancellationToken token)
+    {
+        var outcome = new DiscoveryWorkerBatchOutcome();
+        var begun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Process process = handle.Process;
+        int pid = handle.Pid;
+        bool workerDead = false;
 
         try
         {
-            await process.StandardInput.WriteAsync(JsonSerializer.Serialize(input, DiscoveryWorkerJson.Options)).ConfigureAwait(false);
-            process.StandardInput.Close();
+            await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request, DiscoveryWorkerJson.Options)).ConfigureAwait(false);
+            await process.StandardInput.FlushAsync(CancellationToken.None).ConfigureAwait(false);
 
-            while (true)
+            while (!outcome.CleanExit)
             {
                 string? line;
                 try
@@ -116,12 +386,16 @@ public static class DiscoveryWorkerPool
                 }
                 catch (TimeoutException)
                 {
-                    logger.LogWarning("Discovery worker {Pid} produced no output for {Seconds}s; killing it.",
+                    _logger.LogWarning("Discovery worker {Pid} produced no output for {Seconds}s; killing it.",
                         pid, inactivityTimeout.TotalSeconds);
+                    workerDead = true;
                     break;
                 }
                 if (line == null)
+                {
+                    workerDead = true; // stdout closed mid-request: the worker died
                     break;
+                }
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
@@ -130,7 +404,7 @@ public static class DiscoveryWorkerPool
                 // is expected noise — log quietly, no JSON parse attempt.
                 if (!line.StartsWith(DiscoveryWorkerJson.LinePrefix, StringComparison.Ordinal))
                 {
-                    logger.LogDebug("[worker {Pid} stray stdout] {Line}", pid, line);
+                    _logger.LogDebug("[worker {Pid} stray stdout] {Line}", pid, line);
                     continue;
                 }
 
@@ -144,9 +418,9 @@ public static class DiscoveryWorkerPool
                 {
                     // A prefixed line that fails to parse means true mid-line corruption slipped
                     // through — drop it. Extension accounting still works: done/failed events are
-                    // tiny separate lines, so the extension is not stranded (and if the done/done
-                    // event itself were the mangled line, the unclean-exit suspect path covers it).
-                    logger.LogWarning(ex, "Discovery worker {Pid} emitted a corrupted protocol line; dropping it.", pid);
+                    // tiny separate lines, so the extension is not stranded (and a mangled
+                    // done/failed line is covered by the mid-stream crash-suspect path).
+                    _logger.LogWarning(ex, "Discovery worker {Pid} emitted a corrupted protocol line; dropping it.", pid);
                     continue;
                 }
                 if (evt == null)
@@ -163,7 +437,7 @@ public static class DiscoveryWorkerPool
                         break;
                     case DiscoveryWorkerEventTypes.ExtensionFailed when evt.Package != null:
                         outcome.FailedManaged.Add(evt.Package);
-                        logger.LogWarning("Discovery worker {Pid} could not process extension {Package}: {Error}",
+                        _logger.LogWarning("Discovery worker {Pid} could not process extension {Package}: {Error}",
                             pid, evt.Package, evt.Error);
                         await onEvent(evt).ConfigureAwait(false);
                         break;
@@ -171,68 +445,129 @@ public static class DiscoveryWorkerPool
                         outcome.CleanExit = true;
                         break;
                     case DiscoveryWorkerEventTypes.SourceResult:
+                    case DiscoveryWorkerEventTypes.Details:
                         await onEvent(evt).ConfigureAwait(false);
                         break;
                 }
             }
         }
-        finally
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            if (!process.HasExited)
-            {
-                try
-                {
-                    if (outcome.CleanExit)
-                    {
-                        // Grace period for the worker's own android shutdown, then force it out.
-                        await process.WaitForExitAsync(CancellationToken.None)
-                            .WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None).ConfigureAwait(false);
-                    }
-                }
-                catch (TimeoutException) { }
-                if (!process.HasExited)
-                {
-                    try { process.Kill(entireProcessTree: true); } catch { }
-                }
-            }
-            try { await stderrTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false); } catch { }
+            // A cancelled mid-request worker is killed (its search threads can't be recalled);
+            // the next sweep simply respawns what it needs.
+            lock (_lock) { handle.Doomed = true; _workers.Remove(handle); }
+            KillWorker(handle, "cancelled mid-request");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "I/O failure talking to discovery worker {Pid}.", pid);
+            workerDead = true;
         }
 
-        token.ThrowIfCancellationRequested();
-
-        if (!outcome.CleanExit)
+        if (workerDead)
         {
+            lock (_lock) { handle.Doomed = true; }
             foreach (string pkg in begun)
             {
                 if (!outcome.Completed.Contains(pkg) && !outcome.FailedManaged.Contains(pkg))
                     outcome.Suspects.Add(pkg);
             }
             string tail;
-            lock (stderrTail)
+            lock (handle.StderrTail)
             {
-                tail = string.Join(Environment.NewLine, stderrTail);
+                tail = string.Join(Environment.NewLine, handle.StderrTail);
             }
-            logger.LogWarning("Discovery worker {Pid} exited uncleanly (exit code {Code}); suspects: {Suspects}. Last stderr:{NewLine}{Tail}",
+            _logger.LogWarning("Discovery worker {Pid} died mid-request (exit code {Code}); suspects: {Suspects}. Last stderr:{NewLine}{Tail}",
                 pid, process.HasExited ? process.ExitCode : -1, string.Join(",", outcome.Suspects), Environment.NewLine, tail);
         }
-        else
+        else if (outcome.CleanExit)
         {
-            int exitCode = process.HasExited ? process.ExitCode : 0;
-            if (exitCode != 0)
-            {
-                // Known IKVM/CEF teardown race on Windows: a WebView-using worker can crash while
-                // exiting, AFTER its batch completed and the final done event was streamed. All
-                // results and per-extension outcomes are already in hand, so this is NOT a crash —
-                // no suspects, no retries. Containment working as designed.
-                logger.LogInformation("Discovery worker {Pid} completed its batch ({Done} done, {Failed} failed) but exited with code {Code} during teardown; ignoring.",
-                    pid, outcome.Completed.Count, outcome.FailedManaged.Count, exitCode);
-            }
-            else
-            {
-                logger.LogInformation("Discovery worker {Pid} finished cleanly: {Done} done, {Failed} failed.",
-                    pid, outcome.Completed.Count, outcome.FailedManaged.Count);
-            }
+            _logger.LogInformation("Discovery worker {Pid} answered a {Type} request: {Done} done, {Failed} failed.",
+                pid, request.Type, outcome.Completed.Count, outcome.FailedManaged.Count);
         }
         return outcome;
+    }
+
+    private void KillWorker(WorkerHandle handle, string reason)
+    {
+        try
+        {
+            if (!handle.Process.HasExited)
+            {
+                // Ask politely first (lets the worker run its android shutdown), then force.
+                try
+                {
+                    handle.Process.StandardInput.Close();
+                    if (!handle.Process.WaitForExit(5000))
+                        handle.Process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    try { handle.Process.Kill(entireProcessTree: true); } catch { }
+                }
+            }
+            // Post-completion nonzero exits are the known IKVM/CEF teardown race — not a crash.
+            _logger.LogInformation("Discovery worker {Pid} stopped ({Reason}); exit code {Code}.",
+                handle.Pid, reason, SafeExitCode(handle.Process));
+            handle.Process.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error stopping discovery worker {Pid}.", handle.Pid);
+        }
+        try
+        {
+            if (Directory.Exists(handle.ScratchFolder))
+                Directory.Delete(handle.ScratchFolder, recursive: true);
+        }
+        catch { /* best effort scratch cleanup */ }
+    }
+
+    private static int SafeExitCode(Process process)
+    {
+        try { return process.HasExited ? process.ExitCode : 0; } catch { return 0; }
+    }
+
+    private void ReapIdleWorkers()
+    {
+        List<WorkerHandle> victims;
+        lock (_lock)
+        {
+            victims = _workers
+                .Where(w => !w.Busy && (w.Doomed || w.Process.HasExited || DateTime.UtcNow - w.LastUsedUtc > _idleTimeout))
+                .ToList();
+            foreach (WorkerHandle v in victims)
+                _workers.Remove(v);
+        }
+        foreach (WorkerHandle v in victims)
+            KillWorker(v, "idle timeout");
+    }
+
+    private void ReapAll(string reason)
+    {
+        List<WorkerHandle> victims;
+        lock (_lock)
+        {
+            victims = _workers.Where(w => !w.Busy).ToList();
+            foreach (WorkerHandle v in victims)
+                _workers.Remove(v);
+        }
+        foreach (WorkerHandle v in victims)
+            KillWorker(v, reason);
+    }
+
+    public void Dispose()
+    {
+        _reaper.Dispose();
+        List<WorkerHandle> victims;
+        lock (_lock)
+        {
+            victims = _workers.ToList();
+            _workers.Clear();
+        }
+        foreach (WorkerHandle v in victims)
+            KillWorker(v, "shutdown");
+        GC.SuppressFinalize(this);
     }
 }

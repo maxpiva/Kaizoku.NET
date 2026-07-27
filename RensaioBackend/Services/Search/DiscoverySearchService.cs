@@ -35,6 +35,8 @@ namespace RensaioBackend.Services.Search
         private readonly SettingsService _settings;
         private readonly IMemoryCache _memoryCache;
         private readonly ThumbCacheService _thumb;
+        private readonly DiscoveryWorkerPool _pool;
+        private readonly DiscoverySourceHeaderRegistry _headerRegistry;
         private readonly ILogger<DiscoverySearchService> _logger;
 
         public DiscoverySearchService(
@@ -42,12 +44,16 @@ namespace RensaioBackend.Services.Search
             SettingsService settings,
             IMemoryCache memoryCache,
             ThumbCacheService thumb,
+            DiscoveryWorkerPool pool,
+            DiscoverySourceHeaderRegistry headerRegistry,
             ILogger<DiscoverySearchService> logger)
         {
             _mihon = mihon;
             _settings = settings;
             _memoryCache = memoryCache;
             _thumb = thumb;
+            _pool = pool;
+            _headerRegistry = headerRegistry;
             _logger = logger;
         }
 
@@ -372,6 +378,7 @@ namespace RensaioBackend.Services.Search
                             continue;
                         string mihonProviderId = ext.Package + "|" + src.Id;
                         sourceInfo.TryAdd(mihonProviderId, (src.Name, ext.Package, repo.Name, ext.Name));
+                        try { _headerRegistry.Register(mihonProviderId, src.GetImageRequestHeaders()); } catch { }
                         try
                         {
                             var searchResult = await SourceTimeout
@@ -472,9 +479,16 @@ namespace RensaioBackend.Services.Search
             int batchSize = Math.Max(1, settings.DiscoveryWorkerBatchSize);
             int maxWorkers = Math.Max(1, settings.MaxDiscoveryWorkers);
             int parallelInWorker = Math.Clamp(settings.NumberOfSimultaneousSearches / maxWorkers, 1, 4);
-            TimeSpan inactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90);
-            string scratchRoot = Path.Combine(Path.GetTempPath(), "rensaio-discovery-workers");
-            var slots = new ConcurrentStack<int>(Enumerable.Range(0, maxWorkers));
+            var context = new DiscoveryWorkerContext
+            {
+                Launch = launch.Value,
+                Preferences = preferences,
+                InactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90),
+                BatchSize = batchSize,
+                WarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
+                IdleTimeout = settings.DiscoveryWorkerIdleTimeout
+            };
+            _pool.Configure(context);
             using var semaphore = new SemaphoreSlim(maxWorkers);
 
             async Task OnWorkerEventAsync(DiscoveryWorkerEvent evt)
@@ -490,6 +504,9 @@ namespace RensaioBackend.Services.Search
                 string mihonProviderId = evt.Package + "|" + evt.SourceId;
                 infoByPackage.TryGetValue(evt.Package, out (string? RepoName, string ExtensionName) info);
                 sourceInfo.TryAdd(mihonProviderId, (evt.SourceName ?? evt.Package, evt.Package, info.RepoName, info.ExtensionName ?? evt.Package));
+                // Remember the source's own image-request headers so cover fetches can replay
+                // them when the plain request is rejected (no interop exists in this process).
+                _headerRegistry.Register(mihonProviderId, evt.Headers);
                 var seenUrls = new HashSet<string>();
                 var fresh = new List<(ParsedManga Manga, string MihonProviderId, string Language)>();
                 foreach (ParsedManga manga in evt.Mangas)
@@ -509,27 +526,9 @@ namespace RensaioBackend.Services.Search
                 await semaphore.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
-                    if (!slots.TryPop(out int slot))
-                        slot = 0;
-                    try
-                    {
-                        var input = new DiscoveryWorkerInput
-                        {
-                            ScratchFolder = Path.Combine(scratchRoot, $"slot{slot}"),
-                            Preferences = preferences,
-                            Query = keyword,
-                            Languages = languageSet.ToList(),
-                            SearchTimeoutSeconds = SourceTimeout.DefaultTimeout.TotalSeconds,
-                            MaxParallelExtensions = parallelism,
-                            Extensions = batch
-                        };
-                        return await DiscoveryWorkerPool.RunWorkerAsync(launch.Value, input, inactivityTimeout,
-                            OnWorkerEventAsync, _logger, token).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        slots.Push(slot);
-                    }
+                    return await _pool.RunSearchBatchAsync(batch, keyword, languageSet.ToList(),
+                        SourceTimeout.DefaultTimeout.TotalSeconds, parallelism, context,
+                        OnWorkerEventAsync, token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -537,10 +536,12 @@ namespace RensaioBackend.Services.Search
                 }
             }
 
-            // Round 1: normal batches. Each worker exits after its batch (recycle-after-N).
-            List<List<DiscoveryWorkerExtension>> batches = prepared.Chunk(batchSize).Select(c => c.ToList()).ToList();
-            _logger.LogInformation("Discovery search fanning out {Extensions} extensions to {Batches} worker batches (max {Workers} concurrent).",
-                prepared.Count, batches.Count, maxWorkers);
+            // Round 1: batches aligned to the warm pool — each warm worker gets the extensions it
+            // already has loaded; only the remainder spawns fresh workers.
+            List<List<DiscoveryWorkerExtension>> batches = _pool.PlanBatches(prepared.ToList(), batchSize);
+            int warmCount = _pool.CountWarm(prepared);
+            _logger.LogInformation("Discovery search fanning out {Extensions} extensions ({Warm} warm) to {Batches} worker batches (max {Workers} concurrent).",
+                prepared.Count, warmCount, batches.Count, maxWorkers);
             var suspectRetries = new ConcurrentBag<DiscoveryWorkerExtension>();
             var untouchedRetries = new ConcurrentBag<DiscoveryWorkerExtension>();
             await Task.WhenAll(batches.Select(async batch =>
@@ -661,6 +662,80 @@ namespace RensaioBackend.Services.Search
                 await _thumb.PopulateThumbsAsync(dtos, "/api/image/", token).ConfigureAwait(false);
             }
             return dtos;
+        }
+
+        /// <summary>
+        /// Fetches chapter count + status for one discovery result. Prefers the warm worker pool
+        /// (the extension is usually still loaded from the sweep that produced the result); when
+        /// workers are unavailable it falls back to an in-process shadow-load. Returns null on any
+        /// failure — details are a progressive enhancement, never a hard dependency.
+        /// </summary>
+        public async Task<(int? ChapterCount, int? Status)?> GetDiscoveryDetailsAsync(DiscoverySeriesDto dto, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(dto.MihonProviderId) || string.IsNullOrEmpty(dto.BridgeItemInfo))
+                return null;
+            string[] split = dto.MihonProviderId.Split('|');
+            if (split.Length < 2 || !long.TryParse(split[1], out long sourceId))
+                return null;
+            string package = split[0];
+            var settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+            TachiyomiExtension? ext = _mihon.ListOnlineRepositories()
+                .SelectMany(r => r.Extensions)
+                .FirstOrDefault(e => package.Equals(e.Package, StringComparison.OrdinalIgnoreCase));
+            if (ext == null)
+                return null;
+            try
+            {
+                if (settings.DiscoverySearchWorkersEnabled)
+                {
+                    (string FileName, string? DllPath)? launch = DiscoveryWorkerPool.ResolveWorkerLaunch();
+                    if (launch != null)
+                    {
+                        DiscoveryArtifact artifact = await _mihon.PrepareDiscoveryArtifactsAsync(ext, token).ConfigureAwait(false);
+                        DiscoveryWorkerContext context = await BuildWorkerContextAsync(settings, launch.Value, token).ConfigureAwait(false);
+                        DiscoveryWorkerEvent? evt = await _pool.RunDetailsAsync(
+                            new DiscoveryWorkerExtension { Entry = artifact.Entry, Folder = artifact.Folder },
+                            sourceId, dto.BridgeItemInfo, SourceTimeout.DefaultTimeout.TotalSeconds, context, token).ConfigureAwait(false);
+                        return evt == null ? null : (evt.ChapterCount, evt.MangaStatus);
+                    }
+                }
+                // In-process fallback: loads the extension into this process (memory cost noted).
+                IExtensionInterop interop = await _mihon.GetDiscoveryInteropAsync(ext, token).ConfigureAwait(false);
+                ISourceInterop? src = interop.Sources.FirstOrDefault(s => s.Id == sourceId);
+                if (src == null)
+                    return null;
+                var manga = System.Text.Json.JsonSerializer.Deserialize<Manga>(dto.BridgeItemInfo);
+                if (manga == null)
+                    return null;
+                var update = await SourceTimeout
+                    .RunAsync(c => src.GetDetailsAndChaptersAsync(manga, c), token)
+                    .ConfigureAwait(false);
+                return (update?.Chapters?.Count, update?.Manga != null ? (int)update.Manga.Status : null);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Discovery details fetch failed for {ProviderId}.", dto.MihonProviderId);
+                return null;
+            }
+        }
+
+        private async Task<DiscoveryWorkerContext> BuildWorkerContextAsync(EditableSettingsDto settings,
+            (string FileName, string? DllPath) launch, CancellationToken token)
+        {
+            Preferences preferences = await _mihon.GetPreferencesAsync(token).ConfigureAwait(false);
+            return new DiscoveryWorkerContext
+            {
+                Launch = launch,
+                Preferences = preferences,
+                InactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90),
+                BatchSize = Math.Max(1, settings.DiscoveryWorkerBatchSize),
+                WarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
+                IdleTimeout = settings.DiscoveryWorkerIdleTimeout
+            };
         }
 
         /// <summary>
