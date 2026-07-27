@@ -259,11 +259,15 @@ public static class DiscoveryWorkerProgram
                 ChapterCount = update?.Chapters?.Count,
                 MangaStatus = update?.Manga != null ? (int)update.Manga.Status : null
             });
+            // Accounting event so the parent's per-request log reads "1 done" for a served
+            // details request instead of the ambiguous "0 done, 0 failed".
+            emit(new DiscoveryWorkerEvent { Type = DiscoveryWorkerEventTypes.ExtensionDone, Package = package });
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Discovery details request failed for {Package}|{SourceId}.", package, request.SourceId);
             emit(new DiscoveryWorkerEvent { Type = DiscoveryWorkerEventTypes.Details, Package = package, SourceId = request.SourceId, Error = ex.Message });
+            emit(new DiscoveryWorkerEvent { Type = DiscoveryWorkerEventTypes.ExtensionFailed, Package = package, Error = ex.Message });
         }
     }
 

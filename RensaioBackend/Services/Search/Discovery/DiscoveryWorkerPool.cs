@@ -215,6 +215,7 @@ public class DiscoveryWorkerPool : IDisposable
         WorkerHandle handle = AcquireWorker(request.Extensions, context);
         DiscoveryWorkerEvent? answer = null;
         var outcome = new DiscoveryWorkerBatchOutcome();
+        string identity = extension.Entry.Extension.Package + "|" + sourceId;
         try
         {
             outcome = await RunRequestAsync(handle, request, context.InactivityTimeout, evt =>
@@ -223,15 +224,28 @@ public class DiscoveryWorkerPool : IDisposable
                     answer = evt;
                 return Task.CompletedTask;
             }, token).ConfigureAwait(false);
-            if (outcome.CleanExit && answer?.Error == null)
+            if (answer == null)
+            {
+                _logger.LogWarning("Discovery details request for {Identity} produced no answer (worker {Pid}, clean exit: {Clean}).",
+                    identity, handle.Pid, outcome.CleanExit);
+                return null;
+            }
+            if (answer.Error != null)
+            {
+                _logger.LogWarning("Discovery details request for {Identity} failed in worker {Pid}: {Error}",
+                    identity, handle.Pid, answer.Error);
+                return null;
+            }
+            _logger.LogInformation("Discovery details for {Identity}: {Chapters} chapters, status {Status} (worker {Pid}).",
+                identity, answer.ChapterCount, answer.MangaStatus, handle.Pid);
+            if (outcome.CleanExit)
             {
                 lock (_lock)
                 {
                     handle.Loaded[extension.Entry.Extension.Package] = extension.Entry.Extension.Version ?? string.Empty;
                 }
-                return answer;
             }
-            return answer?.Error == null ? answer : null;
+            return answer;
         }
         finally
         {
@@ -339,9 +353,22 @@ public class DiscoveryWorkerPool : IDisposable
             try
             {
                 string? line;
+                bool elevated = false;
                 while ((line = await process.StandardError.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    _logger.LogDebug("[worker {Pid}] {Line}", handle.Pid, line);
+                    // The worker's console logger writes "warn:/fail:/crit: Category" then indented
+                    // message lines. Surface those blocks at Information in the parent log so a
+                    // worker-side failure reason is visible without enabling Debug.
+                    if (line.StartsWith("warn:", StringComparison.Ordinal) ||
+                        line.StartsWith("fail:", StringComparison.Ordinal) ||
+                        line.StartsWith("crit:", StringComparison.Ordinal))
+                        elevated = true;
+                    else if (!line.StartsWith(" ", StringComparison.Ordinal))
+                        elevated = false;
+                    if (elevated)
+                        _logger.LogInformation("[worker {Pid}] {Line}", handle.Pid, line);
+                    else
+                        _logger.LogDebug("[worker {Pid}] {Line}", handle.Pid, line);
                     lock (handle.StderrTail)
                     {
                         handle.StderrTail.Enqueue(line);

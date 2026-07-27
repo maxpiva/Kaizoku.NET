@@ -673,17 +673,26 @@ namespace RensaioBackend.Services.Search
         public async Task<(int? ChapterCount, int? Status)?> GetDiscoveryDetailsAsync(DiscoverySeriesDto dto, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(dto.MihonProviderId) || string.IsNullOrEmpty(dto.BridgeItemInfo))
+            {
+                _logger.LogWarning("Discovery details skipped for '{Title}': missing provider id or bridge item info.", dto.Title);
                 return null;
+            }
             string[] split = dto.MihonProviderId.Split('|');
             if (split.Length < 2 || !long.TryParse(split[1], out long sourceId))
+            {
+                _logger.LogWarning("Discovery details skipped for '{Title}': unparsable provider id '{ProviderId}'.", dto.Title, dto.MihonProviderId);
                 return null;
+            }
             string package = split[0];
             var settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             TachiyomiExtension? ext = _mihon.ListOnlineRepositories()
                 .SelectMany(r => r.Extensions)
                 .FirstOrDefault(e => package.Equals(e.Package, StringComparison.OrdinalIgnoreCase));
             if (ext == null)
+            {
+                _logger.LogWarning("Discovery details skipped for '{Title}': package {Package} no longer in the online repositories.", dto.Title, package);
                 return null;
+            }
             try
             {
                 if (settings.DiscoverySearchWorkersEnabled)
@@ -718,7 +727,7 @@ namespace RensaioBackend.Services.Search
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Discovery details fetch failed for {ProviderId}.", dto.MihonProviderId);
+                _logger.LogWarning(ex, "Discovery details fetch failed for {ProviderId}.", dto.MihonProviderId);
                 return null;
             }
         }

@@ -295,7 +295,10 @@ public class DiscoverySearchCoordinator
                 {
                     (int? ChapterCount, int? Status)? details = await service.GetDiscoveryDetailsAsync(dto, ct).ConfigureAwait(false);
                     if (details == null || details.Value.ChapterCount == null)
+                    {
+                        _logger.LogInformation("Discovery details unavailable for '{Title}' ({ProviderId}).", dto.Title, dto.MihonProviderId);
                         return;
+                    }
                     dto.ChapterCount = details.Value.ChapterCount;
                     dto.SeriesStatus = details.Value.Status != null ? (SeriesStatus)details.Value.Status.Value : null;
                     Interlocked.Increment(ref updated);
