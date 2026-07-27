@@ -51,6 +51,11 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             return _internalExtensionManager.GetDiscoveryInteropAsync(extension, token);
         }
 
+        public IExtensionInterop? TryGetLoadedDiscoveryInterop(string package)
+        {
+            return _internalExtensionManager.TryGetLoadedDiscoveryInterop(package);
+        }
+
         public List<RepositoryGroup> ListExtensions()
         {
             List<RepositoryGroup> grps = _internalExtensionManager.ListExtensions();

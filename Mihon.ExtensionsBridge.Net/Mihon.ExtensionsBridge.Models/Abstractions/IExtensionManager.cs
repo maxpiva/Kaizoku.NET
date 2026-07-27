@@ -17,6 +17,13 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         /// <param name="extension">The online repository extension to shadow-load.</param>
         /// <param name="token">Cancellation token for the caller's wait; a shared load keeps running in the background.</param>
         Task<IExtensionInterop> GetDiscoveryInteropAsync(TachiyomiExtension extension, CancellationToken token = default);
+        /// <summary>
+        /// Returns the ALREADY shadow-loaded discovery interop for the given package, or null when
+        /// none is loaded. Never triggers a download/convert/classload — intended for opportunistic
+        /// reuse (e.g. fetching discovery result covers through the source's own HTTP client).
+        /// </summary>
+        /// <param name="package">The extension package name (e.g. eu.kanade.tachiyomi.extension.en.foo).</param>
+        IExtensionInterop? TryGetLoadedDiscoveryInterop(string package);
         List<RepositoryGroup> ListExtensions();
         RepositoryGroup? FindExtension(string name);
         Task<bool> RemoveExtensionAsync(RepositoryGroup group, CancellationToken token = default);

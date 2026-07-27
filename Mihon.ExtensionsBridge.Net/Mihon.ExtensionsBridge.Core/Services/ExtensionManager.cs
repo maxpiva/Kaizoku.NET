@@ -87,6 +87,12 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// </summary>
         private ConcurrentDictionary<string, Lazy<Task<GatekeptExtensionInterop>>> DiscoveryInterops { get; } = new();
 
+        /// <summary>
+        /// Maps extension package names to their <see cref="DiscoveryInterops"/> cache key, so a
+        /// loaded discovery interop can be looked up by package without knowing the folder name.
+        /// </summary>
+        private ConcurrentDictionary<string, string> DiscoveryPackages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ExtensionManager"/> class.
@@ -322,6 +328,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 new Lazy<Task<GatekeptExtensionInterop>>(
                     () => CreateDiscoveryInteropAsync(extension.Clone()),
                     LazyThreadSafetyMode.ExecutionAndPublication));
+            if (!string.IsNullOrEmpty(extension.Package))
+                DiscoveryPackages[extension.Package] = key;
             try
             {
                 // The shared creation task is detached from any single caller's token so that one
@@ -416,10 +424,31 @@ namespace Mihon.ExtensionsBridge.Core.Services
         }
 
         /// <summary>
+        /// Returns the already shadow-loaded discovery interop for a package, or null.
+        /// Never triggers a shadow-load: only interops that a discovery search has fully
+        /// created (and that are still cached) are returned.
+        /// </summary>
+        public IExtensionInterop? TryGetLoadedDiscoveryInterop(string package)
+        {
+            if (string.IsNullOrEmpty(package))
+                return null;
+            if (!DiscoveryPackages.TryGetValue(package, out string? key))
+                return null;
+            if (!DiscoveryInterops.TryGetValue(key, out var lazyInterop) || !lazyInterop.IsValueCreated)
+                return null;
+            Task<GatekeptExtensionInterop> task = lazyInterop.Value;
+            return task.IsCompletedSuccessfully ? task.Result : null;
+        }
+
+        /// <summary>
         /// Drops (and disposes) a cached discovery interop, e.g. after the extension gets properly installed.
         /// </summary>
         private void RemoveDiscoveryInterop(string name)
         {
+            foreach (var pkg in DiscoveryPackages.Where(kv => kv.Value == name).Select(kv => kv.Key).ToList())
+            {
+                DiscoveryPackages.TryRemove(pkg, out _);
+            }
             if (DiscoveryInterops.TryRemove(name, out var lazyInterop) && lazyInterop.IsValueCreated)
             {
                 try
@@ -1229,6 +1258,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     RemoveDiscoveryInterop(discoveryKey);
                 }
                 DiscoveryInterops.Clear();
+                DiscoveryPackages.Clear();
 
                 _logger.LogInformation("Shutdown completed: Interop cache cleared.");
             }

@@ -1,5 +1,6 @@
 using RensaioBackend.Models.Dto;
 using RensaioBackend.Services.Bridge;
+using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Import;
 using RensaioBackend.Services.Scrobbling;
 using RensaioBackend.Services.Settings;
@@ -24,17 +25,20 @@ namespace RensaioBackend.Services.Search
         private readonly MihonBridgeService _mihon;
         private readonly SettingsService _settings;
         private readonly IMemoryCache _memoryCache;
+        private readonly ThumbCacheService _thumb;
         private readonly ILogger<DiscoverySearchService> _logger;
 
         public DiscoverySearchService(
             MihonBridgeService mihon,
             SettingsService settings,
             IMemoryCache memoryCache,
+            ThumbCacheService thumb,
             ILogger<DiscoverySearchService> logger)
         {
             _mihon = mihon;
             _settings = settings;
             _memoryCache = memoryCache;
+            _thumb = thumb;
             _logger = logger;
         }
 
@@ -225,6 +229,17 @@ namespace RensaioBackend.Services.Search
                         }
                     }
                 }).ConfigureAwait(false);
+
+            // Register every thumb URL with its provider id (same as the normal search path) so the
+            // image cache can fall back to the already shadow-loaded discovery interop when a plain
+            // HTTP fetch is rejected (referer/Cloudflare/CDN header checks).
+            foreach (var (manga, mihonProviderId, _) in results)
+            {
+                if (!string.IsNullOrEmpty(manga.ThumbnailUrl))
+                {
+                    await _thumb.AddUrlAsync(manga.ThumbnailUrl, mihonProviderId, token).ConfigureAwait(false);
+                }
+            }
 
             List<LinkedSeriesDto> linked = results.ToList().FindAndLinkSimilarSeries(threshold);
 

@@ -94,6 +94,29 @@ namespace RensaioBackend.Services.Images.Providers
             return null;
         }
 
+        /// <summary>
+        /// Resolves the source interop for a Mihon provider id. When the extension is not installed
+        /// (discovery search results), falls back to an already shadow-loaded discovery interop so
+        /// covers can be fetched with the source's own HTTP client/headers. Never triggers a
+        /// shadow-load just to render a thumbnail — only interops the discovery search already
+        /// loaded are reused.
+        /// </summary>
+        private async Task<ISourceInterop?> ResolveSourceInteropAsync(string mihonProviderId)
+        {
+            try
+            {
+                return await _mihonBridgeService.SourceFromProviderIdAsync(mihonProviderId).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Not installed (or unresolvable) — try a shadow-loaded discovery extension.
+                ISourceInterop? discovery = _mihonBridgeService.TryGetLoadedDiscoverySource(mihonProviderId);
+                if (discovery == null)
+                    _logger.LogDebug("No installed or shadow-loaded source available for provider {ProviderId}.", mihonProviderId);
+                return discovery;
+            }
+        }
+
         public async Task UpdateCacheWithRemoteAsync(EtagCacheEntity cache, HttpClient httpClient, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(cache.Url))
@@ -142,7 +165,7 @@ namespace RensaioBackend.Services.Images.Providers
                     if (cache.MihonProviderId != null)
                     {
 
-                        ISourceInterop interop = await _mihonBridgeService.SourceFromProviderIdAsync(cache.MihonProviderId).ConfigureAwait(false);
+                        ISourceInterop? interop = await ResolveSourceInteropAsync(cache.MihonProviderId).ConfigureAwait(false);
                         if (interop != null)
                         {
                             ContentTypeStream? image;
