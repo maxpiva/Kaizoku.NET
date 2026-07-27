@@ -39,6 +39,23 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             Startup.addBootClassPathAssembly(Assembly.LoadFrom(Path.Combine(baseDir, "Android.Compat.dll")));
             StartupKt.applicationSetup(androidFolder, tempFolder, new AndroidCompatLogManager.LoggerSink(androidLogger), false);
             AndroidCompatLogManager.SetLoglevel(androidLogger);
+
+            // The worker's stdout is a machine-parsed protocol channel owned by the parent process.
+            // Extension/OkHttp/android-compat code loves to print via Java System.out, which IKVM
+            // routes to fd 1 — redirect both Java standard streams to stderr (after applicationSetup,
+            // so nothing can undo it, and before any extension JAR is loaded) where they become
+            // harmless worker log lines instead of stray/corrupting stdout writes.
+            RedirectJavaConsoleToStderr();
+        }
+
+        /// <summary>
+        /// Points Java's System.out and System.err at the process's real stderr (fd 2).
+        /// </summary>
+        private static void RedirectJavaConsoleToStderr()
+        {
+            var stderr = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err), true);
+            java.lang.System.setOut(stderr);
+            java.lang.System.setErr(stderr);
         }
 
         /// <summary>

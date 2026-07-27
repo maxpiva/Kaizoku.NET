@@ -13,6 +13,14 @@ namespace RensaioBackend.Services.Search.Discovery;
 public static class DiscoveryWorkerJson
 {
     /// <summary>
+    /// Marker prefixed to every protocol line the worker writes on stdout. Extension/OkHttp/
+    /// android-compat code can print via Java System.out (IKVM routes it to fd 1) — the worker
+    /// redirects those to stderr, but as a second line of defense the parent only parses lines
+    /// bearing this prefix; anything else on stdout is treated as stray output and ignored.
+    /// </summary>
+    public const string LinePrefix = "@RSW@";
+
+    /// <summary>
     /// IncludeFields because <see cref="Preferences.Interceptors"/> is a public field, not a property.
     /// </summary>
     public static readonly JsonSerializerOptions Options = new()

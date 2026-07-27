@@ -25,6 +25,13 @@ public static class DiscoveryWorkerProgram
 
     public static async Task<int> RunAsync()
     {
+        // Claim the REAL stdout first and keep it as the exclusive protocol channel, then point
+        // .NET Console.Out at stderr so any stray managed print becomes a harmless log line
+        // instead of corrupting the event stream. (Java System.out is redirected to stderr too,
+        // inside DiscoveryWorkerRuntime.Initialize, before any extension code loads.)
+        var protocolWriter = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+        Console.SetOut(Console.Error);
+
         using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder
             .SetMinimumLevel(LogLevel.Information)
             .AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace));
@@ -47,11 +54,14 @@ public static class DiscoveryWorkerProgram
             return 2;
         }
 
-        await using var stdout = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+        await using var stdout = protocolWriter;
         object writeLock = new();
         void Emit(DiscoveryWorkerEvent evt)
         {
-            string line = JsonSerializer.Serialize(evt, DiscoveryWorkerJson.Options);
+            // Single prefixed string per event, written under a lock in one WriteLine call, so
+            // protocol lines can never interleave with each other. The prefix lets the parent
+            // reject any line that did not come from this writer.
+            string line = DiscoveryWorkerJson.LinePrefix + JsonSerializer.Serialize(evt, DiscoveryWorkerJson.Options);
             lock (writeLock)
             {
                 stdout.WriteLine(line);

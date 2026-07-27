@@ -125,14 +125,28 @@ public static class DiscoveryWorkerPool
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
+                // Only lines bearing the protocol prefix are events; anything else is stray
+                // output (extension/native code printing to fd 1 past the stderr redirects) and
+                // is expected noise — log quietly, no JSON parse attempt.
+                if (!line.StartsWith(DiscoveryWorkerJson.LinePrefix, StringComparison.Ordinal))
+                {
+                    logger.LogDebug("[worker {Pid} stray stdout] {Line}", pid, line);
+                    continue;
+                }
+
                 DiscoveryWorkerEvent? evt;
                 try
                 {
-                    evt = JsonSerializer.Deserialize<DiscoveryWorkerEvent>(line, DiscoveryWorkerJson.Options);
+                    evt = JsonSerializer.Deserialize<DiscoveryWorkerEvent>(
+                        line.Substring(DiscoveryWorkerJson.LinePrefix.Length), DiscoveryWorkerJson.Options);
                 }
                 catch (JsonException ex)
                 {
-                    logger.LogWarning(ex, "Discovery worker {Pid} emitted an unparseable event line; ignoring.", pid);
+                    // A prefixed line that fails to parse means true mid-line corruption slipped
+                    // through — drop it. Extension accounting still works: done/failed events are
+                    // tiny separate lines, so the extension is not stranded (and if the done/done
+                    // event itself were the mangled line, the unclean-exit suspect path covers it).
+                    logger.LogWarning(ex, "Discovery worker {Pid} emitted a corrupted protocol line; dropping it.", pid);
                     continue;
                 }
                 if (evt == null)
