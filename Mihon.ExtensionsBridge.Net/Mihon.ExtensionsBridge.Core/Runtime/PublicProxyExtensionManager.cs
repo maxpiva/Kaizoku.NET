@@ -56,6 +56,11 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             return _internalExtensionManager.TryGetLoadedDiscoveryInterop(package);
         }
 
+        public Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            return _internalExtensionManager.PrepareDiscoveryArtifactsAsync(extension, token);
+        }
+
         public List<RepositoryGroup> ListExtensions()
         {
             List<RepositoryGroup> grps = _internalExtensionManager.ListExtensions();

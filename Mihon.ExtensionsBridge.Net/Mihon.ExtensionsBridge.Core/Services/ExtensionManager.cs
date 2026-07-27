@@ -93,6 +93,12 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// </summary>
         private ConcurrentDictionary<string, string> DiscoveryPackages { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// In-flight discovery artifact preparations (download + dex2jar, no classload), keyed by
+        /// extension folder name so concurrent callers never duplicate work on the same APK.
+        /// </summary>
+        private ConcurrentDictionary<string, Lazy<Task<DiscoveryArtifact>>> DiscoveryPrepares { get; } = new();
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ExtensionManager"/> class.
@@ -351,6 +357,49 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
         private async Task<GatekeptExtensionInterop> CreateDiscoveryInteropAsync(TachiyomiExtension extension)
         {
+            DiscoveryArtifact artifact = await PrepareDiscoveryArtifactsAsync(extension, CancellationToken.None).ConfigureAwait(false);
+            GatekeptExtensionInterop interop = new GatekeptExtensionInterop(_workingStructure, artifact.Entry,
+                (wk, en, log) => new JarExtensionInterop(wk, en, log, artifact.Folder), _logger);
+            _logger.LogInformation("Shadow-loaded discovery extension {Name} version {Version} with {Count} sources.",
+                artifact.Entry.Name, artifact.Entry.Extension.Version, interop.Sources.Count);
+            return interop;
+        }
+
+        /// <summary>
+        /// Prepares the on-disk artifacts (download APK + dex2jar convert) for a not-installed extension
+        /// without classloading anything, so the JAR can be loaded by a worker process instead. Concurrent
+        /// calls for the same extension share one in-flight preparation; completed results are re-validated
+        /// from disk on the next call (both steps are cheap no-ops when the cached files exist).
+        /// </summary>
+        public async Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            if (!_localInitialized)
+                throw new InvalidOperationException("Local extensions not initialized.");
+            if (extension == null) throw new ArgumentNullException(nameof(extension));
+
+            string key = extension.GetName();
+            Lazy<Task<DiscoveryArtifact>> lazy = DiscoveryPrepares.GetOrAdd(key, _ =>
+                new Lazy<Task<DiscoveryArtifact>>(
+                    () => PrepareDiscoveryWorkUnitAsync(extension.Clone()),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+            try
+            {
+                // Like GetDiscoveryInteropAsync, the shared work is detached from any single caller's
+                // token; WaitAsync lets this caller give up while the preparation keeps running.
+                return await lazy.Value.WaitAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                // Only forget completed preparations (success or failure): success is re-validated
+                // cheaply from disk next time, failure becomes retryable. An in-flight task stays
+                // cached so a new caller never races a duplicate download/convert of the same APK.
+                if (lazy.Value.IsCompleted)
+                    DiscoveryPrepares.TryRemove(key, out _);
+            }
+        }
+
+        private async Task<DiscoveryArtifact> PrepareDiscoveryWorkUnitAsync(TachiyomiExtension extension)
+        {
             // Deliberately not tied to a caller token: once the expensive download + dex2jar work
             // starts it should run to completion so later discovery searches can reuse the artifacts.
             CancellationToken token = CancellationToken.None;
@@ -416,11 +465,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     throw new InvalidOperationException($"DEX to JAR conversion failed for discovery extension {ext.Apk}.");
             }
 
-            GatekeptExtensionInterop interop = new GatekeptExtensionInterop(_workingStructure, unit.Entry,
-                (wk, en, log) => new JarExtensionInterop(wk, en, log, discoveryFolder), _logger);
-            _logger.LogInformation("Shadow-loaded discovery extension {Name} version {Version} with {Count} sources.",
-                entry.Name, ext.Version, interop.Sources.Count);
-            return interop;
+            return new DiscoveryArtifact { Entry = unit.Entry, Folder = discoveryFolder };
         }
 
         /// <summary>

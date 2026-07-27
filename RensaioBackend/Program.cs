@@ -11,6 +11,17 @@ namespace RensaioBackend
 
         public static async Task Main(string[] args)
         {
+            // Discovery-search worker mode: short-lived child process that classloads extension
+            // JARs and searches them out-of-process. Branch before ANY backend initialization —
+            // the worker must not touch EnvironmentSetup, the database or the web host. The
+            // explicit Environment.Exit guarantees lingering non-daemon IKVM/Java threads can
+            // never keep a finished worker alive.
+            if (Services.Search.Discovery.DiscoveryWorkerProgram.IsWorkerInvocation(args))
+            {
+                Environment.Exit(await Services.Search.Discovery.DiscoveryWorkerProgram.RunAsync());
+                return;
+            }
+
             // Initialize the zero-dependency fallback crash logger BEFORE registering
             // global handlers.  EnvironmentSetup.Path is resolved in the static
             // constructor so it's safe to use here.  This ensures crash-(date).log

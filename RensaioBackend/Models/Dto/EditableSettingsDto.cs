@@ -20,6 +20,28 @@ public class EditableSettingsDto
     /// </summary>
     [JsonPropertyName("maxDiscoverySearchExtensions")]
     public int MaxDiscoverySearchExtensions { get; set; } = 0;
+
+    /// <summary>
+    /// When true (default), discovery searches classload and search not-installed extensions in
+    /// short-lived worker processes so their memory is returned to the OS afterwards and a crashing
+    /// extension cannot take down the backend. When false (or when a worker cannot be spawned),
+    /// the legacy in-process shadow-load path is used.
+    /// </summary>
+    [JsonPropertyName("discoverySearchWorkersEnabled")]
+    public bool DiscoverySearchWorkersEnabled { get; set; } = true;
+
+    /// <summary>
+    /// How many extensions a single discovery worker process handles before it exits and is
+    /// replaced (bounds per-worker memory growth, since loaded JARs cannot be unloaded).
+    /// </summary>
+    [JsonPropertyName("discoveryWorkerBatchSize")]
+    public int DiscoveryWorkerBatchSize { get; set; } = 10;
+
+    /// <summary>
+    /// Maximum number of discovery worker processes running concurrently.
+    /// </summary>
+    [JsonPropertyName("maxDiscoveryWorkers")]
+    public int MaxDiscoveryWorkers { get; set; } = 2;
     [JsonPropertyName("chapterDownloadFailRetryTime")]
     public TimeSpan ChapterDownloadFailRetryTime { get; set; } = TimeSpan.FromMinutes(30);
     [JsonPropertyName("chapterDownloadFailRetries")]

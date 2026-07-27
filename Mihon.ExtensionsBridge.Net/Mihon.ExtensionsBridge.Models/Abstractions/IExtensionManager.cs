@@ -24,6 +24,14 @@ namespace Mihon.ExtensionsBridge.Models.Abstractions
         /// </summary>
         /// <param name="package">The extension package name (e.g. eu.kanade.tachiyomi.extension.en.foo).</param>
         IExtensionInterop? TryGetLoadedDiscoveryInterop(string package);
+
+        /// <summary>
+        /// Prepares the on-disk artifacts (APK download + dex2jar conversion) for a not-installed
+        /// extension WITHOUT classloading it, so a short-lived worker process can load the JAR instead.
+        /// Artifacts land in the same private discovery cache used by <see cref="GetDiscoveryInteropAsync"/>;
+        /// the extension is never registered as installed. Concurrent calls share one preparation.
+        /// </summary>
+        Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default);
         List<RepositoryGroup> ListExtensions();
         RepositoryGroup? FindExtension(string name);
         Task<bool> RemoveExtensionAsync(RepositoryGroup group, CancellationToken token = default);

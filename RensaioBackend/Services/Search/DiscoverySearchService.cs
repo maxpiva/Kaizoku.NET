@@ -3,6 +3,7 @@ using RensaioBackend.Services.Bridge;
 using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Import;
 using RensaioBackend.Services.Scrobbling;
+using RensaioBackend.Services.Search.Discovery;
 using RensaioBackend.Services.Settings;
 using Microsoft.Extensions.Caching.Memory;
 using Mihon.ExtensionsBridge.Core.Extensions;
@@ -22,6 +23,13 @@ namespace RensaioBackend.Services.Search
     /// </summary>
     public class DiscoverySearchService
     {
+        /// <summary>
+        /// Extensions that crashed a discovery worker twice (once in a shared batch, once alone).
+        /// Skipped for the rest of the process lifetime so one broken extension cannot keep
+        /// killing workers on every search.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, byte> BadExtensions = new(StringComparer.OrdinalIgnoreCase);
+
         private readonly MihonBridgeService _mihon;
         private readonly SettingsService _settings;
         private readonly IMemoryCache _memoryCache;
@@ -86,6 +94,8 @@ namespace RensaioBackend.Services.Search
                 foreach (TachiyomiExtension ext in repo.Extensions.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
                 {
                     if (string.IsNullOrEmpty(ext.Package) || installedPackages.Contains(ext.Package) || seenPackages.Contains(ext.Package))
+                        continue;
+                    if (BadExtensions.ContainsKey(ext.Package))
                         continue;
                     if (!includeNsfw && ext.Nsfw == 1)
                         continue;
@@ -166,69 +176,28 @@ namespace RensaioBackend.Services.Search
             var results = new ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)>();
             int maxConcurrency = Math.Min(settings.NumberOfSimultaneousSearches, eligible.Count);
 
-            await Parallel.ForEachAsync(
-                eligible,
-                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
-                async (candidate, ct) =>
+            bool searched = false;
+            if (settings.DiscoverySearchWorkersEnabled)
+            {
+                try
                 {
-                    (TachiyomiRepository repo, TachiyomiExtension ext) = candidate;
-                    IExtensionInterop interop;
-                    try
-                    {
-                        // Shadow-load (download + convert on first use). Intentionally NOT bounded by
-                        // SourceTimeout: dex2jar conversions are globally serialized and a cold run may
-                        // legitimately take a while.
-                        interop = await _mihon.GetDiscoveryInteropAsync(ext, ct).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Skipping discovery extension {Package}: shadow-load failed.", ext.Package);
-                        return;
-                    }
-
-                    foreach (ISourceInterop src in interop.Sources)
-                    {
-                        if (!MatchesLanguage(src.Language, languageSet))
-                            continue;
-                        string mihonProviderId = ext.Package + "|" + src.Id;
-                        sourceInfo.TryAdd(mihonProviderId, (src.Name, ext.Package, repo.Name, ext.Name));
-                        try
-                        {
-                            var searchResult = await SourceTimeout
-                                .RunAsync(c => src.SearchAsync(1, keyword, c), ct)
-                                .ConfigureAwait(false);
-                            if (searchResult?.Mangas == null || searchResult.Mangas.Count == 0)
-                                continue;
-                            var seenUrls = new HashSet<string>();
-                            foreach (ParsedManga manga in searchResult.Mangas)
-                            {
-                                if (seenUrls.Add(manga.Url))
-                                    results.Add((manga, mihonProviderId, src.Language));
-                            }
-                        }
-                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                        {
-                            throw;
-                        }
-                        catch (TimeoutException)
-                        {
-                            _logger.LogWarning("Discovery search for source {Name} timed out after {Seconds}s; skipping.",
-                                src.Name, SourceTimeout.DefaultTimeout.TotalSeconds);
-                        }
-                        catch (HttpRequestException r)
-                        {
-                            _logger.LogWarning("Error in discovery search for source {Name}: Http Error {StatusCode}.", src.Name, r.StatusCode);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error in discovery search for source {Name}: {Message}", src.Name, ex.Message);
-                        }
-                    }
-                }).ConfigureAwait(false);
+                    searched = await SearchViaWorkersAsync(keyword, languageSet, eligible, settings, maxConcurrency,
+                        sourceInfo, results, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Discovery worker execution failed; falling back to the in-process search path.");
+                    searched = false;
+                }
+            }
+            if (!searched)
+            {
+                await SearchInProcessAsync(keyword, languageSet, eligible, maxConcurrency, sourceInfo, results, token).ConfigureAwait(false);
+            }
 
             // Register every thumb URL with its provider id (same as the normal search path) so the
             // image cache can fall back to the already shadow-loaded discovery interop when a plain
@@ -293,6 +262,248 @@ namespace RensaioBackend.Services.Search
             _memoryCache.Set(cacheKey, finalResults, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
             _logger.LogInformation("Discovery search for '{keyword}' returned {Count} results.", keyword, finalResults.Count);
             return finalResults;
+        }
+
+        /// <summary>
+        /// Legacy in-process path: shadow-loads every eligible extension into THIS process and
+        /// searches it. Kept as the fallback when workers are disabled or unavailable. Note that
+        /// classloaded JARs can never be unloaded, so memory grows with each new extension loaded.
+        /// </summary>
+        private async Task SearchInProcessAsync(string keyword, HashSet<string> languageSet,
+            List<(TachiyomiRepository Repository, TachiyomiExtension Extension)> eligible, int maxConcurrency,
+            ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
+            ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)> results,
+            CancellationToken token)
+        {
+            await Parallel.ForEachAsync(
+                eligible,
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
+                async (candidate, ct) =>
+                {
+                    (TachiyomiRepository repo, TachiyomiExtension ext) = candidate;
+                    IExtensionInterop interop;
+                    try
+                    {
+                        // Shadow-load (download + convert on first use). Intentionally NOT bounded by
+                        // SourceTimeout: dex2jar conversions are globally serialized and a cold run may
+                        // legitimately take a while.
+                        interop = await _mihon.GetDiscoveryInteropAsync(ext, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Skipping discovery extension {Package}: shadow-load failed.", ext.Package);
+                        return;
+                    }
+
+                    foreach (ISourceInterop src in interop.Sources)
+                    {
+                        if (!MatchesLanguage(src.Language, languageSet))
+                            continue;
+                        string mihonProviderId = ext.Package + "|" + src.Id;
+                        sourceInfo.TryAdd(mihonProviderId, (src.Name, ext.Package, repo.Name, ext.Name));
+                        try
+                        {
+                            var searchResult = await SourceTimeout
+                                .RunAsync(c => src.SearchAsync(1, keyword, c), ct)
+                                .ConfigureAwait(false);
+                            if (searchResult?.Mangas == null || searchResult.Mangas.Count == 0)
+                                continue;
+                            var seenUrls = new HashSet<string>();
+                            foreach (ParsedManga manga in searchResult.Mangas)
+                            {
+                                if (seenUrls.Add(manga.Url))
+                                    results.Add((manga, mihonProviderId, src.Language));
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (TimeoutException)
+                        {
+                            _logger.LogWarning("Discovery search for source {Name} timed out after {Seconds}s; skipping.",
+                                src.Name, SourceTimeout.DefaultTimeout.TotalSeconds);
+                        }
+                        catch (HttpRequestException r)
+                        {
+                            _logger.LogWarning("Error in discovery search for source {Name}: Http Error {StatusCode}.", src.Name, r.StatusCode);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error in discovery search for source {Name}: {Message}", src.Name, ex.Message);
+                        }
+                    }
+                }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Worker-process path. Phase 1 prepares the disk artifacts (APK download + dex2jar) in THIS
+        /// process — conversion stays globally serialized here and cached artifacts are shared. Phase 2
+        /// fans the prepared extensions out to short-lived worker processes (batch size doubles as the
+        /// recycle-after-N bound, worker count is capped) that classload and search, streaming results
+        /// back over stdout. A crashed worker's begun-but-unfinished extensions get one solo retry;
+        /// crashing alone marks the extension bad for the process lifetime. Returns false when no
+        /// worker executable could be resolved so the caller can fall back in-process.
+        /// </summary>
+        private async Task<bool> SearchViaWorkersAsync(string keyword, HashSet<string> languageSet,
+            List<(TachiyomiRepository Repository, TachiyomiExtension Extension)> eligible, EditableSettingsDto settings, int maxConcurrency,
+            ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
+            ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)> results,
+            CancellationToken token)
+        {
+            (string FileName, string? DllPath)? launch = DiscoveryWorkerPool.ResolveWorkerLaunch();
+            if (launch == null)
+            {
+                _logger.LogWarning("No discovery worker executable found next to the backend; using the in-process search path.");
+                return false;
+            }
+
+            var infoByPackage = new Dictionary<string, (string? RepoName, string ExtensionName)>(StringComparer.OrdinalIgnoreCase);
+            foreach ((TachiyomiRepository repo, TachiyomiExtension ext) in eligible)
+                infoByPackage[ext.Package] = (repo.Name, ext.Name);
+
+            // Phase 1: prepare artifacts (download + convert) without classloading anything here.
+            var prepared = new ConcurrentBag<DiscoveryWorkerExtension>();
+            await Parallel.ForEachAsync(
+                eligible,
+                new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency, CancellationToken = token },
+                async (candidate, ct) =>
+                {
+                    try
+                    {
+                        DiscoveryArtifact artifact = await _mihon.PrepareDiscoveryArtifactsAsync(candidate.Extension, ct).ConfigureAwait(false);
+                        prepared.Add(new DiscoveryWorkerExtension { Entry = artifact.Entry, Folder = artifact.Folder });
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Skipping discovery extension {Package}: artifact preparation failed.", candidate.Extension.Package);
+                    }
+                }).ConfigureAwait(false);
+            if (prepared.IsEmpty)
+                return true;
+
+            Preferences preferences = await _mihon.GetPreferencesAsync(token).ConfigureAwait(false);
+            int batchSize = Math.Max(1, settings.DiscoveryWorkerBatchSize);
+            int maxWorkers = Math.Max(1, settings.MaxDiscoveryWorkers);
+            int parallelInWorker = Math.Clamp(settings.NumberOfSimultaneousSearches / maxWorkers, 1, 4);
+            TimeSpan inactivityTimeout = SourceTimeout.DefaultTimeout + TimeSpan.FromSeconds(90);
+            string scratchRoot = Path.Combine(Path.GetTempPath(), "rensaio-discovery-workers");
+            var slots = new ConcurrentStack<int>(Enumerable.Range(0, maxWorkers));
+            using var semaphore = new SemaphoreSlim(maxWorkers);
+
+            void OnSourceResult(DiscoveryWorkerEvent evt)
+            {
+                if (evt.Package == null || evt.SourceId == null || evt.Mangas == null)
+                    return;
+                string mihonProviderId = evt.Package + "|" + evt.SourceId;
+                infoByPackage.TryGetValue(evt.Package, out (string? RepoName, string ExtensionName) info);
+                sourceInfo.TryAdd(mihonProviderId, (evt.SourceName ?? evt.Package, evt.Package, info.RepoName, info.ExtensionName ?? evt.Package));
+                var seenUrls = new HashSet<string>();
+                foreach (ParsedManga manga in evt.Mangas)
+                {
+                    if (seenUrls.Add(manga.Url))
+                        results.Add((manga, mihonProviderId, evt.SourceLanguage ?? ""));
+                }
+            }
+
+            async Task<DiscoveryWorkerBatchOutcome> RunBatchAsync(List<DiscoveryWorkerExtension> batch, int parallelism)
+            {
+                await semaphore.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (!slots.TryPop(out int slot))
+                        slot = 0;
+                    try
+                    {
+                        var input = new DiscoveryWorkerInput
+                        {
+                            ScratchFolder = Path.Combine(scratchRoot, $"slot{slot}"),
+                            Preferences = preferences,
+                            Query = keyword,
+                            Languages = languageSet.ToList(),
+                            SearchTimeoutSeconds = SourceTimeout.DefaultTimeout.TotalSeconds,
+                            MaxParallelExtensions = parallelism,
+                            Extensions = batch
+                        };
+                        return await DiscoveryWorkerPool.RunWorkerAsync(launch.Value, input, inactivityTimeout,
+                            OnSourceResult, _logger, token).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        slots.Push(slot);
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }
+
+            // Round 1: normal batches. Each worker exits after its batch (recycle-after-N).
+            List<List<DiscoveryWorkerExtension>> batches = prepared.Chunk(batchSize).Select(c => c.ToList()).ToList();
+            _logger.LogInformation("Discovery search fanning out {Extensions} extensions to {Batches} worker batches (max {Workers} concurrent).",
+                prepared.Count, batches.Count, maxWorkers);
+            var suspectRetries = new ConcurrentBag<DiscoveryWorkerExtension>();
+            var untouchedRetries = new ConcurrentBag<DiscoveryWorkerExtension>();
+            await Task.WhenAll(batches.Select(async batch =>
+            {
+                DiscoveryWorkerBatchOutcome outcome = await RunBatchAsync(batch, parallelInWorker).ConfigureAwait(false);
+                if (outcome.CleanExit)
+                    return;
+                foreach (DiscoveryWorkerExtension item in batch)
+                {
+                    string package = item.Entry.Extension.Package;
+                    if (outcome.Completed.Contains(package) || outcome.FailedManaged.Contains(package))
+                        continue;
+                    if (outcome.Suspects.Contains(package))
+                        suspectRetries.Add(item);
+                    else
+                        untouchedRetries.Add(item);
+                }
+            })).ConfigureAwait(false);
+
+            // Round 2: crash suspects run alone (parallelism 1) so blame is unambiguous; extensions
+            // the dead worker never started are re-batched normally. No third round — anything that
+            // still fails is logged and skipped, and a solo crasher is marked bad for this process.
+            var retryBatches = new List<(List<DiscoveryWorkerExtension> Batch, bool Solo)>();
+            foreach (DiscoveryWorkerExtension suspect in suspectRetries)
+                retryBatches.Add(([suspect], true));
+            retryBatches.AddRange(untouchedRetries.Chunk(batchSize).Select(c => (c.ToList(), false)));
+            if (retryBatches.Count > 0)
+            {
+                _logger.LogInformation("Retrying {Suspects} crash suspects solo and {Untouched} unprocessed extensions after worker failures.",
+                    suspectRetries.Count, untouchedRetries.Count);
+                await Task.WhenAll(retryBatches.Select(async retry =>
+                {
+                    DiscoveryWorkerBatchOutcome outcome = await RunBatchAsync(retry.Batch, retry.Solo ? 1 : parallelInWorker).ConfigureAwait(false);
+                    if (outcome.CleanExit)
+                        return;
+                    foreach (DiscoveryWorkerExtension item in retry.Batch)
+                    {
+                        string package = item.Entry.Extension.Package;
+                        if (outcome.Completed.Contains(package) || outcome.FailedManaged.Contains(package))
+                            continue;
+                        if (retry.Solo && outcome.Suspects.Contains(package))
+                        {
+                            BadExtensions.TryAdd(package, 0);
+                            _logger.LogWarning("Discovery extension {Package} crashed its worker twice; marking it bad and skipping it from now on.", package);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Discovery extension {Package} was not searched after repeated worker failures; skipping for this search.", package);
+                        }
+                    }
+                })).ConfigureAwait(false);
+            }
+            return true;
         }
     }
 }

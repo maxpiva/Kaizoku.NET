@@ -180,6 +180,15 @@ namespace RensaioBackend.Services.Bridge
             return interop?.Sources.FirstOrDefault(a => a.Id == sourceId);
         }
 
+        /// <summary>
+        /// Prepares discovery artifacts (APK + converted JAR on disk) without classloading, so a
+        /// worker process can load and search the extension out-of-process.
+        /// </summary>
+        public Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            return _bridgeManager.LocalExtensionManager.PrepareDiscoveryArtifactsAsync(extension, token);
+        }
+
         public List<RepositoryGroup> ListExtensions()
         {
             return _bridgeManager.LocalExtensionManager.ListExtensions();
