@@ -1,0 +1,19 @@
+{
+  "name": "rensaio-contribution-db",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply rensaio-contribution-db",
+    "db:list": "wrangler d1 migrations list rensaio-contribution-db"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240601.0",
+    "wrangler": "^3.60.0",
+    "typescript": "^5.5.0"
+  }
+}

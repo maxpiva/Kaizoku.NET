@@ -1,0 +1,38 @@
+name = "rensaio-contribution-db"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# D1 database binding for contribution store
+[[d1_databases]]
+binding = "DB"
+database_name = "rensaio-contribution-db"
+database_id = ""
+
+# Daily export cron trigger (06:00 UTC)
+[triggers]
+crons = ["0 6 * * *"]
+
+[vars]
+EXPORT_GITHUB_REPO = "owner/repo-name"
+EXPORT_PATH = "data/"
+
+# Secrets (sensitive) — set via: wrangler secret put
+#   wrangler secret put GITHUB_TOKEN
+
+[env.dev]
+vars = { EXPORT_GITHUB_REPO = "test/test-repo", EXPORT_PATH = "data/" }
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
