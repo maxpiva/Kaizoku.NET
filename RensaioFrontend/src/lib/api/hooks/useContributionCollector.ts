@@ -1,8 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { contributionCollectorService } from "@/lib/api/services/contributionCollectorService";
 
-const isCollectorRunning = (state?: string | null) =>
-  (state ?? "").toLowerCase() === "running";
+// States during which the backend has an active or imminent run: poll fast.
+const ACTIVE_COLLECTOR_STATES = new Set(["queued", "running", "yielding"]);
+
+const isCollectorActive = (state?: string | null) =>
+  ACTIVE_COLLECTOR_STATES.has((state ?? "").toLowerCase());
 
 export const contributionCollectorKeys = {
   all: ["contributions"] as const,
@@ -17,7 +20,7 @@ export function useContributionCollectorStatus(enabled: boolean) {
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       if (!enabled) return false;
-      return isCollectorRunning(query.state.data?.state) ? 5_000 : 30_000;
+      return isCollectorActive(query.state.data?.state) ? 5_000 : 30_000;
     },
   });
 }
@@ -27,7 +30,10 @@ export function useRunContributionCollector() {
 
   return useMutation({
     mutationFn: () => contributionCollectorService.runNow(),
-    onSuccess: () => {
+    onSuccess: (status) => {
+      // The run endpoint returns the full status DTO; seed the cache with it so the
+      // UI reflects the queued state immediately, then refetch for freshness.
+      queryClient.setQueryData(contributionCollectorKeys.status, status);
       void queryClient.invalidateQueries({
         queryKey: contributionCollectorKeys.status,
       });

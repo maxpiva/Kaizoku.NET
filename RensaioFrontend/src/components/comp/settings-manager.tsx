@@ -146,8 +146,11 @@ const getCollectorStateLabel = (state?: string | null): string => {
     : "Idle";
 };
 
-const isCollectorRunning = (state?: string | null): boolean =>
-  (state ?? "").toLowerCase() === "running";
+// States during which the backend has an active or imminent run.
+const ACTIVE_COLLECTOR_STATES = new Set(["queued", "running", "yielding"]);
+
+const isCollectorActive = (state?: string | null): boolean =>
+  ACTIVE_COLLECTOR_STATES.has((state ?? "").toLowerCase());
 
 // Sortable Language Badge Component
 function SortableLanguageBadge({
@@ -508,13 +511,13 @@ function DownloadSettingsSection({
   );
   const runCollectorMutation = useRunContributionCollector();
   const collectorStatus = statusQuery.data;
-  const collectorRunning = isCollectorRunning(collectorStatus?.state);
+  const collectorActive = isCollectorActive(collectorStatus?.state);
   const runDisabled =
     !canOwner ||
     !collectorEnabled ||
     statusQuery.isLoading ||
     collectorStatus?.enabled === false ||
-    collectorRunning ||
+    collectorActive ||
     runCollectorMutation.isPending;
 
   const handleRunCollector = async () => {
@@ -673,12 +676,20 @@ function DownloadSettingsSection({
               </div>
               {collectorEnabled && (
                 <Badge
-                  variant={collectorRunning ? "default" : "secondary"}
+                  variant={
+                    statusQuery.isError
+                      ? "destructive"
+                      : collectorActive
+                        ? "default"
+                        : "secondary"
+                  }
                   className="w-fit"
                 >
-                  {statusQuery.isFetching && !collectorRunning
-                    ? "Checking"
-                    : getCollectorStateLabel(collectorStatus?.state)}
+                  {statusQuery.isError
+                    ? "Status unavailable"
+                    : statusQuery.isFetching && !collectorActive
+                      ? "Checking"
+                      : getCollectorStateLabel(collectorStatus?.state)}
                 </Badge>
               )}
             </div>
@@ -706,6 +717,15 @@ function DownloadSettingsSection({
                       </p>
                     </div>
                   </div>
+                  {statusQuery.isError && (
+                    <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                      Could not load collector status
+                      {statusQuery.error instanceof Error &&
+                      statusQuery.error.message
+                        ? `: ${statusQuery.error.message}`
+                        : "."}
+                    </div>
+                  )}
                   {collectorStatus?.lastError && (
                     <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
                       {collectorStatus.lastError}
@@ -724,12 +744,14 @@ function DownloadSettingsSection({
                     disabled={runDisabled}
                     className="w-full sm:w-auto"
                   >
-                    {runCollectorMutation.isPending || collectorRunning ? (
+                    {runCollectorMutation.isPending || collectorActive ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    {collectorRunning ? "Running" : "Run now"}
+                    {collectorActive
+                      ? getCollectorStateLabel(collectorStatus?.state)
+                      : "Run now"}
                   </Button>
                 </CardContent>
               </Card>

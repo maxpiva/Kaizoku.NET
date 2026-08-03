@@ -1,8 +1,5 @@
 import { apiClient } from "@/lib/api/client";
-import {
-  type ContributionCollectorRunResponse,
-  type ContributionCollectorStatus,
-} from "@/lib/api/types";
+import { type ContributionCollectorStatus } from "@/lib/api/types";
 
 export const contributionCollectorService = {
   async getStatus(): Promise<ContributionCollectorStatus> {
@@ -11,8 +8,9 @@ export const contributionCollectorService = {
     );
   },
 
-  async runNow(): Promise<ContributionCollectorRunResponse | void> {
-    return apiClient.post<ContributionCollectorRunResponse | void>(
+  async runNow(): Promise<ContributionCollectorStatus> {
+    // POST /api/contributions/run returns the full status DTO with HTTP 202.
+    return apiClient.post<ContributionCollectorStatus>(
       "/api/contributions/run",
     );
   },

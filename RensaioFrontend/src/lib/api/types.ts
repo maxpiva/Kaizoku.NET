@@ -129,11 +129,6 @@ export interface ContributionCollectorStatus {
   lastError?: string | null;
 }
 
-export interface ContributionCollectorRunResponse {
-  accepted?: boolean;
-  message?: string;
-}
-
 export interface FullSeries {
   mihonId?: string;
   mihonProviderId?: string;
