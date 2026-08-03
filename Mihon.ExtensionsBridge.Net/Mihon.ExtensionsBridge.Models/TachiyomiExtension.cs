@@ -22,4 +22,11 @@ public record TachiyomiExtension
     public int Nsfw { get; set; }
     [JsonPropertyName("sources")]
     public List<TachiyomiSource> Sources { get; set; } = [];
+    /// <summary>
+    /// Absolute icon URL from the new (Mihon 0.20+) repository index format.
+    /// Null for legacy-format repositories; absent in previously persisted repos.
+    /// </summary>
+    [JsonPropertyName("iconUrl")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IconUrl { get; set; }
 }

@@ -137,7 +137,7 @@ namespace Tachiyomi.ExtensionsBridge.Tests
             var repo = new TachiyomiRepository("https://raw.githubusercontent.com/keiyoushi/extensions/repo");
 
             var added = await repoMgr.AddOnlineRepositoryAsync(repo);
-            var repos = await repoMgr.ListOnlineRepositoryAsync();
+            var repos = repoMgr.ListOnlineRepositories();
             repo = repos.Find(r => r.Url == repo.Url) ?? repo;
 
             var extMgr = bridge.LocalExtensionManager;
