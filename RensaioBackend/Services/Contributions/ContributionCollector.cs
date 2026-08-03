@@ -68,7 +68,11 @@ public sealed class ContributionCollector
                 return 0;
             }
 
-            bool resuming = checkpoint.State is ContributionStates.Running or ContributionStates.Yielding;
+            // A run is resumed when the previous one was interrupted mid-flight: either the
+            // process died while running/yielding, or a cancellation re-queued it while it
+            // still had completed assignments recorded.
+            bool resuming = checkpoint.State is ContributionStates.Running or ContributionStates.Yielding
+                || (checkpoint.State == ContributionStates.Queued && checkpoint.CompletedAssignments.Count > 0);
             if (!resuming)
             {
                 checkpoint.CompletedAssignments.Clear();
@@ -134,6 +138,15 @@ public sealed class ContributionCollector
         }
         catch (OperationCanceledException)
         {
+            // Cancellation (shutdown, job abort) must not leave the checkpoint stuck in a
+            // "running"/"yielding" state: record it as queued so the completed assignments stay
+            // resumable and the status no longer reports an active run.
+            ContributionCheckpointV1 checkpoint = await _checkpoints.ReadAsync(CancellationToken.None).ConfigureAwait(false);
+            if (checkpoint.State is ContributionStates.Running or ContributionStates.Yielding)
+            {
+                checkpoint.State = ContributionStates.Queued;
+                await _checkpoints.WriteAsync(checkpoint, CancellationToken.None).ConfigureAwait(false);
+            }
             throw;
         }
         catch (Exception ex)

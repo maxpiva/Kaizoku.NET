@@ -1,4 +1,8 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using RensaioBackend.Models.Dto;
 using RensaioBackend.Services.Contributions;
+using RensaioBackend.Services.Settings;
+using System.Reflection;
 using System.Text.Json;
 using Xunit;
 
@@ -97,6 +101,73 @@ public sealed class ContributionCollectorTests : IDisposable
         Assert.True(root.TryGetProperty("lastCompletedUtc", out _));
         Assert.True(root.TryGetProperty("itemsCollected", out _));
         Assert.True(root.TryGetProperty("lastError", out _));
+    }
+
+    [Fact]
+    public async Task RunAsync_Cancellation_LeavesResumableNonRunningState()
+    {
+        // ContributionCollector reads settings through SettingsService's static cache; seed it
+        // via reflection so the run reaches the checkpoint writes without any infrastructure.
+        FieldInfo settingsField = typeof(SettingsService)
+            .GetField("_settings", BindingFlags.NonPublic | BindingFlags.Static)!;
+        object? previousSettings = settingsField.GetValue(null);
+        settingsField.SetValue(null, new SettingsDto { ContributionCollectorEnabled = true });
+        try
+        {
+            var store = new CancelOnRunningWriteCheckpointStore(new ContributionCheckpointV1
+            {
+                State = ContributionStates.Yielding,
+                ItemsCollected = 2,
+                LastStartedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                CompletedAssignments = new HashSet<string>(["pkg|1"], StringComparer.OrdinalIgnoreCase)
+            });
+            var collector = new ContributionCollector(
+                null!, new SettingsService(null!, null!, null!), null!, null!, store,
+                new InteractiveDiscoveryGate(), NullLogger<ContributionCollector>.Instance);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => collector.RunAsync());
+
+            Assert.Equal(ContributionStates.Queued, store.Current.State);
+            Assert.Equal(2, store.Current.ItemsCollected);
+            Assert.Contains("pkg|1", store.Current.CompletedAssignments);
+        }
+        finally
+        {
+            settingsField.SetValue(null, previousSettings);
+        }
+    }
+
+    /// <summary>
+    /// In-memory checkpoint store that simulates a shutdown by throwing
+    /// <see cref="OperationCanceledException"/> the moment a "running" state is persisted.
+    /// </summary>
+    private sealed class CancelOnRunningWriteCheckpointStore : IContributionCheckpointStore
+    {
+        public ContributionCheckpointV1 Current { get; private set; }
+
+        public CancelOnRunningWriteCheckpointStore(ContributionCheckpointV1 initial) => Current = initial;
+
+        public Task<ContributionCheckpointV1> ReadAsync(CancellationToken token = default)
+            => Task.FromResult(Clone(Current));
+
+        public Task WriteAsync(ContributionCheckpointV1 checkpoint, CancellationToken token = default)
+        {
+            if (checkpoint.State == ContributionStates.Running)
+                throw new OperationCanceledException("Simulated shutdown while persisting the running state.");
+            Current = Clone(checkpoint);
+            return Task.CompletedTask;
+        }
+
+        private static ContributionCheckpointV1 Clone(ContributionCheckpointV1 checkpoint) => new()
+        {
+            Version = checkpoint.Version,
+            State = checkpoint.State,
+            LastStartedUtc = checkpoint.LastStartedUtc,
+            LastCompletedUtc = checkpoint.LastCompletedUtc,
+            ItemsCollected = checkpoint.ItemsCollected,
+            LastError = checkpoint.LastError,
+            CompletedAssignments = new HashSet<string>(checkpoint.CompletedAssignments, StringComparer.OrdinalIgnoreCase)
+        };
     }
 
     private static ContributionRecordV1 Record(string id, bool popular, bool latest) => new()

@@ -41,10 +41,12 @@ public sealed class ContributionsController : ControllerBase
         if (!settings.ContributionCollectorEnabled)
             return Conflict(new { error = "Contribution collector is disabled." });
 
-        await _collector.MarkQueuedAsync(token).ConfigureAwait(false);
+        // Enqueue first: if enqueueing throws, the error propagates without a phantom
+        // "queued" status having been persisted.
         await _jobs.EnqueueJobAsync(JobType.CollectContributions, (string?)null,
             Priority.Low, nameof(JobType.CollectContributions), nameof(JobType.CollectContributions),
             nameof(JobType.CollectContributions), "Default", token).ConfigureAwait(false);
+        await _collector.MarkQueuedAsync(token).ConfigureAwait(false);
         return Accepted(await _collector.GetStatusAsync(token).ConfigureAwait(false));
     }
 }
