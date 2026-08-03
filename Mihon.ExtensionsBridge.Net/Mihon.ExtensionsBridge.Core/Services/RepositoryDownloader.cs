@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 using Mihon.ExtensionsBridge.Core.Models;
 using Mihon.ExtensionsBridge.Core.Abstractions;
 
@@ -60,7 +61,10 @@ namespace Mihon.ExtensionsBridge.Core.Services
         }
 
 
-        private static string[] index = ["index.min.json", "index.json"];
+        // index.json first: newer repos (keiyoushi) repurposed index.json as the new protojson
+        // object format while leaving index.min.json as a legacy-format stub, so the legacy
+        // file must only be used as a fallback.
+        private static string[] index = ["index.json", "index.min.json"];
 
         private static string[] repos = ["repo.json"];
 
@@ -127,40 +131,41 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     }
                 }
 
-                // Try index candidates first
+                // Try index candidates: first file whose body parses as a known format wins.
+                List<TachiyomiExtension>? extensions = null;
                 foreach (var fileName in index)
                 {
                     var candidateUrl = repository.Url.CombineUrl(fileName);
                     using var request = new HttpRequestMessage(HttpMethod.Get, candidateUrl);
-                    var tempResponse = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    using var tempResponse = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
                     if (tempResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
                     {
-                        tempResponse.Dispose();
                         _logger.LogDebug("Index not found at {CandidateUrl}. Trying next candidate...", candidateUrl);
                         continue;
                     }
 
                     tempResponse.EnsureSuccessStatusCode();
-                    response = tempResponse;
+                    var body = await tempResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var parsed = ParseIndexBody(body, _logger);
+                    if (parsed == null)
+                    {
+                        _logger.LogDebug("Unrecognized index format at {CandidateUrl}. Trying next candidate...", candidateUrl);
+                        continue;
+                    }
+
+                    extensions = parsed;
                     usedUrl = candidateUrl;
                     break;
                 }
-                // Fallback to original URL if no index candidate succeeded
-                if (response == null)
+                if (extensions == null)
                 {
                     throw new HttpRequestException("No valid index file found in the repository.");
                 }
 
                 _logger.LogInformation("Resolved repository index at: {ResolvedUrl}", usedUrl);
 
-                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                var extensions = await JsonSerializer.DeserializeAsync<List<TachiyomiExtension>>(stream, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                }, cancellationToken).ConfigureAwait(false);
-
-                repository.Extensions = extensions ?? new List<TachiyomiExtension>();
+                repository.Extensions = extensions;
                 repository.LastUpdatedUTC = DateTimeOffset.UtcNow;
 
                 _logger.LogInformation("Downloaded {ExtensionCount} extensions from {ResolvedUrl}. Saving to working folder...", repository.Extensions.Count, usedUrl);
@@ -183,6 +188,112 @@ namespace Mihon.ExtensionsBridge.Core.Services
             {
                 response?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Parses a repository index body in either the legacy (flat JSON array) format or the
+        /// new Mihon 0.20+ protojson object format, returning the extensions mapped to
+        /// <see cref="TachiyomiExtension"/>. Returns <c>null</c> when the body is not a
+        /// recognized index format (invalid JSON, or an object without an inline extension list),
+        /// so the caller can fall through to the next index file candidate.
+        /// </summary>
+        public static List<TachiyomiExtension>? ParseIndexBody(string body, ILogger? logger = null)
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            JsonValueKind rootKind;
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                rootKind = doc.RootElement.ValueKind;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+
+            if (rootKind == JsonValueKind.Array)
+            {
+                // Legacy format: flat array of extensions.
+                return JsonSerializer.Deserialize<List<TachiyomiExtension>>(body, options) ?? new List<TachiyomiExtension>();
+            }
+
+            if (rootKind == JsonValueKind.Object)
+            {
+                var root = JsonSerializer.Deserialize<MihonIndexV2>(body, options);
+                // Only the inline extension list variant of the oneof is supported;
+                // extensionListUrl (or anything else) falls through to the next candidate.
+                if (root?.ExtensionList?.Extensions == null)
+                    return null;
+                return MapV2Extensions(root.ExtensionList.Extensions, logger);
+            }
+
+            return null;
+        }
+
+        private static List<TachiyomiExtension> MapV2Extensions(List<MihonIndexV2Extension> entries, ILogger? logger)
+        {
+            var result = new List<TachiyomiExtension>();
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.PackageName))
+                {
+                    logger?.LogWarning("Skipping index entry '{Name}': missing packageName.", entry.Name);
+                    continue;
+                }
+
+                var apk = ExtractFileNameFromUrl(entry.Resources?.ApkUrl);
+                if (string.IsNullOrWhiteSpace(apk))
+                {
+                    logger?.LogWarning("Skipping index entry '{Package}': missing or invalid apkUrl.", entry.PackageName);
+                    continue;
+                }
+
+                if (!int.TryParse(entry.VersionCode, out var versionCode))
+                {
+                    logger?.LogWarning("Skipping index entry '{Package}': unparseable versionCode '{VersionCode}'.", entry.PackageName, entry.VersionCode);
+                    continue;
+                }
+
+                var sources = entry.Sources ?? new List<MihonIndexV2Source>();
+                var languages = sources.Select(s => s.Language).Distinct().ToList();
+                var language = languages.Count == 1 && !string.IsNullOrWhiteSpace(languages[0]) ? languages[0]! : "all";
+
+                result.Add(new TachiyomiExtension
+                {
+                    Name = entry.Name ?? string.Empty,
+                    Package = entry.PackageName,
+                    Apk = apk,
+                    Language = language,
+                    VersionCode = versionCode,
+                    Version = entry.VersionName ?? string.Empty,
+                    Nsfw = entry.ContentWarning != null && entry.ContentWarning.EndsWith("NSFW", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+                    IconUrl = entry.Resources?.IconUrl,
+                    Sources = sources.Select(s => new TachiyomiSource
+                    {
+                        Id = s.Id ?? string.Empty,
+                        Name = s.Name ?? string.Empty,
+                        Language = s.Language ?? string.Empty,
+                        BaseUrl = s.HomeUrl ?? string.Empty
+                    }).ToList()
+                });
+            }
+            return result;
+        }
+
+        private static string? ExtractFileNameFromUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return null;
+            var path = url;
+            var cut = path.IndexOfAny(new[] { '?', '#' });
+            if (cut >= 0)
+                path = path[..cut];
+            var slash = path.LastIndexOf('/');
+            var segment = slash >= 0 ? path[(slash + 1)..] : path;
+            if (string.IsNullOrWhiteSpace(segment))
+                return null;
+            return Uri.UnescapeDataString(segment);
         }
 
         /// <summary>
