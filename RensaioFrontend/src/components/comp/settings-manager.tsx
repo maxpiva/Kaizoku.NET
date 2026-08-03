@@ -18,13 +18,17 @@ import { userService } from "@/lib/api/services/userService";
 import { UserIcon, Upload } from "lucide-react";
 import { fetchGravatarBase64 } from "@/lib/gravatar";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, Save, Loader2, GripVertical } from "lucide-react";
+import { Plus, X, Save, Loader2, GripVertical, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   useSettings,
   useAvailableLanguages,
   useUpdateSettings,
 } from "@/lib/api/hooks/useSettings";
+import {
+  useContributionCollectorStatus,
+  useRunContributionCollector,
+} from "@/lib/api/hooks/useContributionCollector";
 import { type Settings, NsfwVisibility } from "@/lib/api/types";
 import { useToast } from "@/hooks/use-toast";
 import ReactCountryFlag from "react-country-flag";
@@ -124,6 +128,26 @@ const timeInputToTimeSpanSeconds = (timeInput: string): string => {
 
   return `${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
 };
+
+const formatCollectorDate = (value?: string | null): string => {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+};
+
+const getCollectorStateLabel = (state?: string | null): string => {
+  const normalized = (state ?? "idle").trim();
+  return normalized
+    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+    : "Idle";
+};
+
+const isCollectorRunning = (state?: string | null): boolean =>
+  (state ?? "").toLowerCase() === "running";
 
 // Sortable Language Badge Component
 function SortableLanguageBadge({
@@ -353,8 +377,14 @@ function ContentPreferencesSection({
           className="space-y-2"
         >
           <div className="flex items-center gap-2">
-            <RadioGroupItem value={NsfwVisibility.AlwaysHide} id="nsfw-always-hide" />
-            <Label htmlFor="nsfw-always-hide" className="cursor-pointer text-sm">
+            <RadioGroupItem
+              value={NsfwVisibility.AlwaysHide}
+              id="nsfw-always-hide"
+            />
+            <Label
+              htmlFor="nsfw-always-hide"
+              className="cursor-pointer text-sm"
+            >
               Always hide
             </Label>
             <span className="text-muted-foreground text-xs">
@@ -362,8 +392,14 @@ function ContentPreferencesSection({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <RadioGroupItem value={NsfwVisibility.HideByDefault} id="nsfw-hide-default" />
-            <Label htmlFor="nsfw-hide-default" className="cursor-pointer text-sm">
+            <RadioGroupItem
+              value={NsfwVisibility.HideByDefault}
+              id="nsfw-hide-default"
+            />
+            <Label
+              htmlFor="nsfw-hide-default"
+              className="cursor-pointer text-sm"
+            >
               Hide by default
             </Label>
             <span className="text-muted-foreground text-xs">
@@ -464,10 +500,45 @@ function DownloadSettingsSection({
   localSettings: Settings;
   setLocalSettings: (updater: (prev: Settings) => Settings) => void;
 }) {
+  const { canOwner } = useAuth();
+  const { toast } = useToast();
+  const collectorEnabled = localSettings.contributionCollectorEnabled ?? false;
+  const statusQuery = useContributionCollectorStatus(
+    canOwner && collectorEnabled,
+  );
+  const runCollectorMutation = useRunContributionCollector();
+  const collectorStatus = statusQuery.data;
+  const collectorRunning = isCollectorRunning(collectorStatus?.state);
+  const runDisabled =
+    !canOwner ||
+    !collectorEnabled ||
+    statusQuery.isLoading ||
+    collectorStatus?.enabled === false ||
+    collectorRunning ||
+    runCollectorMutation.isPending;
+
+  const handleRunCollector = async () => {
+    try {
+      await runCollectorMutation.mutateAsync();
+      toast({
+        title: "Contribution run started",
+        description: "Collector status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Collector did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the collector status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <CardContent className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
-        {" "}
         <div>
           <Label htmlFor="simultaneous-downloads">
             Number of Simultaneous Downloads
@@ -547,13 +618,13 @@ function DownloadSettingsSection({
             Include not-installed sources in search results
           </Label>
         </div>
-        <p className="text-muted-foreground mt-1 text-sm">
+        <p className="text-muted-foreground mt-1 text-sm md:col-span-2">
           When enabled, searching for a series also sweeps sources whose
           extensions are not installed and streams the matches into the same
           results list. Selecting one installs the extension automatically.
         </p>
         {(localSettings.discoveryIncludeInSearch ?? true) && (
-          <div className="border-muted space-y-2 border-l-2 pl-6">
+          <div className="border-muted space-y-2 border-l-2 pl-6 md:col-span-2">
             <div className="flex items-center space-x-2">
               <Switch
                 id="discovery-precache-enabled"
@@ -574,6 +645,95 @@ function DownloadSettingsSection({
               the first search of the day is never slowed down by cold
               conversions.
             </p>
+          </div>
+        )}
+        {canOwner && (
+          <div className="border-muted bg-muted/20 space-y-3 rounded-lg border p-4 md:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="contribution-collector-enabled"
+                    checked={collectorEnabled}
+                    onCheckedChange={(checked) =>
+                      setLocalSettings((prev) => ({
+                        ...prev,
+                        contributionCollectorEnabled: checked,
+                      }))
+                    }
+                  />
+                  <Label htmlFor="contribution-collector-enabled">
+                    Enable contribution collector
+                  </Label>
+                </div>
+                <p className="text-muted-foreground text-sm">
+                  Enabling this contacts third-party sources during collection
+                  runs and saves local contribution data for future sharing.
+                </p>
+              </div>
+              {collectorEnabled && (
+                <Badge
+                  variant={collectorRunning ? "default" : "secondary"}
+                  className="w-fit"
+                >
+                  {statusQuery.isFetching && !collectorRunning
+                    ? "Checking"
+                    : getCollectorStateLabel(collectorStatus?.state)}
+                </Badge>
+              )}
+            </div>
+
+            {collectorEnabled && (
+              <Card className="bg-background/70 shadow-none">
+                <CardContent className="space-y-3 p-4">
+                  <div className="grid gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <p className="text-muted-foreground">Last started</p>
+                      <p className="font-medium">
+                        {formatCollectorDate(collectorStatus?.lastStartedUtc)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last completed</p>
+                      <p className="font-medium">
+                        {formatCollectorDate(collectorStatus?.lastCompletedUtc)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Items collected</p>
+                      <p className="font-medium">
+                        {collectorStatus?.itemsCollected ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                  {collectorStatus?.lastError && (
+                    <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                      {collectorStatus.lastError}
+                    </div>
+                  )}
+                  {collectorStatus?.enabled === false && (
+                    <p className="text-muted-foreground text-sm">
+                      Save settings before starting the collector.
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleRunCollector()}
+                    disabled={runDisabled}
+                    className="w-full sm:w-auto"
+                  >
+                    {runCollectorMutation.isPending || collectorRunning ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    {collectorRunning ? "Running" : "Run now"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
         <div>
@@ -1055,48 +1215,64 @@ function ProfileSection({
 }) {
   const { user } = useAuth();
   const updateMutation = useMutation({
-    mutationFn: (data: { avatarBase64?: string; avatarContentType?: string; removeAvatar?: boolean }) =>
-      userService.updateMe(data),
+    mutationFn: (data: {
+      avatarBase64?: string;
+      avatarContentType?: string;
+      removeAvatar?: boolean;
+    }) => userService.updateMe(data),
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [gravatarEmail, setGravatarEmail] = useState('');
-  const [localError, setLocalError] = useState('');
+  const [gravatarEmail, setGravatarEmail] = useState("");
+  const [localError, setLocalError] = useState("");
 
   const avatarSrc = user?.avatarBase64
-    ? `data:${user.avatarContentType || 'image/png'};base64,${user.avatarBase64}`
+    ? `data:${user.avatarContentType || "image/png"};base64,${user.avatarBase64}`
     : null;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLocalError('');
-    if (file.size > 2 * 1024 * 1024) { setLocalError('Image must be less than 2MB'); return; }
+    setLocalError("");
+    if (file.size > 2 * 1024 * 1024) {
+      setLocalError("Image must be less than 2MB");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = (reader.result as string).split(',')[1];
+      const base64 = (reader.result as string).split(",")[1];
       try {
-        await updateMutation.mutateAsync({ avatarBase64: base64, avatarContentType: file.type });
-      } catch { setLocalError('Failed to upload avatar'); }
+        await updateMutation.mutateAsync({
+          avatarBase64: base64,
+          avatarContentType: file.type,
+        });
+      } catch {
+        setLocalError("Failed to upload avatar");
+      }
     };
     reader.readAsDataURL(file);
   };
 
   const handleGravatar = async () => {
     if (!gravatarEmail.trim()) return;
-    setLocalError('');
+    setLocalError("");
     try {
       const { base64, contentType } = await fetchGravatarBase64(gravatarEmail);
-      await updateMutation.mutateAsync({ avatarBase64: base64, avatarContentType: contentType });
-      setGravatarEmail('');
+      await updateMutation.mutateAsync({
+        avatarBase64: base64,
+        avatarContentType: contentType,
+      });
+      setGravatarEmail("");
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : 'Gravatar error');
+      setLocalError(e instanceof Error ? e.message : "Gravatar error");
     }
   };
 
   const handleRemove = async () => {
     try {
       await updateMutation.mutateAsync({ removeAvatar: true });
-    } catch { setLocalError('Failed to remove avatar'); }
+    } catch {
+      setLocalError("Failed to remove avatar");
+    }
   };
 
   return (
@@ -1104,42 +1280,85 @@ function ProfileSection({
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+            <div className="bg-muted flex h-16 w-16 items-center justify-center overflow-hidden rounded-full">
               {avatarSrc ? (
-                <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
+                <img
+                  src={avatarSrc}
+                  alt="Avatar"
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <UserIcon className="w-8 h-8 text-muted-foreground" />
+                <UserIcon className="text-muted-foreground h-8 w-8" />
               )}
             </div>
             <div>
               <p className="font-medium">{user.username}</p>
-              <p className="text-sm text-muted-foreground">{user.opdsPath}</p>
+              <p className="text-muted-foreground text-sm">{user.opdsPath}</p>
             </div>
           </div>
           {localError && (
-            <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">{localError}</div>
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-500 dark:bg-red-950">
+              {localError}
+            </div>
           )}
           {updateMutation.isSuccess && (
-            <div className="p-3 text-sm text-green-600 bg-green-50 dark:bg-green-950 rounded-md">Avatar updated!</div>
+            <div className="rounded-md bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950">
+              Avatar updated!
+            </div>
           )}
           <div className="space-y-2">
             <Label>Upload Image</Label>
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="w-4 h-4 mr-2" /> Choose File
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mr-2 h-4 w-4" /> Choose File
             </Button>
-            <p className="text-xs text-muted-foreground">PNG, JPG, GIF, WebP up to 2MB</p>
-            <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={handleFileUpload} />
+            <p className="text-muted-foreground text-xs">
+              PNG, JPG, GIF, WebP up to 2MB
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,.gif,.webp"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="gravatar">Get from Gravatar</Label>
             <div className="flex gap-2">
-              <Input id="gravatar" type="email" placeholder="Enter email" value={gravatarEmail} onChange={(e) => setGravatarEmail(e.target.value)} />
-              <Button type="button" variant="secondary" size="sm" onClick={handleGravatar}>Fetch</Button>
+              <Input
+                id="gravatar"
+                type="email"
+                placeholder="Enter email"
+                value={gravatarEmail}
+                onChange={(e) => setGravatarEmail(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleGravatar}
+              >
+                Fetch
+              </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Email used only on the frontend — never sent to the backend.</p>
+            <p className="text-muted-foreground text-xs">
+              Email used only on the frontend — never sent to the backend.
+            </p>
           </div>
           {avatarSrc && (
-            <Button type="button" variant="outline" size="sm" onClick={handleRemove}>Remove Avatar</Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRemove}
+            >
+              Remove Avatar
+            </Button>
           )}
         </>
       )}
@@ -1206,13 +1425,14 @@ function SecuritySection({
           placeholder="https://rensaio.example.com"
         />
         {externalDomainError && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+          <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
             <span>⚠</span>
             <span>{externalDomainError}</span>
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          Used for invite links and OPDS URLs when accessed from outside your local network.
+        <p className="text-muted-foreground text-xs">
+          Used for invite links and OPDS URLs when accessed from outside your
+          local network.
         </p>
       </div>
     </CardContent>
@@ -1396,10 +1616,14 @@ export function SettingsManager({
     if (!localSettings) return;
 
     // Validate externalDomain: if non-empty, it must have a schema
-    if (localSettings.externalDomain && !/^https?:\/\//.test(localSettings.externalDomain)) {
+    if (
+      localSettings.externalDomain &&
+      !/^https?:\/\//.test(localSettings.externalDomain)
+    ) {
       toast({
         title: "Validation Error",
-        description: "External Domain is missing the URL schema (e.g. https://)",
+        description:
+          "External Domain is missing the URL schema (e.g. https://)",
         variant: "destructive",
       });
       return;

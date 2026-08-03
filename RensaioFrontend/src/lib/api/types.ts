@@ -49,6 +49,7 @@ export interface Settings {
   discoverySearchWorkersEnabled?: boolean;
   discoveryWorkerBatchSize?: number;
   maxDiscoveryWorkers?: number;
+  contributionCollectorEnabled?: boolean;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -104,12 +105,33 @@ export interface DiscoveryStart {
 /** "DiscoverySearch" SignalR event streamed on the /progress hub during a sweep. */
 export interface DiscoverySearchEvent {
   searchId: string;
-  type: 'results' | 'progress' | 'completed' | 'cancelled' | 'failed' | 'details' | 'detailsDone';
+  type:
+    | "results"
+    | "progress"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "details"
+    | "detailsDone";
   stage?: string | null;
   completedExtensions: number;
   totalExtensions: number;
   results?: LinkedSeries[] | null;
   totalResults?: number | null;
+}
+
+export interface ContributionCollectorStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  itemsCollected: number;
+  lastError?: string | null;
+}
+
+export interface ContributionCollectorRunResponse {
+  accepted?: boolean;
+  message?: string;
 }
 
 export interface FullSeries {
@@ -335,7 +357,12 @@ export interface ImportJobStatus {
   hasFailed: boolean;
 }
 
-export type SetupJobStatusValue = 'Running' | 'Waiting' | 'Completed' | 'Failed' | null;
+export type SetupJobStatusValue =
+  | "Running"
+  | "Waiting"
+  | "Completed"
+  | "Failed"
+  | null;
 
 export interface SetupJobsStatus {
   scanLocalFiles: SetupJobStatusValue;
@@ -566,9 +593,9 @@ export interface DownloadInfo {
 }
 
 export interface DownloadsMetrics {
-  downloads: number;  // Active downloads count
-  queued: number;     // Queued downloads count  
-  failed: number;     // Failed downloads count
+  downloads: number; // Active downloads count
+  queued: number; // Queued downloads count
+  failed: number; // Failed downloads count
 }
 
 export enum QueueStatus {
@@ -690,10 +717,10 @@ export interface LatestGenre {
 }
 
 export enum ArchiveResult {
-  Fine = 'Fine',
-  NotAnArchive = 'NotAnArchive',
-  NoImages = 'NoImages',
-  NotFound = 'NotFound',
+  Fine = "Fine",
+  NotAnArchive = "NotAnArchive",
+  NoImages = "NoImages",
+  NotFound = "NotFound",
 }
 
 export enum ErrorDownloadAction {
