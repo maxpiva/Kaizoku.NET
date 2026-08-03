@@ -304,6 +304,8 @@ namespace RensaioBackend.Services.Providers
             var settings = await _settingsService.GetSettingsAsync(token).ConfigureAwait(false);
             await _jobBusinessService.ManageDiscoveryPrecacheAsync(
                 settings.DiscoveryIncludeInSearch && settings.DiscoveryPrecacheEnabled, false, token).ConfigureAwait(false);
+            await _jobBusinessService.ManageContributionCollectorAsync(
+                settings.ContributionCollectorEnabled, false, token).ConfigureAwait(false);
         }
 
     

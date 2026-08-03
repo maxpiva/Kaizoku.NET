@@ -96,6 +96,19 @@ namespace RensaioBackend.Services.Jobs
             }
         }
 
+        public async Task ManageContributionCollectorAsync(bool enable, bool runNow = false, CancellationToken token = default)
+        {
+            string groupKey = nameof(JobType.CollectContributions);
+            if (!enable)
+            {
+                await _jobManagement.DisableRecurringJobAsync(JobType.CollectContributions, groupKey, token)
+                    .ConfigureAwait(false);
+                return;
+            }
+            await _jobManagement.ScheduleRecurringJobAsync(JobType.CollectContributions, groupKey,
+                groupKey, groupKey, runNow, priority: Priority.Low, token: token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Source Management

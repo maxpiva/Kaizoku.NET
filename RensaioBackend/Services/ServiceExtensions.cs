@@ -4,6 +4,7 @@ using RensaioBackend.Models.Enums;
 using RensaioBackend.Services.Auth;
 using RensaioBackend.Services.Background;
 using RensaioBackend.Services.Bridge;
+using RensaioBackend.Services.Contributions;
 using RensaioBackend.Services.Daily;
 using RensaioBackend.Services.Downloads;
 using RensaioBackend.Services.Helpers;
@@ -159,7 +160,12 @@ namespace RensaioBackend.Services
             services.TryAddSingleton<Search.Discovery.DiscoverySearchCoordinator>();
             services.TryAddSingleton<Search.Discovery.DiscoveryWorkerPool>();
             services.TryAddSingleton<Search.Discovery.DiscoverySourceHeaderRegistry>();
-            
+            services.TryAddSingleton<InteractiveDiscoveryGate>();
+            services.TryAddSingleton<IContributionCheckpointStore, JsonContributionCheckpointStore>();
+            services.TryAddSingleton<IContributionSink, LocalJsonContributionSink>();
+            services.TryAddSingleton<IContributionWorkerController, ContributionWorkerController>();
+            services.TryAddScoped<ContributionCollector>();
+
             return services;
         }
 

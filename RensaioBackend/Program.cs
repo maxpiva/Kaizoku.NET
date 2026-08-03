@@ -11,14 +11,17 @@ namespace RensaioBackend
 
         public static async Task Main(string[] args)
         {
-            // Discovery-search worker mode: short-lived child process that classloads extension
-            // JARs and searches them out-of-process. Branch before ANY backend initialization —
-            // the worker must not touch EnvironmentSetup, the database or the web host. The
-            // explicit Environment.Exit guarantees lingering non-daemon IKVM/Java threads can
-            // never keep a finished worker alive.
+            // Extension worker modes branch before ANY backend initialization — workers must not
+            // touch EnvironmentSetup, the database or the web host. Explicit Environment.Exit calls
+            // ensure lingering non-daemon IKVM/Java threads cannot keep a finished worker alive.
             if (Services.Search.Discovery.DiscoveryWorkerProgram.IsWorkerInvocation(args))
             {
                 Environment.Exit(await Services.Search.Discovery.DiscoveryWorkerProgram.RunAsync());
+                return;
+            }
+            if (Services.Contributions.ContributionWorkerProgram.IsWorkerInvocation(args))
+            {
+                Environment.Exit(await Services.Contributions.ContributionWorkerProgram.RunAsync());
                 return;
             }
 

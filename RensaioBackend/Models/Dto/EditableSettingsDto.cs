@@ -57,6 +57,18 @@ public class EditableSettingsDto
     [JsonPropertyName("discoveryWorkerIdleTimeout")]
     public TimeSpan DiscoveryWorkerIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
 
+    /// <summary>Enables the local contribution collector. Disabled unless explicitly opted in.</summary>
+    [JsonPropertyName("contributionCollectorEnabled")]
+    public bool ContributionCollectorEnabled { get; set; } = false;
+
+    /// <summary>Extension package names the collector is allowed to load.</summary>
+    [JsonPropertyName("contributionPackageAllowlist")]
+    public string[] ContributionPackageAllowlist { get; set; } = [];
+
+    /// <summary>Source identities in package|numericSourceId form the collector is allowed to query.</summary>
+    [JsonPropertyName("contributionSourceAllowlist")]
+    public string[] ContributionSourceAllowlist { get; set; } = [];
+
     /// <summary>
     /// Master toggle: when true (default), every search automatically also sweeps eligible
     /// not-installed sources and streams those results into the same list. When false, search is

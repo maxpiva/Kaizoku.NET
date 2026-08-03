@@ -258,6 +258,10 @@ namespace RensaioBackend.Services.Settings
                 await jobBusiness.ManageDiscoveryPrecacheAsync(
                     set.DiscoveryIncludeInSearch && set.DiscoveryPrecacheEnabled, runNow: true, token).ConfigureAwait(false);
             }
+            bool contributionSettingsChanged = _settings != null &&
+                (set.ContributionCollectorEnabled != _settings.ContributionCollectorEnabled ||
+                 JoinAndSortArray(set.ContributionPackageAllowlist) != JoinAndSortArray(_settings.ContributionPackageAllowlist) ||
+                 JoinAndSortArray(set.ContributionSourceAllowlist) != JoinAndSortArray(_settings.ContributionSourceAllowlist));
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
@@ -330,6 +334,13 @@ namespace RensaioBackend.Services.Settings
             if (needSave)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             _settings = GetFromEditableSettings(set);
+            if (contributionSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionCollectorAsync(
+                    set.ContributionCollectorEnabled, runNow: set.ContributionCollectorEnabled, token).ConfigureAwait(false);
+            }
         }
         
         public async Task SaveSettingsAsync(SettingsDto settings, bool force, CancellationToken token = default)
@@ -350,6 +361,9 @@ namespace RensaioBackend.Services.Settings
                 DiscoveryPrecacheEnabled = settings.DiscoveryPrecacheEnabled,
                 DiscoveryWarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
                 DiscoveryWorkerIdleTimeout = settings.DiscoveryWorkerIdleTimeout,
+                ContributionCollectorEnabled = settings.ContributionCollectorEnabled,
+                ContributionPackageAllowlist = settings.ContributionPackageAllowlist,
+                ContributionSourceAllowlist = settings.ContributionSourceAllowlist,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = settings.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = settings.PerTitleUpdateSchedule,
@@ -400,6 +414,9 @@ namespace RensaioBackend.Services.Settings
                 DiscoveryPrecacheEnabled = ed.DiscoveryPrecacheEnabled,
                 DiscoveryWarmPoolEnabled = ed.DiscoveryWarmPoolEnabled,
                 DiscoveryWorkerIdleTimeout = ed.DiscoveryWorkerIdleTimeout,
+                ContributionCollectorEnabled = ed.ContributionCollectorEnabled,
+                ContributionPackageAllowlist = ed.ContributionPackageAllowlist,
+                ContributionSourceAllowlist = ed.ContributionSourceAllowlist,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = ed.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = ed.PerTitleUpdateSchedule,

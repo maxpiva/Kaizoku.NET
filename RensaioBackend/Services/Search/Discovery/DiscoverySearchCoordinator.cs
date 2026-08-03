@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using RensaioBackend.Hubs;
 using RensaioBackend.Models.Dto;
 using RensaioBackend.Models.Enums;
+using RensaioBackend.Services.Contributions;
 using RensaioBackend.Services.Images;
 using RensaioBackend.Services.Settings;
 using System.Collections.Concurrent;
@@ -30,6 +31,7 @@ public class DiscoverySearchCoordinator
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<ProgressHub> _hub;
     private readonly IMemoryCache _memoryCache;
+    private readonly InteractiveDiscoveryGate _interactive;
     private readonly ILogger<DiscoverySearchCoordinator> _logger;
 
     private sealed class Sweep
@@ -37,6 +39,7 @@ public class DiscoverySearchCoordinator
         public required string SearchId { get; init; }
         public required string Key { get; init; }
         public required CancellationTokenSource Cts { get; init; }
+        public required IDisposable ActivityLease { get; init; }
         public ConcurrentDictionary<string, DiscoverySeriesDto> Results { get; } = new();
         public int TotalExtensions;
         public int TotalSources;
@@ -52,11 +55,13 @@ public class DiscoverySearchCoordinator
         IServiceScopeFactory scopeFactory,
         IHubContext<ProgressHub> hub,
         IMemoryCache memoryCache,
+        InteractiveDiscoveryGate interactive,
         ILogger<DiscoverySearchCoordinator> logger)
     {
         _scopeFactory = scopeFactory;
         _hub = hub;
         _memoryCache = memoryCache;
+        _interactive = interactive;
         _logger = logger;
     }
 
@@ -117,6 +122,7 @@ public class DiscoverySearchCoordinator
                     SearchId = BuildSearchId(key),
                     Key = key,
                     Cts = new CancellationTokenSource(),
+                    ActivityLease = _interactive.Begin(),
                     TotalExtensions = counts.ExtensionCount,
                     TotalSources = counts.SourceCount
                 };
@@ -233,6 +239,7 @@ public class DiscoverySearchCoordinator
         {
             _byKey.TryRemove(sweep.Key, out _);
             _byId.TryRemove(sweep.SearchId, out _);
+            sweep.ActivityLease.Dispose();
             sweep.Cts.Dispose();
         }
     }
