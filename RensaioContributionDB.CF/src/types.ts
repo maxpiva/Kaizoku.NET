@@ -15,20 +15,24 @@ export interface Env {
 
   // Export target path within the repository, e.g. "data/"
   EXPORT_PATH: string;
+
+  // AES-256-CBC key and IV concatenated, base64-encoded (32B key + 16B IV = 64 base64 chars)
+  // Used for obfuscation of source data in exports (not security).
+  AESKEY256IV: string;
 }
 
 /**
  * Entity types that can be uploaded.
- *
- * Titles are not uploaded directly — sources and metadata carry a `title`
- * string, and the worker resolves/reuses/creates title records server-side.
+ * Titles are resolved server-side from source/metadata `title` strings.
  */
 export type EntityType = 'source' | 'metadata';
 
 /**
  * Actions that can be performed on an entity.
+ * `add` is an upsert: insert if missing, update if the values differ,
+ * skip if identical. `remove` soft-deletes by identity key.
  */
-export type Action = 'add' | 'update' | 'remove';
+export type Action = 'add' | 'remove';
 
 /**
  * All supported entity types for validation.
@@ -38,7 +42,7 @@ export const SUPPORTED_ENTITY_TYPES: ReadonlySet<string> = new Set(['source', 'm
 /**
  * All supported actions for validation.
  */
-export const SUPPORTED_ACTIONS: ReadonlySet<string> = new Set(['add', 'update', 'remove']);
+export const SUPPORTED_ACTIONS: ReadonlySet<string> = new Set(['add', 'remove']);
 
 /**
  * Number of days after which archived records are hard-deleted by the daily scrub.

@@ -27,24 +27,19 @@ export interface BanRequest {
 /**
  * Base shape for a source record payload.
  *
- * The upload carries the `title` string — the worker resolves it to a
- * title_id server-side (reusing an existing active title or creating one).
- * No `id` is sent: `update`/`remove` match the record by identity key
- * (title + mihon_source_id + language) rather than by UUID.
+ * `id` is the contributor-provided identifier (e.g. "123456").
+ * `title` is resolved server-side to a `title_id`.
+ * `data` is a base64-encoded binary payload.
  */
 export interface SourcePayload {
+  id: string;
   title: string;
-  mihon_source_id: string;
-  language: string;
-  last_chapter?: string | null;
   data?: string | null;     // binary payload, base64-encoded
 }
 
 /**
  * Base shape for a metadata record payload.
- *
- * No `id` is sent: `update`/`remove` match the record by identity key
- * (title + metadata_provider + metadata_provider_key) rather than by UUID.
+ * No `id` — records are identified by identity key (title + provider + provider_key).
  */
 export interface MetadataPayload {
   title: string;

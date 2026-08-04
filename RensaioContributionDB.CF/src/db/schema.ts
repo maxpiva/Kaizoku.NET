@@ -17,22 +17,20 @@ export interface Contributor {
 export interface Title {
   id: string;          // UUID
   title: string;
-  archived_at: string | null; // ISO 8601 UTC datetime, soft-delete marker
+  archived_at: string | null;
 }
 
 /**
  * Represents a row in the `sources` D1 table.
+ * `id` is the contributor-provided identifier (e.g. "123456"), not a UUID.
  */
 export interface Source {
-  id: string;              // UUID
+  id: string;              // contributor-provided identifier
   title_id: string;        // FK → titles.id
-  mihon_source_id: string; // e.g. "123456"
-  language: string;        // e.g. "en", "ja"
-  last_chapter: string | null;
   data: ArrayBuffer | null; // binary payload (BLOB column)
   contributor_id: string;  // FK → contributors.id
   last_change: string;     // ISO 8601 UTC datetime
-  archived_at: string | null; // soft-delete marker
+  archived_at: string | null;
 }
 
 /**
@@ -46,5 +44,5 @@ export interface Metadata {
   link_type: number;             // type of link
   contributor_id: string;        // FK → contributors.id
   last_change: string;           // ISO 8601 UTC datetime
-  archived_at: string | null;    // soft-delete marker
+  archived_at: string | null;
 }

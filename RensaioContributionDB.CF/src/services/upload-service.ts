@@ -6,23 +6,21 @@ import { base64ToBlob } from '../utils/binary';
 /**
  * Process a batch of upload items for a single contributor.
  *
- * Titles are NOT uploaded directly. Sources and metadata carry a `title`
- * string, resolved server-side (reuse existing active title by name, or
- * create a new one). Title lookups are cached per request.
+ * Actions:
+ *   - `add` — unconditional UPSERT by identity key:
+ *       * record missing → insert
+ *       * record exists  → update (values + ownership transfer to caller)
+ *     No content comparison — the latest upload always wins.
+ *   - `remove` — soft-delete ANY active record by identity key.
  *
- * Records are identified by their identity key, never by UUID:
- *   - source:  title + mihon_source_id + language
+ * Identity keys:
+ *   - source:  `id` (contributor-provided identifier, DB PK)
  *   - metadata: title + metadata_provider + metadata_provider_key
  *
- * Behaviors:
- *   - `add` is deduplicated: identical active record → skipped.
- *   - `update` matches ANY active record by identity key — regardless of
- *     which contributor created it — updates it, and transfers ownership
- *     (contributor_id) to the calling contributor.
- *   - `remove` soft-deletes ANY active record by identity key — regardless
- *     of which contributor created it.
- *   - Item-level validation errors are collected and returned.
- *   - All valid statements are executed in a single D1 batch (atomic).
+ * Titles are resolved server-side (reuse active title by name, or create).
+ *
+ * All valid statements run in a single D1 batch (atomic). Item-level
+ * validation errors are collected and returned.
  */
 export async function processUpload(
   db: D1Database,
@@ -33,7 +31,6 @@ export async function processUpload(
   const errors: UploadError[] = [];
   const statements: D1PreparedStatement[] = [];
   const titleCache = new Map<string, string>(); // title name → title id
-  let skipped = 0;
 
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
@@ -45,13 +42,12 @@ export async function processUpload(
     }
 
     try {
-      if (item.action === 'add' && (await existsDuplicate(db, item, titleCache))) {
-        skipped += 1;
-        continue;
+      if (item.action === 'add') {
+        statements.push(await buildUpsertStatement(db, item, contributorId, now, titleCache));
+      } else {
+        // remove
+        statements.push(await buildRemoveStatement(db, item, now, titleCache));
       }
-
-      const stmt = await buildStatement(db, item, contributorId, now, titleCache);
-      statements.push(stmt);
     } catch (err) {
       errors.push({ index, message: err instanceof Error ? err.message : 'Unknown error' });
     }
@@ -62,15 +58,13 @@ export async function processUpload(
     await db.batch(statements);
   }
 
-  return { processed: statements.length, skipped, errors };
+  return { processed: statements.length, skipped: 0, errors };
 }
 
 /**
  * Resolve a title name to a title id.
- *
  * Reuses an existing ACTIVE title with the same name, or creates a new title
- * record. Results are cached per request in `titleCache`. New titles are
- * inserted immediately so their id is available to referencing statements.
+ * record. Results are cached per request.
  */
 async function resolveTitle(
   db: D1Database,
@@ -104,57 +98,129 @@ async function resolveTitle(
 }
 
 /**
- * Check whether an identical ACTIVE record already exists for an `add` item.
+ * Build the upsert statement for an `add` item.
  *
- * The comparison uses the identity key and ignores `last_chapter`,
- * `last_change`, `archived_at` and `contributor_id` — matching exactly what
- * the contributor uploads. Archived records are never considered duplicates.
+ * IMPORTANT: `id` is the PRIMARY KEY for sources, so the existence check
+ * matches REGARDLESS of `archived_at`. If the row exists (active or
+ * archived), we UPDATE and clear `archived_at` (resurrect) — otherwise the
+ * INSERT would violate the primary-key constraint. This means we never end
+ * up with duplicate PKs or a dead archived row shadowing the key.
  */
-async function existsDuplicate(
+async function buildUpsertStatement(
   db: D1Database,
   item: UploadItem,
+  contributorId: string,
+  now: string,
   titleCache: Map<string, string>
-): Promise<boolean> {
+): Promise<D1PreparedStatement> {
   const { type, data } = item;
+  const dataBlob = base64ToBlob(data.data);
+  const titleId = await resolveTitle(db, data.title as string, titleCache);
 
   switch (type) {
     case 'source': {
-      const titleId = await resolveTitle(db, data.title as string, titleCache);
       const existing = await db
-        .prepare(
-          `SELECT 1 FROM sources
-           WHERE title_id = ? AND mihon_source_id = ? AND language = ?
-             AND archived_at IS NULL
-           LIMIT 1`
-        )
-        .bind(
-          titleId,
-          data.mihon_source_id,
-          data.language
-        )
+        .prepare('SELECT 1 FROM sources WHERE id = ? LIMIT 1')
+        .bind(data.id)
         .first();
-      return existing !== null;
+
+      if (!existing) {
+        // insert
+        return db
+          .prepare(
+            `INSERT INTO sources (id, title_id, data, contributor_id, last_change, archived_at)
+             VALUES (?, ?, ?, ?, ?, NULL)`
+          )
+          .bind(data.id, titleId, dataBlob, contributorId, now);
+      }
+
+      // update + ownership transfer + clear archived_at (resurrect if archived)
+      return db
+        .prepare(
+          `UPDATE sources
+           SET title_id = ?, data = ?, contributor_id = ?, last_change = ?, archived_at = NULL
+           WHERE id = ?`
+        )
+        .bind(titleId, dataBlob, contributorId, now, data.id);
     }
     case 'metadata': {
-      const titleId = await resolveTitle(db, data.title as string, titleCache);
       const existing = await db
         .prepare(
           `SELECT 1 FROM metadata
-           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ? AND link_type = ?
-             AND archived_at IS NULL
+           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
            LIMIT 1`
         )
+        .bind(titleId, data.metadata_provider, data.metadata_provider_key)
+        .first();
+
+      if (!existing) {
+        // insert
+        return db
+          .prepare(
+            `INSERT INTO metadata (id, title_id, metadata_provider, metadata_provider_key, link_type, contributor_id, last_change, archived_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`
+          )
+          .bind(
+            crypto.randomUUID(),
+            titleId,
+            data.metadata_provider,
+            data.metadata_provider_key,
+            data.link_type,
+            contributorId,
+            now
+          );
+      }
+
+      // update + ownership transfer + clear archived_at (resurrect if archived)
+      return db
+        .prepare(
+          `UPDATE metadata
+           SET link_type = ?, contributor_id = ?, last_change = ?, archived_at = NULL
+           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?`
+        )
         .bind(
+          data.link_type,
+          contributorId,
+          now,
           titleId,
           data.metadata_provider,
-          data.metadata_provider_key,
-          data.link_type
-        )
-        .first();
-      return existing !== null;
+          data.metadata_provider_key
+        );
     }
     default:
-      return false;
+      throw new Error(`Unsupported type: ${type}`);
+  }
+}
+
+/**
+ * Build a soft-delete statement for a `remove` item.
+ */
+async function buildRemoveStatement(
+  db: D1Database,
+  item: UploadItem,
+  now: string,
+  titleCache: Map<string, string>
+): Promise<D1PreparedStatement> {
+  const { type, data } = item;
+
+  switch (type) {
+    case 'source':
+      return db
+        .prepare('UPDATE sources SET archived_at = ? WHERE id = ? AND archived_at IS NULL')
+        .bind(now, data.id);
+    case 'metadata': {
+      const titleId = await resolveTitle(db, data.title as string, titleCache);
+      return db
+        .prepare(
+          `UPDATE metadata
+           SET archived_at = ?
+           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
+             AND archived_at IS NULL`
+        )
+        .bind(now, titleId, data.metadata_provider, data.metadata_provider_key);
+    }
+    default:
+      throw new Error(`Unsupported type: ${type}`);
   }
 }
 
@@ -182,14 +248,11 @@ function validateItem(item: UploadItem): string | null {
 
   switch (item.type) {
     case 'source': {
+      if (typeof data.id !== 'string' || data.id.length === 0) {
+        return 'source requires a non-empty "id" string';
+      }
       if (typeof data.title !== 'string' || data.title.length === 0) {
         return 'source requires a non-empty "title" string';
-      }
-      if (typeof data.mihon_source_id !== 'string' || data.mihon_source_id.length === 0) {
-        return 'source requires a non-empty "mihon_source_id"';
-      }
-      if (typeof data.language !== 'string' || data.language.length === 0) {
-        return 'source requires a non-empty "language"';
       }
       // data (binary payload) is optional; if present it must be base64
       if (data.data !== undefined && data.data !== null && typeof data.data !== 'string') {
@@ -215,172 +278,4 @@ function validateItem(item: UploadItem): string | null {
   }
 
   return null;
-}
-
-/**
- * Build a prepared statement for one item. Resolves the title id via the
- * per-request title cache for source/metadata items.
- */
-async function buildStatement(
-  db: D1Database,
-  item: UploadItem,
-  contributorId: string,
-  now: string,
-  titleCache: Map<string, string>
-): Promise<D1PreparedStatement> {
-  const { type, action, data } = item;
-  // BLOB field handling: the JSON body carries base64; decode to binary.
-  const dataBlob = base64ToBlob(data.data);
-
-  // Resolve the title id for source/metadata items.
-  const titleId = await resolveTitle(db, data.title as string, titleCache);
-
-  switch (action) {
-    case 'add':
-      return buildAddStatement(db, type, data, dataBlob, titleId, contributorId, now);
-    case 'update':
-      return buildUpdateStatement(db, type, data, dataBlob, titleId, contributorId, now);
-    case 'remove':
-      return buildRemoveStatement(db, type, titleId, now);
-    default:
-      throw new Error(`Unsupported action: ${String(action)}`);
-  }
-}
-
-/**
- * INSERT a new record (id is always generated server-side).
- */
-function buildAddStatement(
-  db: D1Database,
-  type: string,
-  data: Record<string, unknown>,
-  dataBlob: ArrayBuffer | null,
-  titleId: string,
-  contributorId: string,
-  now: string
-): D1PreparedStatement {
-  const id = crypto.randomUUID();
-
-  switch (type) {
-    case 'source':
-      return db
-        .prepare(
-          `INSERT INTO sources (id, title_id, mihon_source_id, language, last_chapter, data, contributor_id, last_change, archived_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-        )
-        .bind(
-          id,
-          titleId,
-          data.mihon_source_id,
-          data.language,
-          data.last_chapter ?? null,
-          dataBlob,
-          contributorId,
-          now
-        );
-    case 'metadata':
-      return db
-        .prepare(
-          `INSERT INTO metadata (id, title_id, metadata_provider, metadata_provider_key, link_type, contributor_id, last_change, archived_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`
-        )
-        .bind(
-          id,
-          titleId,
-          data.metadata_provider,
-          data.metadata_provider_key,
-          data.link_type,
-          contributorId,
-          now
-        );
-    default:
-      throw new Error(`Unsupported type: ${type}`);
-  }
-}
-
-/**
- * UPDATE any existing active record matched by identity key — regardless of
- * which contributor created it. The calling contributor becomes the new
- * owner (contributor_id is reassigned) and last_change is refreshed.
- */
-function buildUpdateStatement(
-  db: D1Database,
-  type: string,
-  data: Record<string, unknown>,
-  dataBlob: ArrayBuffer | null,
-  titleId: string,
-  contributorId: string,
-  now: string
-): D1PreparedStatement {
-  switch (type) {
-    case 'source':
-      return db
-        .prepare(
-          `UPDATE sources
-           SET last_chapter = ?, data = ?, contributor_id = ?, last_change = ?
-           WHERE title_id = ? AND mihon_source_id = ? AND language = ?
-             AND archived_at IS NULL`
-        )
-        .bind(
-          data.last_chapter ?? null,
-          dataBlob,
-          contributorId,
-          now,
-          titleId,
-          data.mihon_source_id,
-          data.language
-        );
-    case 'metadata':
-      return db
-        .prepare(
-          `UPDATE metadata
-           SET link_type = ?, contributor_id = ?, last_change = ?
-           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
-             AND archived_at IS NULL`
-        )
-        .bind(
-          data.link_type,
-          contributorId,
-          now,
-          titleId,
-          data.metadata_provider,
-          data.metadata_provider_key
-        );
-    default:
-      throw new Error(`Unsupported type: ${type}`);
-  }
-}
-
-/**
- * Soft-delete ANY existing active record matched by identity key — regardless
- * of which contributor created it.
- */
-function buildRemoveStatement(
-  db: D1Database,
-  type: string,
-  titleId: string,
-  now: string
-): D1PreparedStatement {
-  switch (type) {
-    case 'source':
-      return db
-        .prepare(
-          `UPDATE sources
-           SET archived_at = ?
-           WHERE title_id = ? AND mihon_source_id = ? AND language = ?
-             AND archived_at IS NULL`
-        )
-        .bind(now, titleId);
-    case 'metadata':
-      return db
-        .prepare(
-          `UPDATE metadata
-           SET archived_at = ?
-           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
-             AND archived_at IS NULL`
-        )
-        .bind(now, titleId);
-    default:
-      throw new Error(`Unsupported type: ${type}`);
-  }
 }

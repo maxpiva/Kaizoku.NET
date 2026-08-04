@@ -18,9 +18,6 @@ CREATE TABLE titles (
 CREATE TABLE sources (
   id              TEXT PRIMARY KEY NOT NULL,
   title_id        TEXT NOT NULL,
-  mihon_source_id TEXT NOT NULL,
-  language        TEXT NOT NULL,
-  last_chapter    TEXT,
   data            BLOB,
   contributor_id  TEXT NOT NULL,
   last_change     TEXT NOT NULL,

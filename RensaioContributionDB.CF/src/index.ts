@@ -3,18 +3,21 @@ import type { Env } from './types';
 import contributorRoutes from './routes/contributor';
 import uploadRoutes from './routes/upload';
 import adminRoutes from './routes/admin';
+import keyRoutes from './routes/key';
 import { runDailyExport } from './services/export-service';
 
 /**
  * Cloudflare Worker entry point.
  *
- * Endpoints:
+ * HTTP endpoints:
  *   GET  /contributor?contributor={UUID}  → validate a contributor
  *   POST /contributor?admin={adminUUID}   → create a contributor (first is auto-admin)
  *   POST /upload?contributor={UUID}       → submit a contribution batch
  *   POST /admin/ban?admin={adminUUID}     → ban a contributor (admin only)
+ *   GET  /Key                            → return the AES key+IV (obfuscation secret, no auth)
  *
- * Cron (06:00 UTC daily):
+ * Scheduled (cron 06:00 UTC daily — handled via the `scheduled` event,
+ * NOT an HTTP route; there is intentionally no public /__scheduled endpoint):
  *   1. Scrub archived records older than the retention window (hard-delete)
  *   2. Export latest state to GitHub (sources.json, metadata.json, titles.json)
  */
@@ -30,20 +33,7 @@ app.get('/health', (c) => {
 app.route('/contributor', contributorRoutes);
 app.route('/upload', uploadRoutes);
 app.route('/admin', adminRoutes);
-
-// ── Scheduled cron handler (daily export + scrub) ──
-app.get('/__scheduled', async (c) => {
-  try {
-    const result = await runDailyExport(c.env);
-    console.log(
-      `Cron export: scrubbed ${JSON.stringify(result.scrubbed)}, pushed ${result.files.join(', ')}`
-    );
-    return c.json(result);
-  } catch (err) {
-    console.error('Cron export failed:', err);
-    return c.json({ error: 'Daily export failed' }, 500);
-  }
-});
+app.route('/Key', keyRoutes);
 
 // ── Catch-all 404 ──
 app.notFound((c) => {
@@ -56,4 +46,27 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
-export default app;
+/**
+ * Cron handler — runs the daily export when Cloudflare fires the
+ * `scheduled` event (per the [triggers] crons in wrangler.toml).
+ * This is not reachable over HTTP.
+ */
+async function scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  ctx.waitUntil(
+    (async () => {
+      try {
+        const result = await runDailyExport(env);
+        console.log(
+          `Cron export: scrubbed ${JSON.stringify(result.scrubbed)}, pushed ${result.files.join(', ')}`
+        );
+      } catch (err) {
+        console.error('Cron export failed:', err);
+      }
+    })()
+  );
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled,
+};

@@ -15,6 +15,7 @@ Contributors (user machines running Rensaio) submit title/source/metadata data t
   - [Validate Contributor](#validate-contributor)
   - [Upload Contribution Batch](#upload-contribution-batch)
   - [Ban Contributor](#ban-contributor)
+  - [Get the Obfuscation Key](#get-the-obfuscation-key)
 - [Actions: add / update / remove](#actions-add--update--remove)
 - [Daily export](#daily-export)
 - [Reconciliation: banning & re-uploading](#reconciliation-banning--re-uploading)
@@ -65,7 +66,7 @@ Four tables in D1 (SQLite):
 |-------|---------|-------|
 | `contributors` | `id` (UUID), `admin`, `active`, `ban_reason`, `last_change` | `active = 0` means banned |
 | `titles` | `id` (UUID), `title`, `archived_at` | Single source of truth for title names |
-| `sources` | `id` (UUID), `title_id`, `mihon_source_id`, `language`, `last_chapter`, `data` (BLOB), `contributor_id`, `last_change`, `archived_at` | One row per source entry per title |
+| `sources` | `id` (contributor-provided identifier), `title_id`, `data` (BLOB), `contributor_id`, `last_change`, `archived_at` | One row per source entry; `id` is the identity key |
 | `metadata` | `id` (UUID), `title_id`, `metadata_provider`, `metadata_provider_key`, `link_type`, `contributor_id`, `last_change`, `archived_at` | One row per metadata link per title |
 
 All deletes are **soft deletes** — `archived_at` is set instead of removing the row. Archived rows are hard-deleted by the daily cron after 30 days.
@@ -137,10 +138,8 @@ Submits a batch of source and metadata records. **Titles are not uploaded direct
       "type": "source",
       "action": "add",
       "data": {
+        "id": "123456",
         "title": "My Manga",
-        "mihon_source_id": "123456",
-        "language": "en",
-        "last_chapter": "ch.1000",
         "data": "<base64-encoded-binary-payload>"
       }
     },
@@ -213,18 +212,17 @@ The ban runs atomically: it deactivates the contributor, then archives all their
 
 ## Actions: add / update / remove
 
-Every item in an upload batch carries an action. Records are identified by their **identity key** — never by UUID (payloads and exports don't expose internal IDs for sources/metadata):
+Every item in an upload batch carries an action. Records are identified by their **identity key**:
 
 | Entity | Identity key |
 |--------|-------------|
-| source | `title` + `mihon_source_id` + `language` |
+| source | `id` (contributor-provided identifier, MD5("{packageName}:{Source.id}:{unprefixed url}")) |
 | metadata | `title` + `metadata_provider` + `metadata_provider_key` |
 
 | Action | Behavior |
 |--------|----------|
-| `add` | Insert a new record (UUID generated server-side). **Deduplicated:** if an identical active record already exists, the item is **skipped** and the existing record is kept. |
-| `update` | Update **any** active record matching the identity key — regardless of who created it. The calling contributor becomes the new owner. Updates `last_chapter`/`data` (sources) or `link_type` (metadata). |
-| `remove` | Soft-delete **any** active record matching the identity key — regardless of who created it. Sets `archived_at`. |
+| `add` | **Unconditional upsert** by identity key. Record missing → **insert**. Record exists → **update** (values + ownership transfer to the caller). No content comparison — the latest upload always wins. |
+| `remove` | Soft-deletes (`archived_at`) **any** active record by `id` (source) or identity key (metadata) — regardless of who created it. |
 
 ---
 
@@ -247,10 +245,10 @@ Pushes the latest non-archived state to the configured GitHub repository (via th
 ]
 ```
 
-**`sources.json`** — compact rows referencing `titles.json`:
+**`sources.json`** — compact rows referencing `titles.json`; `data` is obfuscated:
 ```json
 [
-  { "title_id": "uuid-1", "source_id": "123456", "language": "en", "last": "ch.1000", "data": "<base64>" }
+  { "title_id": "uuid-1", "id": "123456", "data": "<aes256-cbc+base64>" }
 ]
 ```
 
@@ -266,15 +264,33 @@ Key mapping to the internal schema:
 | Export key | DB column |
 |-----------|-----------|
 | `title_id` (sources/metadata) | `title_id` (FK → `titles.id`) |
-| `source_id` | `mihon_source_id` |
-| `last` | `last_chapter` |
+| `id` (sources) | `id` (contributor-provided source identifier) |
 | `provider` | `metadata_provider` |
 | `provider_key` | `metadata_provider_key` |
 | `type` | `link_type` |
 
-`contributor_id` and internal `id` (of sources/metadata) are **never exported**. `titles.json` keeps its `id` because it is the join key for `title_id`.
+`contributor_id` is **never exported**. `titles.json` keeps its `id` because it is the join key for `title_id`.
 
-**Why the asymmetry?** Upload payloads use full field names and `title` strings so the server can dedup titles (one source of truth). Exports use short keys and `title_id` to keep the files small.
+**Source data obfuscation:** each source's `data` is transformed before export:
+```
+BLOB (binary) → AES-256-CBC encrypt → base64
+```
+To reverse it, fetch the key/IV from `GET /Key` and apply: `base64 → AES-256-CBC decrypt → binary`.
+
+**Why the asymmetry?** Upload payloads use `title` strings so the server can dedup titles (one source of truth). Exports use `title_id` and short keys to keep the files small.
+
+### Get the Obfuscation Key
+
+```
+GET /Key
+```
+
+Returns the base64 concatenation of the AES-256 key + IV (the `AESKEY256IV` secret) as plain text. **No authorization required** — the key is for obfuscation only, not security.
+
+| Code | Meaning |
+|------|---------|
+| 200 | Body is the base64 `AESKEY256IV` value |
+| 500 | `AESKEY256IV` secret not configured |
 
 ---
 
@@ -299,6 +315,7 @@ npx wrangler login
 npx wrangler d1 create rensaio-contribution-db   # paste database_id into wrangler.toml
 npx wrangler d1 migrations apply rensaio-contribution-db
 npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put AESKEY256IV            # base64(32B AES-256 key + 16B IV)
 npx wrangler deploy
 ```
 

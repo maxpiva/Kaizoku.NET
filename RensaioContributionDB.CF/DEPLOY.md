@@ -1,4 +1,4 @@
-# Hosting Guide: Rensaio Contribution DB on Cloudflare
+id # Hosting Guide: Rensaio Contribution DB on Cloudflare
 
 This guide walks through deploying the `RensaioContributionDB.CF` Cloudflare Worker from scratch.
 
@@ -72,6 +72,23 @@ npx wrangler secret put GITHUB_TOKEN
 ```
 
 The token needs `repo` scope (or `Contents: Read and write` for fine-grained tokens) to update files in the target repository.
+
+### Set the AES Obfuscation Secret (sensitive — via wrangler secret)
+
+```powershell
+npx wrangler secret put AESKEY256IV
+# Paste base64(32-byte AES-256 key + 16-byte IV), press Enter
+```
+
+`AESKEY256IV` is a base64 string of the AES-256 key (32 bytes) concatenated with the IV (16 bytes) — 48 bytes total, 64 base64 characters. It is used to **obfuscate** (not secure) source data in `sources.json` exports. The key is public by design: consumers fetch it from `GET /Key`.
+
+Example generation (PowerShell):
+```powershell
+$key = New-Object byte[] 32; $iv = New-Object byte[] 16
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($key)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($iv)
+[Convert]::ToBase64String($key + $iv)
+```
 
 ---
 
@@ -181,10 +198,8 @@ POST /upload?contributor={UUID}
       "type": "source",
       "action": "add",
       "data": {
+        "id": "123456",
         "title": "My Manga",
-        "mihon_source_id": "123456",
-        "language": "en",
-        "last_chapter": "ch.1000",
         "data": "<base64-encoded-binary-payload>"
       }
     },
@@ -204,9 +219,7 @@ POST /upload?contributor={UUID}
 
 **Titles are resolved server-side.** Sources and metadata carry a `title` string — not `title_id`. For each item, the worker reuses an existing active title with the same name, or creates a new title record automatically. No `title` upload items are needed.
 
-**No `id` in payloads.** Records are identified by their **identity key**, never by UUID:
-- **source** — `title` + `mihon_source_id` + `language`
-- **metadata** — `title` + `metadata_provider` + `metadata_provider_key`
+**Source identity key is `id`** — the contributor-provided identifier (e.g. the Mihon source ID). It is also the DB primary key. Metadata keeps its identity key: `title` + `metadata_provider` + `metadata_provider_key`.
 
 | Code | Meaning |
 |------|---------|
@@ -215,10 +228,13 @@ POST /upload?contributor={UUID}
 | 403 | Contributor is banned |
 | 404 | Contributor UUID not found |
 
-**Actions:** `add`, `update`, `remove`
-- `add` — INSERT (id generated server-side). **Deduplicated:** if an identical active record already exists (identity key match), the item is **skipped** and the existing record is kept. Archived records are never considered duplicates.
-- `update` — UPDATE **any** active record matching the identity key, regardless of which contributor created it. The calling contributor becomes the new owner of the record. (`last_chapter`/`data` for sources, `link_type` for metadata)
-- `remove` — soft-delete: sets `archived_at` on **any** active record matching the identity key, regardless of which contributor created it
+**Actions:** `add`, `remove`
+- `add` — **unconditional upsert** by identity key:
+  - record missing → **insert**
+  - record exists → **update** (values + ownership transfer to the caller)
+  - no content comparison — the latest upload always wins
+  - (source identity key: `id`; metadata identity key: `title` + `provider` + `provider_key`)
+- `remove` — soft-deletes (`archived_at`) **any** active record by `id` (source) or identity key (metadata), regardless of which contributor created it.
 
 ### Ban Contributor (Admin Only)
 
@@ -255,12 +271,31 @@ The worker runs once per day at **06:00 UTC** (`[triggers] crons = ["0 6 * * *"]
    - `data/metadata.json`
    - `data/titles.json`
 
-**Export format:** `contributor_id` and internal UUID `id` fields are excluded. `sources.json` and `metadata.json` keep `title_id` as a compact reference to `titles.json` — `titles.json` is the single source of truth for title names (used by the server to dedup titles). Upload payloads still use `title` strings; the server resolves them to `title_id` on ingest.
+**Export format:** `contributor_id` is excluded. `sources.json` and `metadata.json` keep `title_id` as a compact reference to `titles.json` — `titles.json` is the single source of truth for title names (used by the server to dedup titles). Upload payloads still use `title` strings; the server resolves them to `title_id` on ingest.
 
 **Key names per file:**
 - `titles.json` → `{ id, title }`
-- `sources.json` → `{ title_id, source_id, language, last, data }`
+- `sources.json` → `{ title_id, id, data }`
 - `metadata.json` → `{ title_id, provider, provider_key, type }`
+
+**Source data obfuscation:** each source's `data` in `sources.json` is the result of:
+```
+BLOB (binary) → AES-256-CBC encrypt → base64
+```
+Consumers fetch the key/IV from `GET /Key` to reverse it: `base64 → AES-256-CBC decrypt → binary`.
+
+### Get the Obfuscation Key
+
+```
+GET /Key
+```
+
+Returns the base64 concatenation of the AES-256 key + IV (the `AESKEY256IV` secret) as plain text. **No authorization required** — the key is for obfuscation only, not security.
+
+| Code | Meaning |
+|------|---------|
+| 200 | Body is the base64 `AESKEY256IV` value |
+| 500 | `AESKEY256IV` secret not configured |
 
 ---
 

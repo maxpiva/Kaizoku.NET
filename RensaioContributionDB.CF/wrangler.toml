@@ -18,9 +18,11 @@ EXPORT_PATH = "data/"
 
 # Secrets (sensitive) — set via: wrangler secret put
 #   wrangler secret put GITHUB_TOKEN
+#   wrangler secret put AESKEY256IV   # base64(32B AES-256 key + 16B IV)
 
 [env.dev]
 vars = { EXPORT_GITHUB_REPO = "test/test-repo", EXPORT_PATH = "data/" }
+AESKEY256IV = ""
 
 [observability]
 enabled = false
