@@ -60,7 +60,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         }
 
 
-        private static string[] index = ["index.min.json", "index.json"];
+        private static string[] index = ["index.json"];
 
         private static string[] repos = ["repo.json"];
 
@@ -155,12 +155,24 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 _logger.LogInformation("Resolved repository index at: {ResolvedUrl}", usedUrl);
 
                 await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                var extensions = await JsonSerializer.DeserializeAsync<List<TachiyomiExtension>>(stream, new JsonSerializerOptions
+                try
                 {
-                    PropertyNameCaseInsensitive = true
-                }, cancellationToken).ConfigureAwait(false);
-
-                repository.Extensions = extensions ?? new List<TachiyomiExtension>();
+                    var extensions2 = await JsonSerializer.DeserializeAsync<TachiyomiRepositoryV2>(stream, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    }, cancellationToken).ConfigureAwait(false);
+                    repository.Version = 2;
+                    repository.Extensions = extensions2?.extensionList?.extensions?.Select(a=>a.ToTachiyomiExtension()).ToList() ?? [];
+                }
+                catch(Exception)
+                {
+                    var extensions = await JsonSerializer.DeserializeAsync<List<TachiyomiExtension>>(stream, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    }, cancellationToken).ConfigureAwait(false);
+                    repository.Version = 1;
+                    repository.Extensions = extensions ?? new List<TachiyomiExtension>();
+                }
                 repository.LastUpdatedUTC = DateTimeOffset.UtcNow;
 
                 _logger.LogInformation("Downloaded {ExtensionCount} extensions from {ResolvedUrl}. Saving to working folder...", repository.Extensions.Count, usedUrl);
@@ -203,9 +215,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Version)) throw new ArgumentException("Extension Version cannot be null or whitespace.", nameof(workUnit));
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Package)) throw new ArgumentException("Extension Package cannot be null or whitespace.", nameof(workUnit));
 
-            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.Apk);
+            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.GetApkFilename());
            
-            var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.Apk);
+            var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.GetApkFilename());
             var client = CreateHttpClient();
             try
             {

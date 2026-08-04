@@ -694,7 +694,7 @@ public class OpdsFeedService
 
     private List<SeriesEntity> OrderByLastReadOrLastChapter(List<(SeriesEntity Series, List<ChapterReadState> ChaptersReadState)> seriesList)
     {
-        return seriesList.OrderByDescending(a => LastDateTime(a.ChaptersReadState.Select(b => b.LastReadAt).DefaultIfEmpty(DateTime.MinValue).Max(), a.Series.LastChapterDate ?? DateTime.MinValue)).Select(a => a.Series).ToList();
+        return seriesList.Where(a=>a.ChaptersReadState!=null && a.ChaptersReadState.Count>0).OrderByDescending(a => LastDateTime(a.ChaptersReadState.Select(b => b.LastReadAt).DefaultIfEmpty(DateTime.MinValue).Max(), a.Series.LastChapterDate ?? DateTime.MinValue)).Select(a => a.Series).ToList();
     }
 
     private List<SeriesEntity> FilterByReading(List<SeriesEntity> seriesList, string username)

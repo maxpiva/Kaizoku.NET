@@ -298,9 +298,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 {
                     foreach (TachiyomiExtension ext in r.Extensions)
                     {
-                        if (ext.Apk == extension.Apk)
+                        if (ext.GetApkFilename() == extension.GetApkFilename())
                         {
-                            _logger.LogInformation("Found repository {Url} for extension APK {Apk}.", r.Url, extension.Apk);
+                            _logger.LogInformation("Found repository {Url} for extension APK {Apk}.", r.Url, extension.GetApkFilename());
                             return (r, ext);
                         }
                     }
@@ -326,7 +326,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     {
                         foreach (TachiyomiExtension extension in r.Extensions)
                         {
-                            if (extension.Apk == ext.Apk)
+                            if (extension.GetApkFilename() == ext.GetApkFilename())
                             {
                                 return (r, extension);
                             }

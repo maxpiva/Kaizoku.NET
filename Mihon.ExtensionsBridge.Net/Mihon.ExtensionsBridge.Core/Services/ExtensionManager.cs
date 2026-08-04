@@ -392,20 +392,20 @@ namespace Mihon.ExtensionsBridge.Core.Services
                             Version.TryParse(extension.Version, out var onlineParsed) &&
                             onlineParsed > localParsed)
                         {
-                            _logger.LogInformation("Auto-updating extension {Apk} from version {LocalVersion} to {OnlineVersion}.", extension.Apk, localVersion, extension.Version);
+                            _logger.LogInformation("Auto-updating extension {Apk} from version {LocalVersion} to {OnlineVersion}.", extension.GetApkFilename(), localVersion, extension.Version);
                             try
                             {
                                 await AddExtensionAsync(repo, extension, false, token).ConfigureAwait(false);
-                                _logger.LogInformation("Successfully auto-updated extension {Apk} to version {Version}.", extension.Apk, extension.Version);
+                                _logger.LogInformation("Successfully auto-updated extension {Apk} to version {Version}.", extension.GetApkFilename(), extension.Version);
                             }
                             catch (OperationCanceledException)
                             {
-                                _logger.LogError("Operation canceled while auto-updating extension {Apk}.", extension.Apk);
+                                _logger.LogError("Operation canceled while auto-updating extension {Apk}.", extension.GetApkFilename());
                                 throw;
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "Failed to auto-update extension {Apk} to version {Version}.", extension.Apk, extension.Version);
+                                _logger.LogError(ex, "Failed to auto-update extension {Apk} to version {Version}.", extension.GetApkFilename(), extension.Version);
                             }
                         }
                     }
@@ -506,7 +506,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     unit.Entry.ClassName = dict[f];
                 }
             }
-            string oldApk = unit.Entry.Extension.Apk ?? "";
+            string oldApk = unit.Entry.Extension.GetApkFilename() ?? "";
             unit.Entry.Extension.Apk = CreateApkName(unit.Entry.Extension.Package, unit.Entry.Extension.Version);
             unit.Entry.Name = unit.Entry.Extension.GetName();
             /*
@@ -521,7 +521,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             byte[]? iconData = GetBestIcon(list, 640);
             if (iconData != null)
             {
-                string iconFileName = Path.ChangeExtension(unit.Entry.Extension.Apk, "png");
+                string iconFileName = Path.ChangeExtension(unit.Entry.Extension.GetApkFilename(), "png");
                 string iconPath = Path.Combine(unit.WorkingFolder.Path, iconFileName);
                 await File.WriteAllBytesAsync(iconPath, iconData, token).ConfigureAwait(false);
                 unit.Entry.Icon = await iconPath.CalculateFileHashAsync(token).ConfigureAwait(false);
@@ -564,7 +564,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 (RepositoryGroup? group, RepositoryEntry? entry) = await FindRepositoryEntryFromExtensionAsync(unitofWork.Entry.Extension, token).ConfigureAwait(false);
                 if (entry != null && !force)
                 {
-                    _logger.LogInformation("Extension {Apk} version {Version} already present; skipping (force={Force}).", unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version, force);
+                    _logger.LogInformation("Extension {Apk} version {Version} already present; skipping (force={Force}).", unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version, force);
                     return group;
                 }
                 entry = unitofWork.Entry;
@@ -573,7 +573,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     return null;
                 group = await UpdateEntriesAsync(group, entry, token).ConfigureAwait(false);
                 await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token).ConfigureAwait(false);
-                _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
+                _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version);
                 return group;
             }
             finally
@@ -687,17 +687,17 @@ namespace Mihon.ExtensionsBridge.Core.Services
             bool jared = await _dex2Jar.ConvertAsync(unitofWork, token).ConfigureAwait(false);
             if (!jared)
             {
-                _logger.LogError("DEX to JAR conversion failed for extension {Apk} version {Version}.", unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
+                _logger.LogError("DEX to JAR conversion failed for extension {Apk} version {Version}.", unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version);
                 return null;
             }
-            _logger.LogInformation("Converted DEX to JAR for extension {Apk} version {Version}.", unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
+            _logger.LogInformation("Converted DEX to JAR for extension {Apk} version {Version}.", unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version);
             return unitofWork;
         }
         private async Task<bool> IKVMCompileAsync(ExtensionWorkUnit unitofWork, CancellationToken token = default)
         {
 
             //await _compiler.CompileAsync(unitofWork, token).ConfigureAwait(false);
-            _logger.LogInformation("Compiled extension {Apk} version {Version} to .NET assembly.", unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
+            _logger.LogInformation("Compiled extension {Apk} version {Version} to .NET assembly.", unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version);
             return true;
         }
 
@@ -742,7 +742,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     }
                     foreach (var leftover in original_sources)
                     {
-                        _logger.LogWarning("Source {SourceName} (ID: {SourceId}) not found in compiled interop for extension {Apk} version {Version}; removing.", leftover.Name, leftover.Id, unitofWork.Entry.Extension.Apk, unitofWork.Entry.Extension.Version);
+                        _logger.LogWarning("Source {SourceName} (ID: {SourceId}) not found in compiled interop for extension {Apk} version {Version}; removing.", leftover.Name, leftover.Id, unitofWork.Entry.Extension.GetApkFilename(), unitofWork.Entry.Extension.Version);
                         unitofWork.Entry.Extension.Sources.Remove(leftover);
                     }
               //  })).InvokeInJavaContext();
@@ -793,7 +793,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 (RepositoryGroup? group, RepositoryEntry? entry) = await FindRepositoryEntryFromExtensionAsync(extension, token).ConfigureAwait(false);
                 if (entry != null && !force)
                 {
-                    _logger.LogInformation("Extension {Apk} version {Version} already present; skipping (force={Force}).", extension.Apk, extension.Version, force);
+                    _logger.LogInformation("Extension {Apk} version {Version} already present; skipping (force={Force}).", extension.GetApkFilename(), extension.Version, force);
                     return group;
                 }
                 entry = new RepositoryEntry
@@ -811,24 +811,24 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     var downloader = scope.ServiceProvider.GetRequiredService<IRepositoryDownloader>();
                     await downloader.DownloadExtensionAsync(repository, unitofWork, token).ConfigureAwait(false);
                 }
-                _logger.LogInformation("Downloaded extension {Apk} version {Version}.", extension.Apk, extension.Version);
+                _logger.LogInformation("Downloaded extension {Apk} version {Version}.", extension.GetApkFilename(), extension.Version);
                 unitofWork = await WorkUnitFromManifestAsync(unitofWork, token).ConfigureAwait(false);
                 bool worked = await CompileAsync(unitofWork, token). ConfigureAwait(false);
                 if (!worked)
                     return null;
                 group = await UpdateEntriesAsync(group, entry, token). ConfigureAwait(false);
                 await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token). ConfigureAwait(false);
-                _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", extension.Apk, extension.Version);
+                _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", extension.GetApkFilename(), extension.Version);
                 return group;
             }
             catch (OperationCanceledException)
             {
-                _logger.LogError("Operation canceled while adding/updating extension {Apk}.", extension.Apk);
+                _logger.LogError("Operation canceled while adding/updating extension {Apk}.", extension.GetApkFilename());
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to add/update extension {Apk} version {Version}.", extension.Apk, extension.Version);
+                _logger.LogError(ex, "Failed to add/update extension {Apk} version {Version}.", extension.GetApkFilename(), extension.Version);
                 throw;
             }
             finally
@@ -900,7 +900,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                             foundGroup = rg;
                         foreach (RepositoryEntry entry in rg.Entries)
                         {
-                            if (entry.Extension.Apk == extension.Apk)
+                            if (entry.Extension.GetApkFilename() == extension.GetApkFilename())
                             {
                                 string expectedFolder = _workingStructure.GetExtensionVersionFolder(entry);
 
@@ -913,7 +913,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
                                     FileHash hash = await apkPath.CalculateFileHashAsync(token).ConfigureAwait(false);
                                     if (hash.SHA256 == entry.Apk.SHA256)
                                     {
-                                        _logger.LogInformation("Found local entry for extension {Apk} version {Version}.", extension.Apk, entry.Extension.Version);
+                                        _logger.LogInformation("Found local entry for extension {Apk} version {Version}.", extension.GetApkFilename(), entry.Extension.Version);
                                         return (foundGroup, entry);
                                     }
                                 }
@@ -928,7 +928,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error searching for local entry of extension {Apk} version {Version}.", extension.Apk, extension.Version);
+                _logger.LogError(ex, "Error searching for local entry of extension {Apk} version {Version}.", extension.GetApkFilename(), extension.Version);
                 throw;
             }
             return (foundGroup, null);

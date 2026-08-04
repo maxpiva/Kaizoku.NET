@@ -319,6 +319,44 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
             }
             return schapter;
         }
+        public static TachiyomiSource ToTachiyomiSource(this TachiyomiSourceV2 source)
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+            return new TachiyomiSource
+            {
+                Id = source.id,
+                Name = source.name,
+                Language = source.language,
+                BaseUrl = source.homeUrl,
+                MirrorUrls = source.mirrorUrls ?? []
+            };
+        }
+        public static TachiyomiExtension ToTachiyomiExtension(this TachiyomiExtensionV2 extension)
+        {
+            if (extension == null)
+                throw new ArgumentNullException(nameof(extension));
+
+            List<TachiyomiSource> sources = extension.sources?.Select(s => s.ToTachiyomiSource()).ToList() ?? new List<TachiyomiSource>();
+            string language = sources.FirstOrDefault()?.Language ?? string.Empty;
+            if (sources.Count > 1)
+                language = "all";
+            return new TachiyomiExtension
+            {
+                Name = extension.name,
+                Package = extension.packageName,
+                Icon = extension.resources?.iconUrl,
+                Apk = extension.resources?.apkUrl,
+                Jar = extension.resources?.jarUrl,
+                Language = language,
+                VersionCode = int.TryParse(extension.versionCode, out int vc) ? vc : 0,
+                Version = extension.versionName,
+                ExtensionLib = extension.extensionLib,
+                Sources = sources,
+                Nsfw = extension.contentWarning == "CONTENT_WARNING_NSFW" ? 1 : 0,
+                Mixed = extension.contentWarning == "CONTENT_WARNING_MIXED" ? 1 : 0,
+            };
+        }
         public static eu.kanade.tachiyomi.source.model.SManga ToSManga(this Manga manga)
         {
 

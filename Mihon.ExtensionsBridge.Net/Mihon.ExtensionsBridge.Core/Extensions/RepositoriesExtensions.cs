@@ -32,13 +32,13 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
         public static string GetName(this TachiyomiExtension extension)
         {
             var expectedSuffix = $"-v{extension.Version}.apk";
-            if (extension.Apk.EndsWith(expectedSuffix, StringComparison.Ordinal))
+            if (extension.GetApkFilename().EndsWith(expectedSuffix, StringComparison.Ordinal))
             {
-                return extension.Apk.Substring(0, extension.Apk.Length - expectedSuffix.Length);
+                return extension.GetApkFilename().Substring(0, extension.GetApkFilename().Length - expectedSuffix.Length);
             }
 
             // Fallback: strip only extension if unexpected format
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(extension.Apk);
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(extension.GetApkFilename());
             var idx = nameWithoutExt.LastIndexOf("-v", StringComparison.Ordinal);
             return idx > 0 ? nameWithoutExt.Substring(0, idx) : nameWithoutExt;
         }
