@@ -254,8 +254,30 @@ namespace RensaioBackend.Services.Settings
             }
         }
 
+        /// <summary>
+        /// Placeholder the settings API returns instead of the stored contributor UUID
+        /// (GET /api/settings is reachable without auth, and the UUID is the upload
+        /// credential). A PUT that round-trips the sentinel keeps the stored value.
+        /// </summary>
+        public const string UuidSentinel = "__SET__";
+
+        /// <summary>
+        /// Resolves the incoming contributor UUID against the sentinel contract: the sentinel
+        /// keeps the currently stored value, a parseable UUID (or empty, to clear) replaces it,
+        /// and anything else is rejected.
+        /// </summary>
+        public static void ApplyContributorUuidPolicy(EditableSettingsDto set, EditableSettingsDto? current)
+        {
+            if (set.ContributionContributorUuid == UuidSentinel)
+                set.ContributionContributorUuid = current?.ContributionContributorUuid ?? string.Empty;
+            else if (!string.IsNullOrWhiteSpace(set.ContributionContributorUuid) &&
+                     !Guid.TryParse(set.ContributionContributorUuid, out _))
+                throw new ArgumentException("contributionContributorUuid must be a UUID.", nameof(set));
+        }
+
         public async Task SaveSettingsAsync(EditableSettingsDto set, bool force = false, CancellationToken token = default)
         {
+            ApplyContributorUuidPolicy(set, _settings);
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
                 set.ChapterDownloadFailRetries != _settings?.ChapterDownloadFailRetries ||
                 set.ChapterDownloadFailRetryTime != _settings?.ChapterDownloadFailRetryTime || 
@@ -287,6 +309,10 @@ namespace RensaioBackend.Services.Settings
                 (set.ContributionCollectorEnabled != _settings.ContributionCollectorEnabled ||
                  JoinAndSortArray(set.ContributionPackageAllowlist) != JoinAndSortArray(_settings.ContributionPackageAllowlist) ||
                  JoinAndSortArray(set.ContributionSourceAllowlist) != JoinAndSortArray(_settings.ContributionSourceAllowlist));
+            bool contributionUploadSettingsChanged = _settings != null &&
+                (set.ContributionUploadEnabled != _settings.ContributionUploadEnabled ||
+                 !string.Equals(set.ContributionContributorUuid, _settings.ContributionContributorUuid, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(set.ContributionUploadUrl, _settings.ContributionUploadUrl, StringComparison.OrdinalIgnoreCase));
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
@@ -366,6 +392,13 @@ namespace RensaioBackend.Services.Settings
                 await jobBusiness.ManageContributionCollectorAsync(
                     set.ContributionCollectorEnabled, runNow: set.ContributionCollectorEnabled, token).ConfigureAwait(false);
             }
+            if (contributionUploadSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionUploaderAsync(
+                    set.ContributionUploadEnabled, runNow: set.ContributionUploadEnabled, token).ConfigureAwait(false);
+            }
         }
         
         public async Task SaveSettingsAsync(SettingsDto settings, bool force, CancellationToken token = default)
@@ -389,6 +422,9 @@ namespace RensaioBackend.Services.Settings
                 ContributionCollectorEnabled = settings.ContributionCollectorEnabled,
                 ContributionPackageAllowlist = settings.ContributionPackageAllowlist,
                 ContributionSourceAllowlist = settings.ContributionSourceAllowlist,
+                ContributionUploadEnabled = settings.ContributionUploadEnabled,
+                ContributionContributorUuid = settings.ContributionContributorUuid,
+                ContributionUploadUrl = settings.ContributionUploadUrl,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = settings.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = settings.PerTitleUpdateSchedule,
@@ -442,6 +478,9 @@ namespace RensaioBackend.Services.Settings
                 ContributionCollectorEnabled = ed.ContributionCollectorEnabled,
                 ContributionPackageAllowlist = ed.ContributionPackageAllowlist,
                 ContributionSourceAllowlist = ed.ContributionSourceAllowlist,
+                ContributionUploadEnabled = ed.ContributionUploadEnabled,
+                ContributionContributorUuid = ed.ContributionContributorUuid,
+                ContributionUploadUrl = ed.ContributionUploadUrl,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = ed.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = ed.PerTitleUpdateSchedule,
@@ -528,6 +567,20 @@ namespace RensaioBackend.Services.Settings
             if (needSave)
                 await SaveSettingsAsync(_settings, true, token).ConfigureAwait(false);
             return _settings;
+        }
+
+        /// <summary>
+        /// Settings as served by the API: a copy with the contributor UUID replaced by
+        /// <see cref="UuidSentinel"/> when one is stored, so the credential never leaves
+        /// the backend.
+        /// </summary>
+        public async ValueTask<SettingsDto> GetMaskedSettingsAsync(CancellationToken token = default)
+        {
+            SettingsDto settings = await GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto masked = GetFromEditableSettings(settings);
+            if (!string.IsNullOrEmpty(masked.ContributionContributorUuid))
+                masked.ContributionContributorUuid = UuidSentinel;
+            return masked;
         }
     }
 }

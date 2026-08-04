@@ -69,6 +69,21 @@ public class EditableSettingsDto
     [JsonPropertyName("contributionSourceAllowlist")]
     public string[] ContributionSourceAllowlist { get; set; } = [];
 
+    /// <summary>Enables uploading collected contributions to the cloud contribution DB. Off by default.</summary>
+    [JsonPropertyName("contributionUploadEnabled")]
+    public bool ContributionUploadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Contributor UUID authenticating uploads. Secret: the settings API returns the
+    /// "__SET__" sentinel instead of the stored value; see SettingsService.UuidSentinel.
+    /// </summary>
+    [JsonPropertyName("contributionContributorUuid")]
+    public string ContributionContributorUuid { get; set; } = "";
+
+    /// <summary>Base URL of the contribution worker.</summary>
+    [JsonPropertyName("contributionUploadUrl")]
+    public string ContributionUploadUrl { get; set; } = "https://contribution.rensaio.net";
+
     /// <summary>
     /// Master toggle: when true (default), every search automatically also sweeps eligible
     /// not-installed sources and streams those results into the same list. When false, search is

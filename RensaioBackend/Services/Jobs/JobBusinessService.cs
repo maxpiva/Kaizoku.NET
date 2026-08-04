@@ -109,6 +109,19 @@ namespace RensaioBackend.Services.Jobs
                 groupKey, groupKey, runNow, priority: Priority.Low, token: token).ConfigureAwait(false);
         }
 
+        public async Task ManageContributionUploaderAsync(bool enable, bool runNow = false, CancellationToken token = default)
+        {
+            string groupKey = nameof(JobType.UploadContributions);
+            if (!enable)
+            {
+                await _jobManagement.DisableRecurringJobAsync(JobType.UploadContributions, groupKey, token)
+                    .ConfigureAwait(false);
+                return;
+            }
+            await _jobManagement.ScheduleRecurringJobAsync(JobType.UploadContributions, groupKey,
+                groupKey, groupKey, runNow, priority: Priority.Low, token: token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Source Management

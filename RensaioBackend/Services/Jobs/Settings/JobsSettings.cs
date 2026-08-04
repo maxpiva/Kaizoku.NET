@@ -36,7 +36,8 @@ namespace RensaioBackend.Services.Jobs.Settings
             { JobType.GetLatest, TimeSpan.FromMinutes(30)},
             { JobType.DailyUpdate,TimeSpan.FromDays(1)},
             { JobType.PrepareDiscovery, TimeSpan.FromDays(1)},
-            { JobType.CollectContributions, TimeSpan.FromDays(1)}
+            { JobType.CollectContributions, TimeSpan.FromDays(1)},
+            { JobType.UploadContributions, TimeSpan.FromDays(1)}
         };
     }
 }

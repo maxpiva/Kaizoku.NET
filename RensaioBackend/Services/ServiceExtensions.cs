@@ -166,6 +166,19 @@ namespace RensaioBackend.Services
             services.TryAddSingleton<IContributionWorkerController, ContributionWorkerController>();
             services.TryAddScoped<ContributionCollector>();
 
+            // Contribution upload client: auth is a secret UUID in the query string, so the
+            // factory's default request-URI logging must not run for this named client.
+            services.AddHttpClient(Contributions.Upload.ContributionUploadClient.HttpClientName, client =>
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    SetHttpClientHeaders(client);
+                })
+                .RemoveAllLoggers();
+            services.TryAddSingleton<Contributions.Upload.IContributionUploadStateStore,
+                Contributions.Upload.JsonContributionUploadStateStore>();
+            services.TryAddScoped<Contributions.Upload.ContributionUploadClient>();
+            services.TryAddScoped<Contributions.Upload.ContributionUploader>();
+
             return services;
         }
 

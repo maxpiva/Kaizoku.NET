@@ -16,5 +16,6 @@ public enum JobType
     ScrobblerSync,
     VerifyAllSeries,
     PrepareDiscovery,
-    CollectContributions
+    CollectContributions,
+    UploadContributions
 }

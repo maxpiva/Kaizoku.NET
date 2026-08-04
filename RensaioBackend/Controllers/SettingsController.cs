@@ -64,7 +64,7 @@ namespace RensaioBackend.Controllers
         {
             try
             {
-                var settings = await _settingsService.GetSettingsAsync(token).ConfigureAwait(false);
+                var settings = await _settingsService.GetMaskedSettingsAsync(token).ConfigureAwait(false);
                 return Ok(settings);
             }
             catch (Exception ex)
@@ -156,6 +156,10 @@ namespace RensaioBackend.Controllers
                 }
 
                 return Ok(response);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
             }
             catch (Exception ex)
             {

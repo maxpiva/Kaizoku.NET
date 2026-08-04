@@ -110,6 +110,9 @@ public sealed class ContributionStatusDto
     public int ItemsCollected { get; init; }
     [JsonPropertyName("lastError")]
     public string? LastError { get; init; }
+    /// <summary>Upload half of the pipeline; set by the controller, null when never populated.</summary>
+    [JsonPropertyName("upload")]
+    public Upload.ContributionUploadStatusDto? Upload { get; set; }
 }
 
 public static class ContributionStates
