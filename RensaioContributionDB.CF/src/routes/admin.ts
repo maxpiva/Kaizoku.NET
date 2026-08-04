@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { banContributor } from '../services/admin-service';
+import { banContributor, cleanTables, getActiveAdmin } from '../services/admin-service';
+import { runDailyExport } from '../services/export-service';
 import type { BanRequest } from '../models/requests';
 import type { ErrorResponse } from '../models/responses';
 
@@ -39,6 +40,41 @@ adminRoutes.post('/ban', async (c) => {
   }
 
   return c.json(result.response);
+});
+
+// POST /admin/clean?admin={adminUUID}
+adminRoutes.post('/clean', async (c) => {
+  const validation = await getActiveAdmin(c.env.DB, c.req.query('admin') ?? '');
+  if (!validation.ok) {
+    return c.json<ErrorResponse>({ error: validation.error }, validation.status);
+  }
+
+  const deleted = await cleanTables(c.env.DB);
+  return c.json({ cleaned: true, deleted });
+});
+
+// POST /admin/export?admin={adminUUID}
+adminRoutes.post('/export', async (c) => {
+  const validation = await getActiveAdmin(c.env.DB, c.req.query('admin') ?? '');
+  if (!validation.ok) {
+    return c.json<ErrorResponse>({ error: validation.error }, validation.status);
+  }
+
+  try {
+    const result = await runDailyExport(c.env);
+    return c.json({
+      exported: result.exported,
+      files: result.files,
+      scrubbed: result.scrubbed,
+      orphanTitlesArchived: result.orphanTitlesArchived,
+    });
+  } catch (err) {
+    console.error('Manual export failed:', err);
+    return c.json<ErrorResponse>(
+      { error: `Export failed: ${err instanceof Error ? err.message : 'Unknown error'}` },
+      500
+    );
+  }
 });
 
 export default adminRoutes;

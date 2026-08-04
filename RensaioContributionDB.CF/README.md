@@ -17,6 +17,7 @@ Contributors (user machines running Rensaio) submit title/source/metadata data t
   - [Ban Contributor](#ban-contributor)
   - [Get the Obfuscation Key](#get-the-obfuscation-key)
 - [Actions: add / update / remove](#actions-add--update--remove)
+- [Admin maintenance endpoints](#admin-maintenance-endpoints)
 - [Daily export](#daily-export)
 - [Reconciliation: banning & re-uploading](#reconciliation-banning--re-uploading)
 - [Deployment](#deployment)
@@ -221,8 +222,63 @@ Every item in an upload batch carries an action. Records are identified by their
 
 | Action | Behavior |
 |--------|----------|
-| `add` | **Unconditional upsert** by identity key. Record missing → **insert**. Record exists → **update** (values + ownership transfer to the caller). No content comparison — the latest upload always wins. |
+| `add` | **Unconditional upsert** by identity key. Record missing → **insert**. Record exists → **update** (values + ownership transfer to the caller). If the stored `content_hash` matches the incoming content, the item is **skipped** (no write, no ownership transfer). |
 | `remove` | Soft-deletes (`archived_at`) **any** active record by `id` (source) or identity key (metadata) — regardless of who created it. |
+
+---
+
+## Admin maintenance endpoints
+
+Two manual maintenance endpoints. Both require an **active admin** contributor UUID as a query parameter.
+
+### Clean the Data Tables
+
+```
+POST /admin/clean?admin={adminUUID}
+```
+
+Hard-deletes **all** rows from `sources`, `metadata` and `titles` (atomic batch, foreign-key order). The `contributors` table is intentionally left intact — it holds the admin UUIDs used to authenticate this endpoint.
+
+```json
+// Response (200 OK)
+{
+  "cleaned": true,
+  "deleted": { "sources": 12, "metadata": 3, "titles": 4 }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200 | Tables cleaned — per-table delete counts returned |
+| 400 | Missing `admin` query parameter |
+| 403 | Admin UUID inactive or not an admin |
+| 404 | Admin UUID not found |
+
+### Trigger the Export Manually
+
+```
+POST /admin/export?admin={adminUUID}
+```
+
+Runs the same pipeline as the daily cron (scrub + archive orphan titles + push `sources.json` / `metadata.json` / `titles.json` to GitHub) on demand.
+
+```json
+// Response (200 OK)
+{
+  "exported": true,
+  "files": ["sources.json", "metadata.json", "titles.json"],
+  "scrubbed": { "sources": 0, "metadata": 0, "titles": 0 },
+  "orphanTitlesArchived": 0
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200 | Export pushed to GitHub — file list + scrub summary |
+| 400 | Missing `admin` query parameter |
+| 403 | Admin UUID inactive or not an admin |
+| 404 | Admin UUID not found |
+| 500 | Export failed (e.g. GitHub auth/rate-limit) — error message returned |
 
 ---
 

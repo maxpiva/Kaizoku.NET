@@ -14,6 +14,8 @@ import { runDailyExport } from './services/export-service';
  *   POST /contributor?admin={adminUUID}   → create a contributor (first is auto-admin)
  *   POST /upload?contributor={UUID}       → submit a contribution batch
  *   POST /admin/ban?admin={adminUUID}     → ban a contributor (admin only)
+ *   POST /admin/clean?admin={adminUUID}   → wipe sources/metadata/titles (admin only)
+ *   POST /admin/export?admin={adminUUID}  → run the GitHub export now (admin only)
  *   GET  /key                            → return the AES key+IV (obfuscation secret, no auth)
  *
  * Scheduled (cron 06:00 UTC daily — handled via the `scheduled` event,

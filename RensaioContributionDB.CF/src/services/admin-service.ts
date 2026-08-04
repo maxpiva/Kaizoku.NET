@@ -103,3 +103,65 @@ export async function banContributor(
     },
   };
 }
+
+/**
+ * Validate that a UUID is an active admin contributor.
+ *
+ * Shared by the admin-only maintenance endpoints (/clean, /export).
+ */
+export async function getActiveAdmin(
+  db: D1Database,
+  adminId: string
+): Promise<
+  | { ok: true; admin: Contributor }
+  | { ok: false; status: 400 | 403 | 404; error: string }
+> {
+  if (!adminId) {
+    return { ok: false, status: 400, error: 'Missing "admin" query parameter' };
+  }
+
+  const admin = await db
+    .prepare('SELECT id, admin, active, ban_reason, last_change FROM contributors WHERE id = ?')
+    .bind(adminId)
+    .first<Contributor>();
+
+  if (!admin) {
+    return { ok: false, status: 404, error: 'Admin contributor not found' };
+  }
+  if (admin.active !== 1) {
+    return { ok: false, status: 403, error: 'Forbidden: admin contributor is inactive' };
+  }
+  if (admin.admin !== 1) {
+    return { ok: false, status: 403, error: 'Forbidden: admin privileges required' };
+  }
+
+  return { ok: true, admin };
+}
+
+/**
+ * Hard-delete ALL rows from sources, metadata and titles (the data tables).
+ *
+ * The `contributors` table is intentionally left intact — it holds the
+ * admin auth used by this endpoint. Deletes run in a single D1 batch
+ * (atomic) in foreign-key order: sources and metadata (children) before
+ * titles (parents).
+ *
+ * @returns how many rows were deleted per table.
+ */
+export async function cleanTables(db: D1Database): Promise<{
+  sources: number;
+  metadata: number;
+  titles: number;
+}> {
+  const results = await db.batch([
+    db.prepare('DELETE FROM sources'),
+    db.prepare('DELETE FROM metadata'),
+    db.prepare('DELETE FROM titles'),
+  ]);
+
+  return {
+    sources: results[0].meta.changes,
+    metadata: results[1].meta.changes,
+    titles: results[2].meta.changes,
+  };
+}

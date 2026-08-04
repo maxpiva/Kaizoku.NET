@@ -240,6 +240,50 @@ POST /upload?contributor={UUID}
   - (source identity key: `id`; metadata identity key: `title` + `provider` + `provider_key`)
 - `remove` — soft-deletes (`archived_at`) **any** active record by `id` (source) or identity key (metadata), regardless of which contributor created it.
 
+### Admin Maintenance Endpoints
+
+Both require an active admin UUID via the `admin` query parameter:
+
+```
+POST /admin/clean?admin={adminUUID}
+```
+Hard-deletes **all** rows from `sources`, `metadata` and `titles` (atomic batch). The `contributors` table is preserved so admin auth keeps working.
+
+```json
+// Response (200 OK)
+{ "cleaned": true, "deleted": { "sources": 12, "metadata": 3, "titles": 4 } }
+```
+
+| Code | Meaning |
+|------|---------|
+| 200 | Tables cleaned |
+| 400 | Missing `admin` |
+| 403 | Inactive or non-admin UUID |
+| 404 | Admin UUID not found |
+
+```
+POST /admin/export?admin={adminUUID}
+```
+Runs the daily export pipeline on demand (scrub + archive orphan titles + push the three JSON files to GitHub).
+
+```json
+// Response (200 OK)
+{
+  "exported": true,
+  "files": ["sources.json", "metadata.json", "titles.json"],
+  "scrubbed": { "sources": 0, "metadata": 0, "titles": 0 },
+  "orphanTitlesArchived": 0
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200 | Export pushed to GitHub |
+| 400 | Missing `admin` |
+| 403 | Inactive or non-admin UUID |
+| 404 | Admin UUID not found |
+| 500 | Export failed — error message returned |
+
 ### Ban Contributor (Admin Only)
 
 ```
