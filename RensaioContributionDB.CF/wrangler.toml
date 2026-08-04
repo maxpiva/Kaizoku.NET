@@ -2,26 +2,31 @@ name = "rensaio-contribution-db"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
+# Custom domain route — contrib.rensaio.net
+routes = [
+  { pattern = "contribution.rensaio.net/*", zone_id = "618dd986bbb822c7977287c05b4f5e16" }
+]
+
 # D1 database binding for contribution store
 [[d1_databases]]
 binding = "DB"
 database_name = "rensaio-contribution-db"
-database_id = ""
+database_id = "5ec94d42-80b3-4624-afc8-0b2757824f26"
 
 # Daily export cron trigger (06:00 UTC)
 [triggers]
 crons = ["0 6 * * *"]
 
 [vars]
-EXPORT_GITHUB_REPO = "owner/repo-name"
-EXPORT_PATH = "data/"
+EXPORT_GITHUB_REPO = "maxpiva/Rensaio-Metadata"
+EXPORT_PATH = "/"
 
 # Secrets (sensitive) — set via: wrangler secret put
 #   wrangler secret put GITHUB_TOKEN
 #   wrangler secret put AESKEY256IV   # base64(32B AES-256 key + 16B IV)
 
 [env.dev]
-vars = { EXPORT_GITHUB_REPO = "test/test-repo", EXPORT_PATH = "data/" }
+vars = { EXPORT_GITHUB_REPO = "maxpiva/Rensaio-Metadata", EXPORT_PATH = "/" }
 AESKEY256IV = ""
 
 [observability]

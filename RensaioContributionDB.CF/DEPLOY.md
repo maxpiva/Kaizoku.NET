@@ -80,7 +80,7 @@ npx wrangler secret put AESKEY256IV
 # Paste base64(32-byte AES-256 key + 16-byte IV), press Enter
 ```
 
-`AESKEY256IV` is a base64 string of the AES-256 key (32 bytes) concatenated with the IV (16 bytes) — 48 bytes total, 64 base64 characters. It is used to **obfuscate** (not secure) source data in `sources.json` exports. The key is public by design: consumers fetch it from `GET /Key`.
+`AESKEY256IV` is a base64 string of the AES-256 key (32 bytes) concatenated with the IV (16 bytes) — 48 bytes total, 64 base64 characters. It is used to **obfuscate** (not secure) source data in `sources.json` exports. The key is public by design: consumers fetch it from `GET /key`.
 
 Example generation (PowerShell):
 ```powershell
@@ -116,13 +116,17 @@ VALUES ('<uuid>', 1, 1, NULL, datetime('now'));
 
 ## Step 6: Configure the Route (Optional Custom Domain)
 
+The route is already declared in [`wrangler.toml`](wrangler.toml):
+
 ```toml
 routes = [
-  { pattern = "contrib.rensaio.net/*", zone_id = "your-zone-id" }
+  { pattern = "contrib.rensaio.net/*", zone_id = "618dd986bbb822c7977287c05b4f5e16" }
 ]
 ```
 
-**No custom domain?** Skip this step. The worker will be available at `rensaio-contribution-db.your-subdomain.workers.dev`.
+If you deploy to a different zone or subdomain, replace the `pattern`/`zone_id` in `wrangler.toml`.
+
+**No custom domain?** Remove the `routes` block. The worker will be available at `rensaio-contribution-db.your-subdomain.workers.dev`.
 
 ---
 
@@ -282,12 +286,12 @@ The worker runs once per day at **06:00 UTC** (`[triggers] crons = ["0 6 * * *"]
 ```
 BLOB (binary) → AES-256-CBC encrypt → base64
 ```
-Consumers fetch the key/IV from `GET /Key` to reverse it: `base64 → AES-256-CBC decrypt → binary`.
+Consumers fetch the key/IV from `GET /key` to reverse it: `base64 → AES-256-CBC decrypt → binary`.
 
 ### Get the Obfuscation Key
 
 ```
-GET /Key
+GET /key
 ```
 
 Returns the base64 concatenation of the AES-256 key + IV (the `AESKEY256IV` secret) as plain text. **No authorization required** — the key is for obfuscation only, not security.

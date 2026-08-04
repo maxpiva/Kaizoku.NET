@@ -275,14 +275,14 @@ Key mapping to the internal schema:
 ```
 BLOB (binary) → AES-256-CBC encrypt → base64
 ```
-To reverse it, fetch the key/IV from `GET /Key` and apply: `base64 → AES-256-CBC decrypt → binary`.
+To reverse it, fetch the key/IV from `GET /key` and apply: `base64 → AES-256-CBC decrypt → binary`.
 
 **Why the asymmetry?** Upload payloads use `title` strings so the server can dedup titles (one source of truth). Exports use `title_id` and short keys to keep the files small.
 
 ### Get the Obfuscation Key
 
 ```
-GET /Key
+GET /key
 ```
 
 Returns the base64 concatenation of the AES-256 key + IV (the `AESKEY256IV` secret) as plain text. **No authorization required** — the key is for obfuscation only, not security.

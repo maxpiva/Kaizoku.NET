@@ -3,7 +3,7 @@ import type { Env } from '../types';
 
 /**
  * Key route.
- * Base path: /Key (set in index.ts)
+ * Base path: /key (set in index.ts)
  *
  * Returns the base64 concatenation of the AES-256 key + IV used to
  * obfuscate source data in the daily export. No authorization required —
@@ -11,7 +11,7 @@ import type { Env } from '../types';
  */
 const keyRoutes = new Hono<{ Bindings: Env }>();
 
-// GET /Key
+// GET /key
 keyRoutes.get('/', (c) => {
   const secret = c.env.AESKEY256IV;
   if (!secret) {
