@@ -20,7 +20,10 @@ export function useContributionCollectorStatus(enabled: boolean) {
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       if (!enabled) return false;
-      return isCollectorActive(query.state.data?.state) ? 5_000 : 30_000;
+      const active =
+        isCollectorActive(query.state.data?.state) ||
+        isCollectorActive(query.state.data?.upload?.state);
+      return active ? 5_000 : 30_000;
     },
   });
 }
@@ -34,6 +37,34 @@ export function useRunContributionCollector() {
       // The run endpoint returns the full status DTO; seed the cache with it so the
       // UI reflects the queued state immediately, then refetch for freshness.
       queryClient.setQueryData(contributionCollectorKeys.status, status);
+      void queryClient.invalidateQueries({
+        queryKey: contributionCollectorKeys.status,
+      });
+    },
+  });
+}
+
+export function useRunContributionUpload() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => contributionCollectorService.runUpload(),
+    onSuccess: () => {
+      // The run endpoint returns only the upload half; refetch the combined status.
+      void queryClient.invalidateQueries({
+        queryKey: contributionCollectorKeys.status,
+      });
+    },
+  });
+}
+
+export function useValidateContributor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => contributionCollectorService.validateContributor(),
+    onSuccess: () => {
+      // Validation results are persisted server-side into the upload status.
       void queryClient.invalidateQueries({
         queryKey: contributionCollectorKeys.status,
       });

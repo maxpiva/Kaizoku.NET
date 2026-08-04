@@ -50,6 +50,11 @@ export interface Settings {
   discoveryWorkerBatchSize?: number;
   maxDiscoveryWorkers?: number;
   contributionCollectorEnabled?: boolean;
+  // Contribution upload (cloud contribution DB) settings
+  contributionUploadEnabled?: boolean;
+  /** Secret; the API returns the "__SET__" sentinel instead of the stored value. */
+  contributionContributorUuid?: string;
+  contributionUploadUrl?: string;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -127,6 +132,29 @@ export interface ContributionCollectorStatus {
   lastCompletedUtc?: string | null;
   itemsCollected: number;
   lastError?: string | null;
+  upload?: ContributionUploadStatus | null;
+}
+
+export interface ContributionUploadStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  uploaded: number;
+  skipped: number;
+  failed: number;
+  lastError?: string | null;
+  contributor?: ContributionContributorValidation | null;
+}
+
+/** Result of POST /api/contributions/upload/validate (also nested in upload status). */
+export interface ContributionContributorValidation {
+  valid: boolean;
+  active: boolean;
+  admin: boolean;
+  banReason?: string | null;
+  validatedUtc?: string | null;
+  error?: string | null;
 }
 
 export interface FullSeries {

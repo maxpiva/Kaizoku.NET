@@ -28,6 +28,8 @@ import {
 import {
   useContributionCollectorStatus,
   useRunContributionCollector,
+  useRunContributionUpload,
+  useValidateContributor,
 } from "@/lib/api/hooks/useContributionCollector";
 import { type Settings, NsfwVisibility } from "@/lib/api/types";
 import { useToast } from "@/hooks/use-toast";
@@ -151,6 +153,12 @@ const ACTIVE_COLLECTOR_STATES = new Set(["queued", "running", "yielding"]);
 
 const isCollectorActive = (state?: string | null): boolean =>
   ACTIVE_COLLECTOR_STATES.has((state ?? "").toLowerCase());
+
+/** Placeholder the settings API returns instead of the stored contributor UUID. */
+const UUID_SENTINEL = "__SET__";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Sortable Language Badge Component
 function SortableLanguageBadge({
@@ -506,12 +514,29 @@ function DownloadSettingsSection({
   const { canOwner } = useAuth();
   const { toast } = useToast();
   const collectorEnabled = localSettings.contributionCollectorEnabled ?? false;
+  const uploadEnabled = localSettings.contributionUploadEnabled ?? false;
   const statusQuery = useContributionCollectorStatus(
-    canOwner && collectorEnabled,
+    canOwner && (collectorEnabled || uploadEnabled),
   );
   const runCollectorMutation = useRunContributionCollector();
+  const runUploadMutation = useRunContributionUpload();
+  const validateContributorMutation = useValidateContributor();
   const collectorStatus = statusQuery.data;
   const collectorActive = isCollectorActive(collectorStatus?.state);
+  const uploadStatus = collectorStatus?.upload;
+  const uploadActive = isCollectorActive(uploadStatus?.state);
+  const uploadBanned = (uploadStatus?.state ?? "").toLowerCase() === "banned";
+  // Latches: once the fetched settings carried the sentinel we know a UUID is stored,
+  // so emptying the input restores the sentinel instead of clearing the stored value.
+  const hadStoredUuidRef = React.useRef(false);
+  if (localSettings.contributionContributorUuid === UUID_SENTINEL)
+    hadStoredUuidRef.current = true;
+  const uuidIsSentinel =
+    localSettings.contributionContributorUuid === UUID_SENTINEL;
+  const uuidValue = uuidIsSentinel
+    ? ""
+    : (localSettings.contributionContributorUuid ?? "");
+  const uuidLooksInvalid = uuidValue !== "" && !UUID_PATTERN.test(uuidValue);
   const runDisabled =
     !canOwner ||
     !collectorEnabled ||
@@ -534,6 +559,59 @@ function DownloadSettingsSection({
           error instanceof Error
             ? error.message
             : "Check the collector status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRunUpload = async () => {
+    try {
+      await runUploadMutation.mutateAsync();
+      toast({
+        title: "Contribution upload started",
+        description: "Upload status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Upload did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the upload status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleValidateContributor = async () => {
+    try {
+      const result = await validateContributorMutation.mutateAsync();
+      if (result.valid && result.active) {
+        toast({
+          title: "Contributor UUID is valid",
+          description: result.admin
+            ? "Validated with admin privileges."
+            : "Validated and active.",
+        });
+      } else {
+        toast({
+          title: result.valid
+            ? "Contributor is not active"
+            : "Contributor UUID was rejected",
+          description:
+            result.banReason ??
+            result.error ??
+            "The contribution worker did not accept the stored UUID.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Validation failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Could not reach the contribution worker.",
         variant: "destructive",
       });
     }
@@ -756,6 +834,187 @@ function DownloadSettingsSection({
                 </CardContent>
               </Card>
             )}
+
+            <div className="border-muted space-y-3 border-t pt-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="contribution-upload-enabled"
+                      checked={uploadEnabled}
+                      onCheckedChange={(checked) =>
+                        setLocalSettings((prev) => ({
+                          ...prev,
+                          contributionUploadEnabled: checked,
+                        }))
+                      }
+                    />
+                    <Label htmlFor="contribution-upload-enabled">
+                      Upload contributions to the shared database
+                    </Label>
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    Sends collected series data to the community contribution
+                    database. Requires a contributor UUID issued by the
+                    project.
+                  </p>
+                </div>
+                {uploadEnabled && (
+                  <Badge
+                    variant={
+                      uploadBanned ||
+                      uploadStatus?.state === "failed" ||
+                      uploadStatus?.state === "invalid"
+                        ? "destructive"
+                        : uploadActive
+                          ? "default"
+                          : "secondary"
+                    }
+                    className="w-fit"
+                  >
+                    {getCollectorStateLabel(uploadStatus?.state)}
+                  </Badge>
+                )}
+              </div>
+
+              {uploadEnabled && (
+                <Card className="bg-background/70 shadow-none">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label htmlFor="contribution-contributor-uuid">
+                          Contributor UUID
+                        </Label>
+                        <Input
+                          id="contribution-contributor-uuid"
+                          type="password"
+                          autoComplete="off"
+                          value={uuidValue}
+                          placeholder={
+                            uuidIsSentinel
+                              ? "Saved — type to replace"
+                              : "e.g. 123e4567-e89b-42d3-a456-426614174000"
+                          }
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setLocalSettings((prev) => ({
+                              ...prev,
+                              contributionContributorUuid:
+                                next === "" && hadStoredUuidRef.current
+                                  ? UUID_SENTINEL
+                                  : next,
+                            }));
+                          }}
+                        />
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          {uuidLooksInvalid
+                            ? "This does not look like a UUID; saving will be rejected."
+                            : "Stored securely on the server and never shown again."}
+                        </p>
+                      </div>
+                      <div>
+                        <Label htmlFor="contribution-upload-url">
+                          Worker URL (advanced)
+                        </Label>
+                        <Input
+                          id="contribution-upload-url"
+                          type="text"
+                          value={
+                            localSettings.contributionUploadUrl ??
+                            "https://contribution.rensaio.net"
+                          }
+                          onChange={(e) =>
+                            setLocalSettings((prev) => ({
+                              ...prev,
+                              contributionUploadUrl: e.target.value,
+                            }))
+                          }
+                        />
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          Leave as-is unless you run your own contribution
+                          worker. Changing it re-uploads everything.
+                        </p>
+                      </div>
+                    </div>
+
+                    {uploadBanned && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm font-medium">
+                        This contributor has been banned
+                        {uploadStatus?.contributor?.banReason
+                          ? `: ${uploadStatus.contributor.banReason}`
+                          : "."}{" "}
+                        Uploads are rejected until the ban is lifted.
+                      </div>
+                    )}
+                    {!uploadBanned && uploadStatus?.lastError && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                        {uploadStatus.lastError}
+                      </div>
+                    )}
+                    {uploadStatus && (
+                      <p className="text-muted-foreground text-sm">
+                        Last upload:{" "}
+                        {formatCollectorDate(uploadStatus.lastCompletedUtc)}
+                        {" · "}
+                        {uploadStatus.uploaded} uploaded,{" "}
+                        {uploadStatus.skipped} unchanged,{" "}
+                        {uploadStatus.failed} rejected
+                      </p>
+                    )}
+                    {uploadStatus?.enabled === false && (
+                      <p className="text-muted-foreground text-sm">
+                        Save settings before starting an upload.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleValidateContributor()}
+                        disabled={
+                          !canOwner || validateContributorMutation.isPending
+                        }
+                      >
+                        {validateContributorMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <UserIcon className="mr-2 h-4 w-4" />
+                        )}
+                        Validate UUID
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleRunUpload()}
+                        disabled={
+                          !canOwner ||
+                          statusQuery.isLoading ||
+                          uploadStatus?.enabled === false ||
+                          uploadActive ||
+                          uploadBanned ||
+                          runUploadMutation.isPending
+                        }
+                      >
+                        {runUploadMutation.isPending || uploadActive ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="mr-2 h-4 w-4" />
+                        )}
+                        {uploadActive
+                          ? getCollectorStateLabel(uploadStatus?.state)
+                          : "Upload now"}
+                      </Button>
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                      Validation checks the UUID currently saved on the server
+                      — save settings first after changing it.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
         )}
         <div>
