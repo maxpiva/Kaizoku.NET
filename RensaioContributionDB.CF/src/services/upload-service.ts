@@ -10,7 +10,9 @@ import { base64ToBlob } from '../utils/binary';
  *   - `add` — unconditional UPSERT by identity key:
  *       * record missing → insert
  *       * record exists  → update (values + ownership transfer to caller)
- *     No content comparison — the latest upload always wins.
+ *       * record exists with IDENTICAL content (content_hash match) → skip
+ *         entirely: no write, no ownership transfer. This kills the D1 write
+ *         cost of every contributor sweep re-uploading unchanged rows.
  *   - `remove` — soft-delete ANY active record by identity key.
  *
  * Identity keys:
@@ -18,6 +20,9 @@ import { base64ToBlob } from '../utils/binary';
  *   - metadata: title + metadata_provider + metadata_provider_key
  *
  * Titles are resolved server-side (reuse active title by name, or create).
+ * Concurrent title creation is race-safe: the UNIQUE partial index on active
+ * titles + INSERT OR IGNORE + a follow-up SELECT guarantee the winning id is
+ * returned instead of failing the whole batch.
  *
  * All valid statements run in a single D1 batch (atomic). Item-level
  * validation errors are collected and returned.
@@ -31,6 +36,7 @@ export async function processUpload(
   const errors: UploadError[] = [];
   const statements: D1PreparedStatement[] = [];
   const titleCache = new Map<string, string>(); // title name → title id
+  let skipped = 0;
 
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
@@ -43,7 +49,13 @@ export async function processUpload(
 
     try {
       if (item.action === 'add') {
-        statements.push(await buildUpsertStatement(db, item, contributorId, now, titleCache));
+        const statement = await buildUpsertStatement(db, item, contributorId, now, titleCache);
+        if (statement) {
+          statements.push(statement);
+        } else {
+          // Content identical to what is already stored — nothing to write.
+          skipped += 1;
+        }
       } else {
         // remove
         statements.push(await buildRemoveStatement(db, item, now, titleCache));
@@ -58,13 +70,18 @@ export async function processUpload(
     await db.batch(statements);
   }
 
-  return { processed: statements.length, skipped: 0, errors };
+  return { processed: statements.length, skipped, errors };
 }
 
 /**
  * Resolve a title name to a title id.
  * Reuses an existing ACTIVE title with the same name, or creates a new title
  * record. Results are cached per request.
+ *
+ * The create path is race-safe: `INSERT OR IGNORE` plus a follow-up SELECT
+ * returns the id of whichever request won the race (backed by the UNIQUE
+ * partial index on active titles), so concurrent uploads never fail the batch
+ * with a primary-key violation.
  */
 async function resolveTitle(
   db: D1Database,
@@ -86,25 +103,35 @@ async function resolveTitle(
     return existing.id;
   }
 
-  // Create a new title
+  // Create a new title. If a concurrent request created the same title
+  // between our SELECT and this INSERT, OR IGNORE swallows the conflict.
   const id = crypto.randomUUID();
   await db
-    .prepare('INSERT INTO titles (id, title, archived_at) VALUES (?, ?, NULL)')
-    .bind(id, title, null)
+    .prepare('INSERT OR IGNORE INTO titles (id, title, archived_at) VALUES (?, ?, NULL)')
+    .bind(id, title)
     .run();
 
-  titleCache.set(title, id);
-  return id;
+  // Whichever request won, resolve the actual stored id (ours or theirs).
+  const row = await db
+    .prepare('SELECT id FROM titles WHERE title = ? AND archived_at IS NULL LIMIT 1')
+    .bind(title)
+    .first<{ id: string }>();
+
+  const resolvedId = row?.id ?? id;
+  titleCache.set(title, resolvedId);
+  return resolvedId;
 }
 
 /**
  * Build the upsert statement for an `add` item.
  *
+ * Returns `null` when the incoming content matches the stored `content_hash`
+ * (no write, ownership preserved). Otherwise returns an INSERT or UPDATE.
+ *
  * IMPORTANT: `id` is the PRIMARY KEY for sources, so the existence check
  * matches REGARDLESS of `archived_at`. If the row exists (active or
  * archived), we UPDATE and clear `archived_at` (resurrect) — otherwise the
- * INSERT would violate the primary-key constraint. This means we never end
- * up with duplicate PKs or a dead archived row shadowing the key.
+ * INSERT would violate the primary-key constraint.
  */
 async function buildUpsertStatement(
   db: D1Database,
@@ -112,79 +139,100 @@ async function buildUpsertStatement(
   contributorId: string,
   now: string,
   titleCache: Map<string, string>
-): Promise<D1PreparedStatement> {
+): Promise<D1PreparedStatement | null> {
   const { type, data } = item;
   const dataBlob = base64ToBlob(data.data);
   const titleId = await resolveTitle(db, data.title as string, titleCache);
 
   switch (type) {
     case 'source': {
+      const incomingHash = await hashSourceContent(titleId, dataBlob);
       const existing = await db
-        .prepare('SELECT 1 FROM sources WHERE id = ? LIMIT 1')
+        .prepare('SELECT content_hash, archived_at FROM sources WHERE id = ? LIMIT 1')
         .bind(data.id)
-        .first();
+        .first<{ content_hash: string | null; archived_at: string | null }>();
 
       if (!existing) {
-        // insert
+        // insert. OR IGNORE makes a concurrent same-id insert harmless
+        // instead of failing the whole batch with a PK violation.
         return db
           .prepare(
-            `INSERT INTO sources (id, title_id, data, contributor_id, last_change, archived_at)
-             VALUES (?, ?, ?, ?, ?, NULL)`
+            `INSERT OR IGNORE INTO sources (id, title_id, data, contributor_id, last_change, archived_at, content_hash)
+             VALUES (?, ?, ?, ?, ?, NULL, ?)`
           )
-          .bind(data.id, titleId, dataBlob, contributorId, now);
+          .bind(data.id, titleId, dataBlob, contributorId, now, incomingHash);
+      }
+
+      // Identical active content → skip the write (and the ownership steal).
+      if (existing.archived_at === null && existing.content_hash === incomingHash) {
+        return null;
       }
 
       // update + ownership transfer + clear archived_at (resurrect if archived)
       return db
         .prepare(
           `UPDATE sources
-           SET title_id = ?, data = ?, contributor_id = ?, last_change = ?, archived_at = NULL
+           SET title_id = ?, data = ?, contributor_id = ?, last_change = ?, archived_at = NULL, content_hash = ?
            WHERE id = ?`
         )
-        .bind(titleId, dataBlob, contributorId, now, data.id);
+        .bind(titleId, dataBlob, contributorId, now, incomingHash, data.id);
     }
     case 'metadata': {
+      const metadataProvider = data.metadata_provider as string;
+      const metadataProviderKey = data.metadata_provider_key as string;
+      const linkType = data.link_type as number;
+      const incomingHash = await hashMetadataContent(titleId, metadataProvider, metadataProviderKey, linkType);
       const existing = await db
         .prepare(
-          `SELECT 1 FROM metadata
+          `SELECT content_hash FROM metadata
            WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
+             AND archived_at IS NULL
            LIMIT 1`
         )
-        .bind(titleId, data.metadata_provider, data.metadata_provider_key)
-        .first();
+        .bind(titleId, metadataProvider, metadataProviderKey)
+        .first<{ content_hash: string | null }>();
 
       if (!existing) {
-        // insert
+        // insert. OR IGNORE makes a concurrent same-identity insert harmless
+        // (guarded by the UNIQUE partial index on active metadata identity).
         return db
           .prepare(
-            `INSERT INTO metadata (id, title_id, metadata_provider, metadata_provider_key, link_type, contributor_id, last_change, archived_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`
+            `INSERT OR IGNORE INTO metadata (id, title_id, metadata_provider, metadata_provider_key, link_type, contributor_id, last_change, archived_at, content_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`
           )
           .bind(
             crypto.randomUUID(),
             titleId,
-            data.metadata_provider,
-            data.metadata_provider_key,
-            data.link_type,
+            metadataProvider,
+            metadataProviderKey,
+            linkType,
             contributorId,
-            now
+            now,
+            incomingHash
           );
       }
 
-      // update + ownership transfer + clear archived_at (resurrect if archived)
+      // Identical active content → skip the write (and the ownership steal).
+      if (existing.content_hash === incomingHash) {
+        return null;
+      }
+
+      // update + ownership transfer
       return db
         .prepare(
           `UPDATE metadata
-           SET link_type = ?, contributor_id = ?, last_change = ?, archived_at = NULL
-           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?`
+           SET link_type = ?, contributor_id = ?, last_change = ?, content_hash = ?
+           WHERE title_id = ? AND metadata_provider = ? AND metadata_provider_key = ?
+             AND archived_at IS NULL`
         )
         .bind(
-          data.link_type,
+          linkType,
           contributorId,
           now,
+          incomingHash,
           titleId,
-          data.metadata_provider,
-          data.metadata_provider_key
+          metadataProvider,
+          metadataProviderKey
         );
     }
     default:
@@ -222,6 +270,44 @@ async function buildRemoveStatement(
     default:
       throw new Error(`Unsupported type: ${type}`);
   }
+}
+
+/**
+ * SHA-256 of a byte sequence, hex-encoded.
+ */
+async function hashHex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Content hash for a source row: title_id + data bytes.
+ * Includes title_id so re-titling an existing source id is detected.
+ */
+async function hashSourceContent(titleId: string, data: ArrayBuffer | null): Promise<string> {
+  const titleBytes = new TextEncoder().encode(titleId);
+  if (!data || data.byteLength === 0) {
+    return hashHex(titleBytes);
+  }
+  const combined = new Uint8Array(titleBytes.length + data.byteLength);
+  combined.set(titleBytes);
+  combined.set(new Uint8Array(data), titleBytes.length);
+  return hashHex(combined);
+}
+
+/**
+ * Content hash for a metadata row: identity key + link_type.
+ */
+async function hashMetadataContent(
+  titleId: string,
+  provider: string,
+  providerKey: string,
+  linkType: number
+): Promise<string> {
+  const content = `${titleId}\u0000${provider}\u0000${providerKey}\u0000${linkType}`;
+  return hashHex(new TextEncoder().encode(content));
 }
 
 /**

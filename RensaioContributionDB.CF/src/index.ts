@@ -14,7 +14,7 @@ import { runDailyExport } from './services/export-service';
  *   POST /contributor?admin={adminUUID}   → create a contributor (first is auto-admin)
  *   POST /upload?contributor={UUID}       → submit a contribution batch
  *   POST /admin/ban?admin={adminUUID}     → ban a contributor (admin only)
- *   GET  /Key                            → return the AES key+IV (obfuscation secret, no auth)
+ *   GET  /key                            → return the AES key+IV (obfuscation secret, no auth)
  *
  * Scheduled (cron 06:00 UTC daily — handled via the `scheduled` event,
  * NOT an HTTP route; there is intentionally no public /__scheduled endpoint):
@@ -33,7 +33,7 @@ app.get('/health', (c) => {
 app.route('/contributor', contributorRoutes);
 app.route('/upload', uploadRoutes);
 app.route('/admin', adminRoutes);
-app.route('/Key', keyRoutes);
+app.route('/key', keyRoutes);
 
 // ── Catch-all 404 ──
 app.notFound((c) => {
@@ -57,7 +57,9 @@ async function scheduled(_controller: ScheduledController, env: Env, ctx: Execut
       try {
         const result = await runDailyExport(env);
         console.log(
-          `Cron export: scrubbed ${JSON.stringify(result.scrubbed)}, pushed ${result.files.join(', ')}`
+          `Cron export: scrubbed ${JSON.stringify(result.scrubbed)}, ` +
+            `orphan titles archived ${result.orphanTitlesArchived}, ` +
+            `pushed ${result.files.join(', ')}`
         );
       } catch (err) {
         console.error('Cron export failed:', err);

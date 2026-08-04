@@ -31,6 +31,7 @@ export interface Source {
   contributor_id: string;  // FK → contributors.id
   last_change: string;     // ISO 8601 UTC datetime
   archived_at: string | null;
+  content_hash: string | null; // SHA-256 of title_id + data; skip-if-match on upload
 }
 
 /**
@@ -45,4 +46,5 @@ export interface Metadata {
   contributor_id: string;        // FK → contributors.id
   last_change: string;           // ISO 8601 UTC datetime
   archived_at: string | null;
+  content_hash: string | null;   // SHA-256 of identity + link_type; skip-if-match on upload
 }
