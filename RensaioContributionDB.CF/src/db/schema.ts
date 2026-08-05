@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import type { BlobValue } from '../utils/binary';
 
 /**
  * Represents a row in the `contributors` D1 table.
@@ -27,7 +28,7 @@ export interface Title {
 export interface Source {
   id: string;              // contributor-provided identifier
   title_id: string;        // FK → titles.id
-  data: ArrayBuffer | null; // binary payload (BLOB column)
+  data: BlobValue;         // BLOB column — see BlobValue for the D1 representations
   contributor_id: string;  // FK → contributors.id
   last_change: string;     // ISO 8601 UTC datetime
   archived_at: string | null;

@@ -18,20 +18,50 @@ export function base64ToBlob(value: unknown): ArrayBuffer | null {
 }
 
 /**
- * Convert binary data read from a BLOB column into a base64 string.
- * D1 may return the value as an ArrayBuffer or a Uint8Array.
+ * What a BLOB column may come back as from D1 depending on engine/runtime:
+ *   - local Miniflare:        ArrayBuffer
+ *   - some Workers engines:   Uint8Array (or other typed array views)
+ *   - live D1 (v3 prod)/HTTP: base64 string
  */
-export function blobToBase64(blob: ArrayBuffer | Uint8Array | null): string | null {
+export type BlobValue = ArrayBuffer | Uint8Array | string | null;
+
+/**
+ * Normalize any of the D1 BLOB representations into a Uint8Array.
+ * Returns null for NULL/undefined.
+ */
+export function toUint8Array(blob: BlobValue): Uint8Array | null {
   if (blob === null || blob === undefined) {
     return null;
   }
 
-  let bytes: Uint8Array;
+  // Live D1 returns BLOBs as base64 strings in some engines.
+  if (typeof blob === 'string') {
+    const binary = atob(blob);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
   if (blob instanceof Uint8Array) {
-    bytes = blob;
-  } else if (blob instanceof ArrayBuffer) {
-    bytes = new Uint8Array(blob);
-  } else {
+    return blob;
+  }
+
+  if (blob instanceof ArrayBuffer) {
+    return new Uint8Array(blob);
+  }
+
+  throw new Error('Unsupported BLOB type returned by D1');
+}
+
+/**
+ * Convert binary data read from a BLOB column into a base64 string.
+ * Accepts every representation D1 may return (see BlobValue).
+ */
+export function blobToBase64(blob: BlobValue): string | null {
+  const bytes = toUint8Array(blob);
+  if (bytes === null) {
     return null;
   }
 

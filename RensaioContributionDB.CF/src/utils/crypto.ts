@@ -6,6 +6,7 @@
  *
  * In Workers runtime, Web Crypto is available via `crypto.subtle`.
  */
+import { toUint8Array, type BlobValue } from './binary';
 
 const KEY_LENGTH = 32; // AES-256
 const IV_LENGTH = 16;  // CBC IV
@@ -56,25 +57,33 @@ async function importAesKey(keyBytes: ArrayBuffer): Promise<CryptoKey> {
  * Returns the final base64 string ready for sources.json.
  */
 export async function encryptSourceData(
-  rawData: ArrayBuffer,
+  rawData: BlobValue,
   aeskey256iv: string
 ): Promise<string> {
   const { keyBytes, iv } = parseAesKeyIv(aeskey256iv);
   const key = await importAesKey(keyBytes);
 
+  // D1 returns BLOBs differently across engines: ArrayBuffer (local
+  // Miniflare), Uint8Array, or a base64 string (live D1 HTTP). Normalize
+  // before passing to Web Crypto, which strictly requires a JsBufferSource.
+  const bytes = toUint8Array(rawData);
+  if (bytes === null) {
+    throw new Error('Cannot encrypt empty source data');
+  }
+
   // AES-256-CBC encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-CBC', iv },
     key,
-    rawData
+    bytes
   );
 
   // base64 encode
-  const bytes = new Uint8Array(encrypted);
+  const encryptedBytes = new Uint8Array(encrypted);
   let binary = '';
   const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  for (let i = 0; i < encryptedBytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...encryptedBytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
 }
