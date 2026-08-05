@@ -150,7 +150,7 @@ export async function scrubArchived(db: D1Database): Promise<{
  */
 async function pushFileToGitHub(env: Env, fileName: string, content: string): Promise<void> {
   const repo = env.EXPORT_GITHUB_REPO;
-  const path = `${env.EXPORT_PATH.replace(/\/$/, '')}/${fileName}`;
+  const path = buildExportPath(env.EXPORT_PATH, fileName);
   const api = `https://api.github.com/repos/${repo}/contents/${path}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${env.GITHUB_TOKEN}`,
@@ -230,6 +230,18 @@ async function getFileSha(
   }
   const treeBody = (await tree.json()) as { tree?: Array<{ path?: string; sha?: string }> };
   return treeBody.tree?.find((entry) => entry.path === path)?.sha;
+}
+
+/**
+ * Join the export root and a file name into a repo-relative path.
+ *
+ * GitHub rejects paths that start with a slash ("path cannot start with a
+ * slash"). A root of "/" or "" must produce a bare file name ("sources.json"),
+ * and a root like "data/" must produce "data/sources.json".
+ */
+function buildExportPath(exportPath: string, fileName: string): string {
+  const normalized = exportPath.replace(/^\/+|\/+$/g, '');
+  return normalized ? `${normalized}/${fileName}` : fileName;
 }
 
 /**
