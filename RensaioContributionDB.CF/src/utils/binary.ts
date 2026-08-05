@@ -20,10 +20,11 @@ export function base64ToBlob(value: unknown): ArrayBuffer | null {
 /**
  * What a BLOB column may come back as from D1 depending on engine/runtime:
  *   - local Miniflare:        ArrayBuffer
- *   - some Workers engines:   Uint8Array (or other typed array views)
- *   - live D1 (v3 prod)/HTTP: base64 string
+ *   - Workers runtime:        Uint8Array (or other typed array views)
+ *   - HTTP/CLI JSON path:     plain array of byte numbers
+ *   - some engines:           base64 string
  */
-export type BlobValue = ArrayBuffer | Uint8Array | string | null;
+export type BlobValue = ArrayBuffer | Uint8Array | number[] | string | null;
 
 /**
  * Normalize any of the D1 BLOB representations into a Uint8Array.
@@ -52,7 +53,19 @@ export function toUint8Array(blob: BlobValue): Uint8Array | null {
     return new Uint8Array(blob);
   }
 
-  throw new Error('Unsupported BLOB type returned by D1');
+  // ArrayBufferView (other typed arrays, DataView) — defensive.
+  if (ArrayBuffer.isView(blob)) {
+    return new Uint8Array(blob.buffer, blob.byteOffset, blob.byteLength);
+  }
+
+  // Plain array of byte numbers (HTTP/CLI JSON serialization of a BLOB).
+  if (Array.isArray(blob)) {
+    return Uint8Array.from(blob);
+  }
+
+  throw new Error(
+    `Unsupported BLOB type returned by D1: ${blob === null ? 'null' : typeof blob}`
+  );
 }
 
 /**
