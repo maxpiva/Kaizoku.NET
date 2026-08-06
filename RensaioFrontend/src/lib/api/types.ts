@@ -87,6 +87,9 @@ export interface LinkedSeries {
   extensionPkg?: string;
   extensionRepoName?: string;
   extensionName?: string;
+  /** True when this result was surfaced from the community contribution snapshot
+   *  rather than a live source crawl. */
+  fromSnapshot?: boolean;
   /** Filled by the background details augmentation ("80 ch · Ongoing" badge). */
   chapterCount?: number | null;
   seriesStatus?: SeriesStatus | null;

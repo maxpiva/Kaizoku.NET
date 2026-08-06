@@ -1061,7 +1061,8 @@ function DownloadSettingsSection({
                   <p className="text-muted-foreground text-sm">
                     Downloads the public community contribution snapshot so
                     match suggestions benefit from data other users have
-                    shared. No contributor UUID required.
+                    shared, and surfaces its series in discovery search. No
+                    contributor UUID required.
                   </p>
                 </div>
                 {snapshotEnabled && (

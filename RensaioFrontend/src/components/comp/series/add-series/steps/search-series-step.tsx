@@ -571,7 +571,11 @@ export function SearchSeriesStep({
                   color: "hsl(38 92% 55%)",
                   whiteSpace: "nowrap",
                 }}
-                title={`Selecting this will install the ${series.extensionName ?? series.extensionPkg ?? ""} extension`}
+                title={
+                  series.fromSnapshot
+                    ? `Found in the community snapshot. Selecting this will install the ${series.extensionName ?? series.extensionPkg ?? ""} extension`
+                    : `Selecting this will install the ${series.extensionName ?? series.extensionPkg ?? ""} extension`
+                }
               >
                 Not installed
               </span>
@@ -731,7 +735,7 @@ export function SearchSeriesStep({
         )}
 
         {/* Subtle streaming-discovery progress affordance; disappears when the sweep completes */}
-        {!error && isDiscoveryRunning && discoveryProgress && (
+        {!error && isDiscoveryRunning && discoveryProgress && discoveryProgress.total > 0 && (
           <p
             className="font-mono"
             style={{
