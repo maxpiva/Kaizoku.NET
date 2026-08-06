@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/auth-context";
 import { useMutation } from "@tanstack/react-query";
 import { userService } from "@/lib/api/services/userService";
-import { UserIcon, Upload } from "lucide-react";
+import { UserIcon, Upload, Download } from "lucide-react";
 import { fetchGravatarBase64 } from "@/lib/gravatar";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X, Save, Loader2, GripVertical, RefreshCw } from "lucide-react";
@@ -29,6 +29,7 @@ import {
   useContributionCollectorStatus,
   useRunContributionCollector,
   useRunContributionUpload,
+  useRunContributionSnapshot,
   useValidateContributor,
 } from "@/lib/api/hooks/useContributionCollector";
 import { type Settings, NsfwVisibility } from "@/lib/api/types";
@@ -515,17 +516,21 @@ function DownloadSettingsSection({
   const { toast } = useToast();
   const collectorEnabled = localSettings.contributionCollectorEnabled ?? false;
   const uploadEnabled = localSettings.contributionUploadEnabled ?? false;
+  const snapshotEnabled = localSettings.contributionSnapshotEnabled ?? false;
   const statusQuery = useContributionCollectorStatus(
-    canOwner && (collectorEnabled || uploadEnabled),
+    canOwner && (collectorEnabled || uploadEnabled || snapshotEnabled),
   );
   const runCollectorMutation = useRunContributionCollector();
   const runUploadMutation = useRunContributionUpload();
+  const runSnapshotMutation = useRunContributionSnapshot();
   const validateContributorMutation = useValidateContributor();
   const collectorStatus = statusQuery.data;
   const collectorActive = isCollectorActive(collectorStatus?.state);
   const uploadStatus = collectorStatus?.upload;
   const uploadActive = isCollectorActive(uploadStatus?.state);
   const uploadBanned = (uploadStatus?.state ?? "").toLowerCase() === "banned";
+  const snapshotStatus = collectorStatus?.snapshot;
+  const snapshotActive = isCollectorActive(snapshotStatus?.state);
   // Latches: once the fetched settings carried the sentinel we know a UUID is stored,
   // so emptying the input restores the sentinel instead of clearing the stored value.
   const hadStoredUuidRef = React.useRef(false);
@@ -578,6 +583,25 @@ function DownloadSettingsSection({
           error instanceof Error
             ? error.message
             : "Check the upload status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRunSnapshot = async () => {
+    try {
+      await runSnapshotMutation.mutateAsync();
+      toast({
+        title: "Snapshot download started",
+        description: "Snapshot status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Snapshot download did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the snapshot status and try again.",
         variant: "destructive",
       });
     }
@@ -1011,6 +1035,131 @@ function DownloadSettingsSection({
                       Validation checks the UUID currently saved on the server
                       — save settings first after changing it.
                     </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            <div className="border-muted space-y-3 border-t pt-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="contribution-snapshot-enabled"
+                      checked={snapshotEnabled}
+                      onCheckedChange={(checked) =>
+                        setLocalSettings((prev) => ({
+                          ...prev,
+                          contributionSnapshotEnabled: checked,
+                        }))
+                      }
+                    />
+                    <Label htmlFor="contribution-snapshot-enabled">
+                      Community snapshot
+                    </Label>
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    Downloads the public community contribution snapshot so
+                    match suggestions benefit from data other users have
+                    shared. No contributor UUID required.
+                  </p>
+                </div>
+                {snapshotEnabled && (
+                  <Badge
+                    variant={
+                      statusQuery.isError || snapshotStatus?.state === "failed"
+                        ? "destructive"
+                        : snapshotActive
+                          ? "default"
+                          : "secondary"
+                    }
+                    className="w-fit"
+                  >
+                    {statusQuery.isError
+                      ? "Status unavailable"
+                      : statusQuery.isFetching && !snapshotActive
+                        ? "Checking"
+                        : getCollectorStateLabel(snapshotStatus?.state)}
+                  </Badge>
+                )}
+              </div>
+
+              {snapshotEnabled && (
+                <Card className="bg-background/70 shadow-none">
+                  <CardContent className="space-y-3 p-4">
+                    <div>
+                      <Label htmlFor="contribution-snapshot-url">
+                        Snapshot URL (advanced)
+                      </Label>
+                      <Input
+                        id="contribution-snapshot-url"
+                        type="text"
+                        value={
+                          localSettings.contributionSnapshotUrl ??
+                          "https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main"
+                        }
+                        onChange={(e) =>
+                          setLocalSettings((prev) => ({
+                            ...prev,
+                            contributionSnapshotUrl: e.target.value,
+                          }))
+                        }
+                      />
+                      <p className="text-muted-foreground mt-1 text-sm">
+                        Leave as-is unless you host your own snapshot export.
+                        Changing it re-downloads everything.
+                      </p>
+                    </div>
+
+                    {snapshotStatus?.lastError && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                        {snapshotStatus.lastError}
+                      </div>
+                    )}
+                    {snapshotStatus && (
+                      <p className="text-muted-foreground text-sm">
+                        Last download:{" "}
+                        {formatCollectorDate(snapshotStatus.lastCompletedUtc)}
+                        {" · "}
+                        {snapshotStatus.titles} titles,{" "}
+                        {snapshotStatus.recordsDecoded} records
+                        {snapshotStatus.recordsSkipped > 0
+                          ? `, ${snapshotStatus.recordsSkipped} skipped`
+                          : ""}
+                        {snapshotStatus.recordsFailed > 0
+                          ? `, ${snapshotStatus.recordsFailed} failed`
+                          : ""}
+                        {snapshotStatus.unchanged ? " (unchanged)" : ""}
+                      </p>
+                    )}
+                    {snapshotStatus?.enabled === false && (
+                      <p className="text-muted-foreground text-sm">
+                        Save settings before downloading a snapshot.
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleRunSnapshot()}
+                      disabled={
+                        !canOwner ||
+                        statusQuery.isLoading ||
+                        snapshotStatus?.enabled === false ||
+                        snapshotActive ||
+                        runSnapshotMutation.isPending
+                      }
+                      className="w-full sm:w-auto"
+                    >
+                      {runSnapshotMutation.isPending || snapshotActive ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-2 h-4 w-4" />
+                      )}
+                      {snapshotActive
+                        ? getCollectorStateLabel(snapshotStatus?.state)
+                        : "Download now"}
+                    </Button>
                   </CardContent>
                 </Card>
               )}

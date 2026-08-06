@@ -55,6 +55,9 @@ export interface Settings {
   /** Secret; the API returns the "__SET__" sentinel instead of the stored value. */
   contributionContributorUuid?: string;
   contributionUploadUrl?: string;
+  // Community contribution snapshot download settings
+  contributionSnapshotEnabled?: boolean;
+  contributionSnapshotUrl?: string;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -133,6 +136,7 @@ export interface ContributionCollectorStatus {
   itemsCollected: number;
   lastError?: string | null;
   upload?: ContributionUploadStatus | null;
+  snapshot?: ContributionSnapshotStatus | null;
 }
 
 export interface ContributionUploadStatus {
@@ -145,6 +149,22 @@ export interface ContributionUploadStatus {
   failed: number;
   lastError?: string | null;
   contributor?: ContributionContributorValidation | null;
+}
+
+/** Status of the community contribution snapshot downloader (GET /api/contributions/status). */
+export interface ContributionSnapshotStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  unchanged: boolean;
+  titles: number;
+  recordsDecoded: number;
+  recordsSkipped: number;
+  recordsFailed: number;
+  danglingTitleRefs: number;
+  metadataLinks: number;
+  lastError?: string | null;
 }
 
 /** Result of POST /api/contributions/upload/validate (also nested in upload status). */

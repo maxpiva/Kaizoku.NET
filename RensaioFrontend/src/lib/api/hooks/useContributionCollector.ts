@@ -22,7 +22,8 @@ export function useContributionCollectorStatus(enabled: boolean) {
       if (!enabled) return false;
       const active =
         isCollectorActive(query.state.data?.state) ||
-        isCollectorActive(query.state.data?.upload?.state);
+        isCollectorActive(query.state.data?.upload?.state) ||
+        isCollectorActive(query.state.data?.snapshot?.state);
       return active ? 5_000 : 30_000;
     },
   });
@@ -51,6 +52,20 @@ export function useRunContributionUpload() {
     mutationFn: () => contributionCollectorService.runUpload(),
     onSuccess: () => {
       // The run endpoint returns only the upload half; refetch the combined status.
+      void queryClient.invalidateQueries({
+        queryKey: contributionCollectorKeys.status,
+      });
+    },
+  });
+}
+
+export function useRunContributionSnapshot() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => contributionCollectorService.runSnapshot(),
+    onSuccess: () => {
+      // The run endpoint returns only the snapshot half; refetch the combined status.
       void queryClient.invalidateQueries({
         queryKey: contributionCollectorKeys.status,
       });

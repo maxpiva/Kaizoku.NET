@@ -2,6 +2,7 @@ import { apiClient } from "@/lib/api/client";
 import {
   type ContributionCollectorStatus,
   type ContributionContributorValidation,
+  type ContributionSnapshotStatus,
   type ContributionUploadStatus,
 } from "@/lib/api/types";
 
@@ -30,6 +31,13 @@ export const contributionCollectorService = {
     // Live-checks the stored contributor UUID against the contribution worker.
     return apiClient.post<ContributionContributorValidation>(
       "/api/contributions/upload/validate",
+    );
+  },
+
+  async runSnapshot(): Promise<ContributionSnapshotStatus> {
+    // POST /api/contributions/snapshot/run returns the snapshot status DTO with HTTP 202.
+    return apiClient.post<ContributionSnapshotStatus>(
+      "/api/contributions/snapshot/run",
     );
   },
 };
