@@ -32,6 +32,7 @@ public class DiscoverySearchCoordinator
     private readonly IHubContext<ProgressHub> _hub;
     private readonly IMemoryCache _memoryCache;
     private readonly InteractiveDiscoveryGate _interactive;
+    private readonly SnapshotSearchIndex _snapshotIndex;
     private readonly ILogger<DiscoverySearchCoordinator> _logger;
 
     private sealed class Sweep
@@ -56,12 +57,14 @@ public class DiscoverySearchCoordinator
         IHubContext<ProgressHub> hub,
         IMemoryCache memoryCache,
         InteractiveDiscoveryGate interactive,
+        SnapshotSearchIndex snapshotIndex,
         ILogger<DiscoverySearchCoordinator> logger)
     {
         _scopeFactory = scopeFactory;
         _hub = hub;
         _memoryCache = memoryCache;
         _interactive = interactive;
+        _snapshotIndex = snapshotIndex;
         _logger = logger;
     }
 
@@ -108,7 +111,10 @@ public class DiscoverySearchCoordinator
         // Counts are cheap (in-memory list scans) and let the client label the progress affordance
         // from the very first render.
         DiscoverySourcesDto counts = await service.GetDiscoverySourcesAsync(normalizedLanguages, token).ConfigureAwait(false);
-        if (counts.ExtensionCount == 0)
+        // Snapshot-only sweeps are allowed when no live extension is eligible: the contribution
+        // snapshot can still surface not-installed sources the search service seeds up front.
+        bool snapshotActive = settings.ContributionSnapshotEnabled && _snapshotIndex.HasRecords;
+        if (counts.ExtensionCount == 0 && !snapshotActive)
             return new DiscoveryStartDto { Done = true };
 
         Sweep sweep;

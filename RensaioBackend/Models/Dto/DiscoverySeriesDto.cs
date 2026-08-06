@@ -33,6 +33,11 @@ public class DiscoverySeriesDto : LinkedSeriesDto
     /// <summary>Series status, filled by the background details augmentation.</summary>
     [JsonPropertyName("seriesStatus")]
     public SeriesStatus? SeriesStatus { get; set; }
+
+    /// <summary>True when this result was surfaced from the community contribution snapshot
+    /// rather than a live source crawl.</summary>
+    [JsonPropertyName("fromSnapshot")]
+    public bool FromSnapshot { get; set; }
 }
 
 /// <summary>

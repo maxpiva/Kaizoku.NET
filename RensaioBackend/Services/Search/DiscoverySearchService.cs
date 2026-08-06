@@ -37,6 +37,7 @@ namespace RensaioBackend.Services.Search
         private readonly ThumbCacheService _thumb;
         private readonly DiscoveryWorkerPool _pool;
         private readonly DiscoverySourceHeaderRegistry _headerRegistry;
+        private readonly Discovery.SnapshotSearchIndex _snapshotIndex;
         private readonly ILogger<DiscoverySearchService> _logger;
 
         public DiscoverySearchService(
@@ -46,6 +47,7 @@ namespace RensaioBackend.Services.Search
             ThumbCacheService thumb,
             DiscoveryWorkerPool pool,
             DiscoverySourceHeaderRegistry headerRegistry,
+            Discovery.SnapshotSearchIndex snapshotIndex,
             ILogger<DiscoverySearchService> logger)
         {
             _mihon = mihon;
@@ -54,6 +56,7 @@ namespace RensaioBackend.Services.Search
             _thumb = thumb;
             _pool = pool;
             _headerRegistry = headerRegistry;
+            _snapshotIndex = snapshotIndex;
             _logger = logger;
         }
 
@@ -165,11 +168,13 @@ namespace RensaioBackend.Services.Search
             languages = await NormalizeLanguagesAsync(languages, token).ConfigureAwait(false);
             var languageSet = new HashSet<string>(languages, StringComparer.InvariantCultureIgnoreCase);
             var eligible = await GetEligibleExtensionsAsync(languages, token).ConfigureAwait(false);
-            if (eligible.Count == 0)
+            bool snapshotActive = settings.ContributionSnapshotEnabled && _snapshotIndex.HasRecords;
+            if (eligible.Count == 0 && !snapshotActive)
                 return [];
 
             string cacheKey = "D" + keyword + threshold.ToString(CultureInfo.InvariantCulture) + "_" + string.Join(',', languages) + "_" +
-                              string.Join(',', eligible.Select(e => e.Extension.Package));
+                              string.Join(',', eligible.Select(e => e.Extension.Package)) +
+                              "_snap" + (snapshotActive ? _snapshotIndex.Stamp : 0L);
             if (_memoryCache.TryGetValue(cacheKey, out List<DiscoverySeriesDto>? cachedResult))
             {
                 _logger.LogInformation("Returning cached discovery search result for keyword '{keyword}'.", keyword);
@@ -181,7 +186,13 @@ namespace RensaioBackend.Services.Search
 
             var sourceInfo = new ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)>();
             var results = new ConcurrentBag<(ParsedManga Manga, string MihonProviderId, string Language)>();
-            int maxConcurrency = Math.Min(settings.NumberOfSimultaneousSearches, eligible.Count);
+            // Ids (mihonProviderId|url) surfaced from the contribution snapshot rather than a live
+            // crawl. Populated by the snapshot emission block below and threaded into DTO building so
+            // FromSnapshot can be stamped on both the streamed and the final authoritative results.
+            var snapshotIds = new HashSet<string>(StringComparer.Ordinal);
+            int maxConcurrency = eligible.Count == 0
+                ? 1
+                : Math.Min(settings.NumberOfSimultaneousSearches, eligible.Count);
 
             // Streaming plumbing: convert each per-source batch into ready-to-render DTOs and push
             // them to the caller as they arrive. DTO building touches scoped services (thumb cache /
@@ -222,7 +233,7 @@ namespace RensaioBackend.Services.Search
                         await streamGate.WaitAsync(token).ConfigureAwait(false);
                         try
                         {
-                            List<DiscoverySeriesDto> dtos = await BuildStreamedDtosAsync(keyword, batch, sourceInfo, token).ConfigureAwait(false);
+                            List<DiscoverySeriesDto> dtos = await BuildStreamedDtosAsync(keyword, batch, sourceInfo, snapshotIds, token).ConfigureAwait(false);
                             if (dtos.Count > 0)
                                 await stream.OnResults(dtos).ConfigureAwait(false);
                         }
@@ -242,6 +253,60 @@ namespace RensaioBackend.Services.Search
                     OnPrepared = () => EmitProgressAsync(DiscoveryStreamCallbacks.StagePreparing, Interlocked.Increment(ref preparedExtensions)),
                     OnSearched = () => EmitProgressAsync(DiscoveryStreamCallbacks.StageSearching, Interlocked.Increment(ref searchedExtensions))
                 };
+            }
+
+            // Snapshot emission: surface community-contribution snapshot hits for not-installed
+            // sources up front, streamed as one batch before the live worker sweep begins. Installed
+            // packages are dropped, hits whose package is not in the online repos are dropped, and
+            // NSFW-flagged repos are honoured with the same visibility rule the live path uses. Every
+            // surviving hit joins the same results bag / sourceInfo map as the crawl, so it flows
+            // through FindAndLinkSimilarSeries + the final DTO build and lands in the cached result.
+            if (snapshotActive)
+            {
+                IReadOnlyList<SnapshotSearchHit> hits = _snapshotIndex.Search(keyword, languageSet);
+
+                HashSet<string> installedPackages = _mihon.ListExtensions()
+                    .Select(g => g.GetActiveEntry().Extension.Package)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                // package -> (repo name, extension name, is-NSFW), first wins in the same repo/name
+                // order GetEligibleExtensionsAsync uses so the chosen repo/extension matches.
+                var repoByPackage = new Dictionary<string, (string? RepoName, string ExtensionName, bool Nsfw)>(StringComparer.OrdinalIgnoreCase);
+                foreach (TachiyomiRepository repo in _mihon.ListOnlineRepositories().OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    foreach (TachiyomiExtension ext in repo.Extensions.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (string.IsNullOrEmpty(ext.Package))
+                            continue;
+                        repoByPackage.TryAdd(ext.Package, (repo.Name, ext.Name, ext.Nsfw == 1));
+                    }
+                }
+
+                var snapshotBatch = new List<(ParsedManga Manga, string MihonProviderId, string Language)>();
+                foreach (SnapshotSearchHit hit in hits)
+                {
+                    if (installedPackages.Contains(hit.Package))
+                        continue;
+                    if (!repoByPackage.TryGetValue(hit.Package, out (string? RepoName, string ExtensionName, bool Nsfw) repoInfo))
+                        continue;
+                    if (repoInfo.Nsfw && settings.NsfwVisibility != NsfwVisibility.Show)
+                        continue;
+
+                    string mihonProviderId = hit.Package + "|" + hit.SourceId;
+                    sourceInfo.TryAdd(mihonProviderId, (hit.SourceName, hit.Package, repoInfo.RepoName, repoInfo.ExtensionName));
+                    ParsedManga m = Discovery.SnapshotSearchIndex.ToParsedManga(hit);
+                    results.Add((m, mihonProviderId, hit.SourceLanguage));
+                    snapshotBatch.Add((m, mihonProviderId, hit.SourceLanguage));
+                    snapshotIds.Add(mihonProviderId + "|" + hit.Url);
+                }
+
+                // Stream the whole snapshot batch through the same path the workers use, so these
+                // results render before the live sweep produces anything.
+                if (hooks?.EmitBatch != null && snapshotBatch.Count > 0)
+                    await hooks.EmitBatch(snapshotBatch).ConfigureAwait(false);
+                _logger.LogInformation("Discovery search for '{keyword}' seeded {Count} results from the contribution snapshot.",
+                    keyword, snapshotBatch.Count);
             }
 
             bool searched = false;
@@ -302,7 +367,8 @@ namespace RensaioBackend.Services.Search
                     Installed = false,
                     ExtensionPkg = info.Package,
                     ExtensionRepoName = info.RepoName,
-                    ExtensionName = info.ExtensionName
+                    ExtensionName = info.ExtensionName,
+                    FromSnapshot = ls.MihonId != null && snapshotIds.Contains(ls.MihonId)
                 });
             }
 
@@ -624,6 +690,7 @@ namespace RensaioBackend.Services.Search
         private async Task<List<DiscoverySeriesDto>> BuildStreamedDtosAsync(string keyword,
             List<(ParsedManga Manga, string MihonProviderId, string Language)> batch,
             ConcurrentDictionary<string, (string SourceName, string Package, string? RepoName, string ExtensionName)> sourceInfo,
+            IReadOnlySet<string>? snapshotIds,
             CancellationToken token)
         {
             var dtos = new List<DiscoverySeriesDto>();
@@ -646,7 +713,8 @@ namespace RensaioBackend.Services.Search
                     Installed = false,
                     ExtensionPkg = info.Package,
                     ExtensionRepoName = info.RepoName,
-                    ExtensionName = info.ExtensionName
+                    ExtensionName = info.ExtensionName,
+                    FromSnapshot = snapshotIds != null && snapshotIds.Contains(id)
                 };
                 manga.FillBridgeItemInfo(dto);
                 dtos.Add(dto);
