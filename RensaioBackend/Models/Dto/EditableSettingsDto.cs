@@ -84,6 +84,14 @@ public class EditableSettingsDto
     [JsonPropertyName("contributionUploadUrl")]
     public string ContributionUploadUrl { get; set; } = "https://contribution.rensaio.net";
 
+    /// <summary>Enables downloading the cloud contribution snapshot export. Off by default.</summary>
+    [JsonPropertyName("contributionSnapshotEnabled")]
+    public bool ContributionSnapshotEnabled { get; set; } = false;
+
+    /// <summary>Base URL the snapshot export (titles.json, sources.json, metadata.json) is served from.</summary>
+    [JsonPropertyName("contributionSnapshotUrl")]
+    public string ContributionSnapshotUrl { get; set; } = "https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main";
+
     /// <summary>
     /// Master toggle: when true (default), every search automatically also sweeps eligible
     /// not-installed sources and streams those results into the same list. When false, search is

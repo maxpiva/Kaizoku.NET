@@ -113,6 +113,9 @@ public sealed class ContributionStatusDto
     /// <summary>Upload half of the pipeline; set by the controller, null when never populated.</summary>
     [JsonPropertyName("upload")]
     public Upload.ContributionUploadStatusDto? Upload { get; set; }
+    /// <summary>Snapshot download half of the pipeline; set by the controller, null when never populated.</summary>
+    [JsonPropertyName("snapshot")]
+    public Snapshot.ContributionSnapshotStatusDto? Snapshot { get; set; }
 }
 
 public static class ContributionStates

@@ -313,6 +313,9 @@ namespace RensaioBackend.Services.Settings
                 (set.ContributionUploadEnabled != _settings.ContributionUploadEnabled ||
                  !string.Equals(set.ContributionContributorUuid, _settings.ContributionContributorUuid, StringComparison.OrdinalIgnoreCase) ||
                  !string.Equals(set.ContributionUploadUrl, _settings.ContributionUploadUrl, StringComparison.OrdinalIgnoreCase));
+            bool contributionSnapshotSettingsChanged = _settings != null &&
+                (set.ContributionSnapshotEnabled != _settings.ContributionSnapshotEnabled ||
+                 !string.Equals(set.ContributionSnapshotUrl, _settings.ContributionSnapshotUrl, StringComparison.OrdinalIgnoreCase));
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
@@ -399,6 +402,13 @@ namespace RensaioBackend.Services.Settings
                 await jobBusiness.ManageContributionUploaderAsync(
                     set.ContributionUploadEnabled, runNow: set.ContributionUploadEnabled, token).ConfigureAwait(false);
             }
+            if (contributionSnapshotSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionSnapshotAsync(
+                    set.ContributionSnapshotEnabled, runNow: set.ContributionSnapshotEnabled, token).ConfigureAwait(false);
+            }
         }
         
         public async Task SaveSettingsAsync(SettingsDto settings, bool force, CancellationToken token = default)
@@ -425,6 +435,8 @@ namespace RensaioBackend.Services.Settings
                 ContributionUploadEnabled = settings.ContributionUploadEnabled,
                 ContributionContributorUuid = settings.ContributionContributorUuid,
                 ContributionUploadUrl = settings.ContributionUploadUrl,
+                ContributionSnapshotEnabled = settings.ContributionSnapshotEnabled,
+                ContributionSnapshotUrl = settings.ContributionSnapshotUrl,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = settings.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = settings.PerTitleUpdateSchedule,
@@ -481,6 +493,8 @@ namespace RensaioBackend.Services.Settings
                 ContributionUploadEnabled = ed.ContributionUploadEnabled,
                 ContributionContributorUuid = ed.ContributionContributorUuid,
                 ContributionUploadUrl = ed.ContributionUploadUrl,
+                ContributionSnapshotEnabled = ed.ContributionSnapshotEnabled,
+                ContributionSnapshotUrl = ed.ContributionSnapshotUrl,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = ed.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = ed.PerTitleUpdateSchedule,

@@ -17,5 +17,6 @@ public enum JobType
     VerifyAllSeries,
     PrepareDiscovery,
     CollectContributions,
-    UploadContributions
+    UploadContributions,
+    DownloadContributionSnapshot
 }

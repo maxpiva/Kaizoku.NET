@@ -122,6 +122,19 @@ namespace RensaioBackend.Services.Jobs
                 groupKey, groupKey, runNow, priority: Priority.Low, token: token).ConfigureAwait(false);
         }
 
+        public async Task ManageContributionSnapshotAsync(bool enable, bool runNow = false, CancellationToken token = default)
+        {
+            string groupKey = nameof(JobType.DownloadContributionSnapshot);
+            if (!enable)
+            {
+                await _jobManagement.DisableRecurringJobAsync(JobType.DownloadContributionSnapshot, groupKey, token)
+                    .ConfigureAwait(false);
+                return;
+            }
+            await _jobManagement.ScheduleRecurringJobAsync(JobType.DownloadContributionSnapshot, groupKey,
+                groupKey, groupKey, runNow, priority: Priority.Low, token: token).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Source Management

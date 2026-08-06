@@ -179,6 +179,18 @@ namespace RensaioBackend.Services
             services.TryAddScoped<Contributions.Upload.ContributionUploadClient>();
             services.TryAddScoped<Contributions.Upload.ContributionUploader>();
 
+            // Contribution snapshot download client: the export files and the /key endpoint are
+            // public, so no request-URI scrubbing is needed (nothing secret is ever sent).
+            services.AddHttpClient(Contributions.Snapshot.ContributionSnapshotClient.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(60);
+                SetHttpClientHeaders(client);
+            });
+            services.TryAddSingleton<Contributions.Snapshot.IContributionSnapshotStateStore,
+                Contributions.Snapshot.JsonContributionSnapshotStateStore>();
+            services.TryAddScoped<Contributions.Snapshot.ContributionSnapshotClient>();
+            services.TryAddScoped<Contributions.Snapshot.ContributionSnapshotDownloader>();
+
             return services;
         }
 
