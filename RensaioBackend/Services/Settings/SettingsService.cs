@@ -8,7 +8,10 @@ using RensaioBackend.Services.Jobs;
 using RensaioBackend.Services.Jobs.Models;
 using RensaioBackend.Services.Jobs.Settings;
 using RensaioBackend.Services.Providers;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using System.ComponentModel;
@@ -24,14 +27,17 @@ namespace RensaioBackend.Services.Settings
         private readonly IConfiguration _config;
         private readonly AppDbContext _db;
         private readonly IServiceScopeFactory _prov;
+        private readonly ILogger<SettingsService> _logger;
 
         private static SettingsDto? _settings;
 
-        public SettingsService(IConfiguration config, IServiceScopeFactory prov, AppDbContext db)
+        public SettingsService(IConfiguration config, IServiceScopeFactory prov, AppDbContext db,
+            ILogger<SettingsService>? logger = null)
         {
             _config = config;
             _db = db;
             _prov = prov;
+            _logger = logger ?? NullLogger<SettingsService>.Instance;
 
         }
 
@@ -275,9 +281,112 @@ namespace RensaioBackend.Services.Settings
                 throw new ArgumentException("contributionContributorUuid must be a UUID.", nameof(set));
         }
 
+        /// <summary>
+        /// Endpoint path segments <see cref="Contributions.Upload.ContributionUploadClient"/> appends
+        /// to the configured base URL. A pasted full endpoint link (e.g.
+        /// "https://contribution.rensaio.net/contributor?contributor=&lt;uuid&gt;", the shape of the
+        /// example link shown in the UI) ends in one of these, which is how normalization tells it
+        /// apart from a legitimate base-URL subpath (a self-hosted worker can live under its own
+        /// subpath, e.g. "https://host/worker").
+        /// </summary>
+        private static readonly string[] UploadWorkerEndpointSegments = ["contributor", "upload"];
+
+        /// <summary>
+        /// Normalizes and validates a contribution worker base URL entered as a raw setting value:
+        /// trims whitespace, prepends "https://" when the value has no scheme, strips a query
+        /// string/fragment and (for <paramref name="stripKnownEndpointSegment"/> callers) a trailing
+        /// endpoint path segment that indicate the value is a pasted full worker link rather than a
+        /// base URL, and throws <see cref="ArgumentException"/> — the same rejection mechanism as
+        /// <see cref="ApplyContributorUuidPolicy"/>'s malformed-UUID case — when what remains still
+        /// isn't an absolute http(s) URL. A legitimate base path (e.g. a self-hosted worker under a
+        /// subpath, or the default snapshot export's "/maxpiva/Rensaio-Metadata/main") is preserved.
+        /// Anything normalized away is appended to <paramref name="warnings"/> for the caller to log;
+        /// a stray "contributor=&lt;uuid&gt;" query pair is never adopted into the stored contributor
+        /// UUID — it is only ever stripped and logged, since a URL field must never become a source of
+        /// truth for a credential.
+        /// </summary>
+        private static string NormalizeContributionUrl(string fieldName, string? rawValue,
+            bool stripKnownEndpointSegment, string? contributorUuid, ICollection<string> warnings)
+        {
+            string trimmed = (rawValue ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+                return trimmed;
+
+            string candidate = trimmed;
+            if (!candidate.Contains("://", StringComparison.Ordinal))
+            {
+                candidate = "https://" + candidate;
+                warnings.Add($"{fieldName} had no scheme; assumed https://.");
+            }
+
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out Uri? uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+                string.IsNullOrEmpty(uri.Host))
+                throw new ArgumentException($"{fieldName} must be a valid absolute http(s) URL.", fieldName);
+
+            string path = uri.AbsolutePath;
+            if (stripKnownEndpointSegment)
+            {
+                string trimmedPath = path.TrimEnd('/');
+                string? matched = UploadWorkerEndpointSegments.FirstOrDefault(seg =>
+                    trimmedPath.EndsWith("/" + seg, StringComparison.OrdinalIgnoreCase));
+                if (matched != null)
+                {
+                    path = trimmedPath[..^(matched.Length + 1)];
+                    warnings.Add($"{fieldName} looked like a pasted worker endpoint link (\"/{matched}\"); trimmed to its base URL.");
+                }
+            }
+
+            if (uri.Query.Length > 0)
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+                bool hadContributorParam = query.TryGetValue("contributor", out var contributorValues) &&
+                    contributorValues.Any(v => Guid.TryParse(v, out _));
+                if (hadContributorParam)
+                {
+                    warnings.Add($"{fieldName} contained a 'contributor' query parameter; it was removed and NOT " +
+                        (string.IsNullOrWhiteSpace(contributorUuid)
+                            ? "applied to the stored contributor UUID (which is currently empty)."
+                            : "applied to the stored contributor UUID."));
+                }
+                else
+                {
+                    warnings.Add($"{fieldName} contained a query string that was removed.");
+                }
+            }
+            if (uri.Fragment.Length > 0)
+                warnings.Add($"{fieldName} contained a fragment that was removed.");
+
+            // A bare root path ("/") is not a meaningful base path; drop it so a scheme-only
+            // input round-trips as "https://host" rather than "https://host/".
+            if (path == "/")
+                path = string.Empty;
+
+            return $"{uri.Scheme}://{uri.Authority}{path}";
+        }
+
+        /// <summary>
+        /// Normalizes and validates <see cref="EditableSettingsDto.ContributionUploadUrl"/> and
+        /// <see cref="EditableSettingsDto.ContributionSnapshotUrl"/> in place. Returns any
+        /// human-readable warnings describing what was normalized away, for the caller to log.
+        /// </summary>
+        public static List<string> ApplyContributionUrlPolicy(EditableSettingsDto set)
+        {
+            var warnings = new List<string>();
+            set.ContributionUploadUrl = NormalizeContributionUrl(
+                "contributionUploadUrl", set.ContributionUploadUrl, stripKnownEndpointSegment: true,
+                set.ContributionContributorUuid, warnings);
+            set.ContributionSnapshotUrl = NormalizeContributionUrl(
+                "contributionSnapshotUrl", set.ContributionSnapshotUrl, stripKnownEndpointSegment: false,
+                set.ContributionContributorUuid, warnings);
+            return warnings;
+        }
+
         public async Task SaveSettingsAsync(EditableSettingsDto set, bool force = false, CancellationToken token = default)
         {
             ApplyContributorUuidPolicy(set, _settings);
+            foreach (string warning in ApplyContributionUrlPolicy(set))
+                _logger.LogWarning("{Warning}", warning);
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
                 set.ChapterDownloadFailRetries != _settings?.ChapterDownloadFailRetries ||
                 set.ChapterDownloadFailRetryTime != _settings?.ChapterDownloadFailRetryTime || 

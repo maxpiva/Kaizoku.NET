@@ -28,11 +28,13 @@ public sealed class ContributionUploadClient
     public async Task<ContributorProbeResult> GetContributorAsync(string baseUrl, string contributorUuid,
         CancellationToken token = default)
     {
+        if (!TryBuildUri(baseUrl, "contributor", contributorUuid, out Uri? uri, out string? uriError))
+            return new ContributorProbeResult { Status = ContributionCallStatus.RetryableError, Error = uriError };
         try
         {
             HttpClient client = _factory.CreateClient(HttpClientName);
             using HttpResponseMessage response = await client
-                .GetAsync(BuildUri(baseUrl, "contributor", contributorUuid), token).ConfigureAwait(false);
+                .GetAsync(uri, token).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.NotFound)
                 return new ContributorProbeResult { Status = ContributionCallStatus.UnknownContributor };
             if (response.StatusCode == HttpStatusCode.Forbidden)
@@ -65,13 +67,15 @@ public sealed class ContributionUploadClient
     public async Task<UploadCallResult> UploadAsync(string baseUrl, string contributorUuid,
         IReadOnlyList<UploadItem> items, CancellationToken token = default)
     {
+        if (!TryBuildUri(baseUrl, "upload", contributorUuid, out Uri? uri, out string? uriError))
+            return new UploadCallResult { Status = ContributionCallStatus.RetryableError, Error = uriError };
         try
         {
             HttpClient client = _factory.CreateClient(HttpClientName);
             string body = JsonSerializer.Serialize(new UploadRequest { Items = items.ToList() }, JsonOptions);
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await client
-                .PostAsync(BuildUri(baseUrl, "upload", contributorUuid), content, token).ConfigureAwait(false);
+                .PostAsync(uri, content, token).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.NotFound)
                 return new UploadCallResult { Status = ContributionCallStatus.UnknownContributor };
             if (response.StatusCode == HttpStatusCode.Forbidden)
@@ -101,10 +105,28 @@ public sealed class ContributionUploadClient
         }
     }
 
-    private static Uri BuildUri(string baseUrl, string path, string contributorUuid)
+    /// <summary>
+    /// Builds the request URI without throwing: a malformed stored base URL (e.g. a pasted
+    /// endpoint link that slipped past settings-save normalization, or garbage in the database
+    /// from before that normalization existed) must surface as a normal
+    /// <see cref="ContributionCallStatus.RetryableError"/> result, not an unhandled
+    /// <see cref="UriFormatException"/> that would crash the request.
+    /// </summary>
+    private static bool TryBuildUri(string baseUrl, string path, string contributorUuid,
+        out Uri? uri, out string? error)
     {
-        string root = (baseUrl ?? string.Empty).TrimEnd('/');
-        return new Uri($"{root}/{path}?contributor={Uri.EscapeDataString(contributorUuid)}");
+        uri = null;
+        string root = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
+        if (Uri.TryCreate($"{root}/{path}?contributor={Uri.EscapeDataString(contributorUuid)}",
+                UriKind.Absolute, out Uri? built) &&
+            (built.Scheme == Uri.UriSchemeHttp || built.Scheme == Uri.UriSchemeHttps))
+        {
+            uri = built;
+            error = null;
+            return true;
+        }
+        error = "The worker URL is not a valid absolute http(s) URL.";
+        return false;
     }
 
     private static async Task<string?> ReadBanReasonAsync(HttpResponseMessage response, CancellationToken token)

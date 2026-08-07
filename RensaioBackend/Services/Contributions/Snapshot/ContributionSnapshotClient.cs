@@ -24,11 +24,12 @@ public sealed class ContributionSnapshotClient
     public async Task<SnapshotFileResult> GetFileAsync(string baseUrl, string fileName, string? etag,
         CancellationToken token = default)
     {
+        if (!TryBuildUri(baseUrl, fileName, out Uri? uri, out string? uriError))
+            return new SnapshotFileResult { Status = SnapshotFetchStatus.RetryableError, Error = uriError };
         try
         {
             HttpClient client = _factory.CreateClient(HttpClientName);
-            string root = (baseUrl ?? string.Empty).TrimEnd('/');
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"{root}/{fileName}");
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             // The stored ETag is the normalized header value (already quoted, W/ prefix intact);
             // add it verbatim so weak tags round-trip without re-parsing.
             if (!string.IsNullOrEmpty(etag))
@@ -64,11 +65,12 @@ public sealed class ContributionSnapshotClient
 
     public async Task<SnapshotKeyResult> GetKeyAsync(string workerBaseUrl, CancellationToken token = default)
     {
+        if (!TryBuildUri(workerBaseUrl, "key", out Uri? uri, out string? uriError))
+            return new SnapshotKeyResult { Error = uriError };
         try
         {
             HttpClient client = _factory.CreateClient(HttpClientName);
-            string root = (workerBaseUrl ?? string.Empty).TrimEnd('/');
-            using HttpResponseMessage response = await client.GetAsync($"{root}/key", token).ConfigureAwait(false);
+            using HttpResponseMessage response = await client.GetAsync(uri, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
                 return new SnapshotKeyResult { Error = $"Contribution worker returned {(int)response.StatusCode} for the decryption key." };
 
@@ -97,6 +99,28 @@ public sealed class ContributionSnapshotClient
             _logger.LogWarning("Contribution worker key fetch failed: {Message}", ex.Message);
             return new SnapshotKeyResult { Error = ex.Message };
         }
+    }
+
+    /// <summary>
+    /// Builds the request URI without throwing: a malformed stored base URL (e.g. a pasted
+    /// endpoint link that slipped past settings-save normalization, or garbage in the database
+    /// from before that normalization existed) must surface as a normal
+    /// <see cref="SnapshotFetchStatus.RetryableError"/> / unsuccessful <see cref="SnapshotKeyResult"/>,
+    /// not an unhandled <see cref="UriFormatException"/> that would crash the request.
+    /// </summary>
+    private static bool TryBuildUri(string baseUrl, string relativePath, out Uri? uri, out string? error)
+    {
+        uri = null;
+        string root = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
+        if (Uri.TryCreate($"{root}/{relativePath}", UriKind.Absolute, out Uri? built) &&
+            (built.Scheme == Uri.UriSchemeHttp || built.Scheme == Uri.UriSchemeHttps))
+        {
+            uri = built;
+            error = null;
+            return true;
+        }
+        error = "The worker URL is not a valid absolute http(s) URL.";
+        return false;
     }
 
     /// <summary>

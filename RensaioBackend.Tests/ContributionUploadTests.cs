@@ -350,6 +350,34 @@ public sealed class ContributionUploadTests : IDisposable
         Assert.Empty(handler.Requests);
     }
 
+    // --- Client: malformed base URL ---
+
+    [Fact]
+    public async Task GetContributorAsync_MalformedBaseUrl_ReturnsRetryableError_NoException()
+    {
+        var handler = new FakeHandler();
+        var client = new ContributionUploadClient(new FakeFactory(handler), NullLogger<ContributionUploadClient>.Instance);
+
+        ContributorProbeResult result = await client.GetContributorAsync("not a url at all", Uuid);
+
+        Assert.Equal(ContributionCallStatus.RetryableError, result.Status);
+        Assert.Contains("valid absolute http", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task UploadAsync_MalformedBaseUrl_ReturnsRetryableError_NoException()
+    {
+        var handler = new FakeHandler();
+        var client = new ContributionUploadClient(new FakeFactory(handler), NullLogger<ContributionUploadClient>.Instance);
+
+        UploadCallResult result = await client.UploadAsync("ftp://wrong-scheme.test", Uuid, []);
+
+        Assert.Equal(ContributionCallStatus.RetryableError, result.Status);
+        Assert.Contains("valid absolute http", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Requests);
+    }
+
     // --- Secrets ---
 
     [Fact]
@@ -409,6 +437,66 @@ public sealed class ContributionUploadTests : IDisposable
         var incoming = new EditableSettingsDto { ContributionContributorUuid = "definitely-not-a-guid" };
         Assert.Throws<ArgumentException>(() =>
             SettingsService.ApplyContributorUuidPolicy(incoming, new EditableSettingsDto()));
+    }
+
+    // --- Settings: contribution URL normalization ---
+
+    [Fact]
+    public void UrlPolicy_SchemelessUrlGetsHttpsPrepended()
+    {
+        var incoming = new EditableSettingsDto { ContributionUploadUrl = "contribution.rensaio.net" };
+        SettingsService.ApplyContributionUrlPolicy(incoming);
+        Assert.Equal("https://contribution.rensaio.net", incoming.ContributionUploadUrl);
+    }
+
+    [Fact]
+    public void UrlPolicy_PastedEndpointLinkWithContributorQuery_StripsToBase_AndLeavesUuidAlone()
+    {
+        var incoming = new EditableSettingsDto
+        {
+            ContributionUploadUrl = $"contribution.rensaio.net/contributor?contributor={Uuid} ",
+            ContributionContributorUuid = ""
+        };
+        List<string> warnings = SettingsService.ApplyContributionUrlPolicy(incoming);
+
+        Assert.Equal("https://contribution.rensaio.net", incoming.ContributionUploadUrl);
+        // The secret UUID must never be adopted into (or leaked back out via) the URL setting.
+        Assert.Equal("", incoming.ContributionContributorUuid);
+        Assert.Contains(warnings, w => w.Contains("contributor", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void UrlPolicy_GarbageUrlIsRejectedLikeAnInvalidUuid()
+    {
+        var incoming = new EditableSettingsDto { ContributionUploadUrl = "not a url at all" };
+        Assert.Throws<ArgumentException>(() => SettingsService.ApplyContributionUrlPolicy(incoming));
+    }
+
+    [Fact]
+    public void UrlPolicy_LegitimateHttpsBaseUrl_RoundTripsUnchanged()
+    {
+        var incoming = new EditableSettingsDto
+        {
+            ContributionUploadUrl = "https://contribution.rensaio.net",
+            ContributionSnapshotUrl = "https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main"
+        };
+        List<string> warnings = SettingsService.ApplyContributionUrlPolicy(incoming);
+
+        Assert.Equal("https://contribution.rensaio.net", incoming.ContributionUploadUrl);
+        Assert.Equal("https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main", incoming.ContributionSnapshotUrl);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void UrlPolicy_SubpathBaseUrlIsPreserved()
+    {
+        // A self-hosted worker can legitimately live under its own subpath; only a trailing
+        // known-endpoint segment (e.g. "/contributor", "/upload") is treated as a pasted link.
+        var incoming = new EditableSettingsDto { ContributionUploadUrl = "https://host.example/worker" };
+        List<string> warnings = SettingsService.ApplyContributionUrlPolicy(incoming);
+
+        Assert.Equal("https://host.example/worker", incoming.ContributionUploadUrl);
+        Assert.Empty(warnings);
     }
 
     [Fact]

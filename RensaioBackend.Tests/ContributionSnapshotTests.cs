@@ -109,6 +109,33 @@ public sealed class ContributionSnapshotTests : IDisposable
         Assert.Contains("base64", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task GetKey_MalformedBaseUrl_ReturnsFailure_NoException()
+    {
+        var handler = new RoutingFakeHandler();
+        var client = new ContributionSnapshotClient(new FakeFactory(handler), NullLogger<ContributionSnapshotClient>.Instance);
+
+        SnapshotKeyResult result = await client.GetKeyAsync("not a url at all");
+
+        Assert.False(result.Success);
+        Assert.Null(result.Key);
+        Assert.Contains("valid absolute http", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task GetFile_MalformedBaseUrl_ReturnsRetryableError_NoException()
+    {
+        var handler = new RoutingFakeHandler();
+        var client = new ContributionSnapshotClient(new FakeFactory(handler), NullLogger<ContributionSnapshotClient>.Instance);
+
+        SnapshotFileResult result = await client.GetFileAsync("not a url at all", "titles.json", null);
+
+        Assert.Equal(SnapshotFetchStatus.RetryableError, result.Status);
+        Assert.Contains("valid absolute http", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Requests);
+    }
+
     // --- 2. Crypto round-trip ---
 
     [Fact]
