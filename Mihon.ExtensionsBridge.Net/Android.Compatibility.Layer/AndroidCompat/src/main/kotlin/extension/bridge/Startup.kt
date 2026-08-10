@@ -312,7 +312,14 @@ fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogS
                             val networkHelper = Injekt.get<NetworkHelper>()
                             val logger = androidCompatLogger(KcefWebViewProvider::class.java)
                             logger.debug { "Start loading cookies" }
-                            CefCookieManager.getGlobalManager().apply {
+                            // getGlobalManager() returns null until CEF's native initialization
+                            // completes; a null receiver here used to NPE on every setCookie call.
+                            val manager: CefCookieManager? = CefCookieManager.getGlobalManager()
+                            if (manager == null) {
+                                logger.warn { "CEF global cookie manager unavailable (CEF not initialized); skipping stored-cookie preload" }
+                                return
+                            }
+                            manager.apply {
                                 val cookies = networkHelper.cookieStore.getStoredCookies()
                                 for (cookie in cookies) {
                                     try {

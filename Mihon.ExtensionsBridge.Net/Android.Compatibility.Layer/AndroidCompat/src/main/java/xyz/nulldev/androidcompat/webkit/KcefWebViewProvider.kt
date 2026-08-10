@@ -270,6 +270,48 @@ class KcefWebViewProvider(
             ensureCefApp()
         }
 
+        private const val CEF_INIT_TIMEOUT_MS = 30_000L
+
+        /**
+         * Blocks until CEF's native initialization reaches INITIALIZED, or the timeout expires.
+         *
+         * CefAppBuilder.build() only installs the bundle and creates the CefApp object; the native
+         * initialization is deferred until the first createClient() call and then completes
+         * asynchronously on the AWT EDT. Anything that talks to native CEF before that transition
+         * (notably CefCookieManager.getGlobalManager(), which returns null) fails confusingly, so
+         * the WebView init path waits here between creating its client and running the
+         * InitBrowserHandler. Returns true when CEF is initialized; false (with a loud warning)
+         * on timeout or a terminal state, letting the caller proceed to fail with a clear log
+         * trail instead of an NPE cascade.
+         */
+        fun awaitCefInitialized(timeoutMs: Long = CEF_INIT_TIMEOUT_MS): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (true) {
+                when (CefApp.getState()) {
+                    CefApp.CefAppState.INITIALIZED -> return true
+                    CefApp.CefAppState.SHUTTING_DOWN, CefApp.CefAppState.TERMINATED -> {
+                        Log.w(TAG, "CEF entered state ${CefApp.getState()} while waiting for initialization")
+                        return false
+                    }
+                    else -> {}
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    Log.w(
+                        TAG,
+                        "CEF did not reach INITIALIZED within $timeoutMs ms (state=${CefApp.getState()}); " +
+                            "WebView-based sources will likely fail on this run",
+                    )
+                    return false
+                }
+                try {
+                    Thread.sleep(50L)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+
         private fun CefSettings.trySetBooleanOption(fieldName: String, value: Boolean) {
             val field = runCatching { javaClass.getDeclaredField(fieldName) }.getOrNull()
             if (field == null) {
@@ -1269,6 +1311,9 @@ class KcefWebViewProvider(
 
         cefClient = client
         messageRouter = router
+        // createClient() above is what triggers CEF's deferred native initialization; wait for it
+        // so the init handler (cookie preload) and the first browser never race a half-started CEF.
+        awaitCefInitialized()
         initHandler.init(this)
     }
 
