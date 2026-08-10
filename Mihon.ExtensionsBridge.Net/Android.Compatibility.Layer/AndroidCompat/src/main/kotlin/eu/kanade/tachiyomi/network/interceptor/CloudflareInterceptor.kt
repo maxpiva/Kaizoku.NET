@@ -58,10 +58,11 @@ class CloudflareInterceptor(
             originalResponse.close()
             // network.cookieStore.remove(originalRequest.url.toUri())
 
-            val flareResponseFallback = Settings.flareSolverrAsResponseFallback
+            val target = with(CFClearance) { originalRequest.toFlareSolverTarget() }
+            val flareResponseFallback = Settings.flareSolverrAsResponseFallback && target.canUseResponseFallback
             val flareResponse =
                 runBlocking {
-                    CFClearance.resolveWithFlareSolver(originalRequest, !flareResponseFallback)
+                    CFClearance.resolveWithFlareSolver(originalRequest, target, !flareResponseFallback)
                 }
 
             if (flareResponse.message.contains("not detected", ignoreCase = true)) {
@@ -125,6 +126,41 @@ object CFClearance {
     private val jsonMediaType = "application/json".toMediaType()
     private val mutex = Mutex()
 
+    internal data class FlareSolverTarget(
+        val cmd: String,
+        val url: String,
+        val postData: String? = null,
+        val canUseResponseFallback: Boolean = true,
+    )
+
+    internal fun Request.toFlareSolverTarget(): FlareSolverTarget {
+        if (method == "GET") {
+            return FlareSolverTarget("request.get", url.toString())
+        }
+
+        val requestBody = body
+        if (method == "POST" && requestBody is FormBody) {
+            val postData =
+                Buffer()
+                    .also { requestBody.writeTo(it) }
+                    .readUtf8()
+            return FlareSolverTarget("request.post", url.toString(), postData)
+        }
+
+        // FlareSolverr's request.post only supports application/x-www-form-urlencoded.
+        // Solve at the origin for JSON and other request types, then retry the untouched
+        // original request with the returned clearance cookies.
+        val origin =
+            url
+                .newBuilder()
+                .encodedPath("/")
+                .encodedQuery(null)
+                .fragment(null)
+                .build()
+                .toString()
+        return FlareSolverTarget("request.get", origin, canUseResponseFallback = false)
+    }
+
     @Serializable
     data class FlareSolverCookie(
         val name: String,
@@ -179,8 +215,9 @@ object CFClearance {
         val version: String,
     )
 
-    suspend fun resolveWithFlareSolver(
+    internal suspend fun resolveWithFlareSolver(
         originalRequest: Request,
+        target: FlareSolverTarget,
         onlyCookies: Boolean,
     ): FlareSolverResponse {
         val timeout = Settings.flareSolverrTimeout.seconds
@@ -194,8 +231,8 @@ object CFClearance {
                                 Json
                                     .encodeToString(
                                         FlareSolverRequest(
-                                            "request.${originalRequest.method.lowercase()}",
-                                            originalRequest.url.toString(),
+                                            target.cmd,
+                                            target.url,
                                             session = Settings.flareSolverrSessionName,
                                             sessionTtlMinutes = Settings.flareSolverrSessionTtl,
                                             cookies =
@@ -207,22 +244,7 @@ object CFClearance {
                                                     },
                                             returnOnlyCookies = onlyCookies,
                                             maxTimeout = timeout.inWholeMilliseconds.toInt(),
-                                            postData =
-                                                if (originalRequest.method == "POST") {
-                                                    when (val body = originalRequest.body) {
-                                                        is FormBody -> {
-                                                            Buffer()
-                                                                .also { body.writeTo(it) }
-                                                                .readUtf8()
-                                                        }
-
-                                                        else -> {
-                                                            ""
-                                                        }
-                                                    }
-                                                } else {
-                                                    null
-                                                },
+                                            postData = target.postData,
                                         ),
                                     ).toRequestBody(jsonMediaType),
                         ),
