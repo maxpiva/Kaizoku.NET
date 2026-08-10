@@ -284,7 +284,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
             // (class, ctor descriptor, super <init> to call — null means the class's own superName)
             var ctorNeeded = new HashSet<(string cls, string desc, string? superToCall)>();
-            int retyped = 0, skippedMethods = 0, splitLocals = 0, itfFixed = 0;
+            int retyped = 0, skippedMethods = 0, splitLocals = 0, itfFixed = 0, ctorSuper = 0;
 
             foreach (var cn in nodes)
             {
@@ -326,15 +326,25 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     }
 
                     itfFixed += FixInterfaceStaticCalls(cn, mn, byName);
+
+                    // Isolated try: a failure here must not abort the conversion of the method.
+                    try
+                    {
+                        ctorSuper += FixConstructorSuperCalls(cn, mn, byName, ctorNeeded);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        _logger.LogTrace(ex, "DexNewInstanceCorrector: ctor super-call repair skipped {Class}.{Method}{Desc}", cn.name, mn.name, mn.desc);
+                    }
                 }
             }
 
             int synth = SynthesizeConstructors(byName, ctorNeeded);
 
-            if (retyped > 0 || synth > 0 || splitLocals > 0 || itfFixed > 0)
+            if (retyped > 0 || synth > 0 || splitLocals > 0 || itfFixed > 0 || ctorSuper > 0)
                 _logger.LogDebug(
-                    "DexNewInstanceCorrector: retypedNew={Retyped} synthCtors={Synth} splitLocals={SplitLocals} itfStaticFixed={ItfFixed} skippedMethods={Skipped}",
-                    retyped, synth, splitLocals, itfFixed, skippedMethods);
+                    "DexNewInstanceCorrector: retypedNew={Retyped} synthCtors={Synth} splitLocals={SplitLocals} itfStaticFixed={ItfFixed} ctorSuperRetargeted={CtorSuper} skippedMethods={Skipped}",
+                    retyped, synth, splitLocals, itfFixed, ctorSuper, skippedMethods);
         }
 
         /// <summary>
@@ -376,6 +386,118 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 _logger.LogTrace(
                     "DexNewInstanceCorrector: marked static interface call {Owner}.{Name}{CallDesc} in {Class}.{Method}{Desc}",
                     min.owner, min.name, min.desc, cn.name, mn.name, mn.desc);
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// Repairs R8's cross-superclass constructor chaining inside <c>&lt;init&gt;</c> bodies. When every
+        /// constructor between a class's direct superclass and some ancestor is a trivial pass-through, R8
+        /// strips those constructors and rewrites the subclass's <c>invoke-direct</c> to target the ancestor
+        /// directly (commonly <c>java/lang/Object</c>). ART accepts that; the JVM verifier requires <c>this</c>
+        /// to be initialised through the <em>direct</em> superclass and raises "Call to wrong initialization
+        /// method" (e.g. MangaDex's kotlinx-serialization DTO <c>g3 extends u</c>, whose <c>u.&lt;init&gt;</c>
+        /// R8 removed entirely, initialising via <c>Object.&lt;init&gt;</c>). Unlike the NEW-site shapes in
+        /// <see cref="FixMethod"/>, the receiver here is the uninitialised <c>this</c>, so there is no NEW to
+        /// anchor on: the call is retargeted to the direct superclass and the missing pass-through constructor
+        /// chain (super → … → proven ancestor ctor) is planned for <see cref="SynthesizeConstructors"/>.
+        /// </summary>
+        /// <returns>The number of retargeted constructor calls.</returns>
+        private int FixConstructorSuperCalls(ClassNode cn, MethodNode mn,
+            Dictionary<string, ClassNode> byName,
+            HashSet<(string cls, string desc, string? superToCall)> ctorNeeded)
+        {
+            if (mn.name != "<init>" || mn.instructions.size() == 0)
+                return 0;
+            string? super = cn.superName;
+            if (super == null || super == "java/lang/Object")
+                return 0;
+
+            // Candidates: invokespecial <init> whose owner is neither this class (this(...) delegation)
+            // nor the direct superclass, but is an ancestor of the direct superclass. Also bail if `this`
+            // is ever reassigned, so an ALOAD 0 below provably loads the incoming `this`.
+            var candidates = new List<MethodInsnNode>();
+            for (AbstractInsnNode p = mn.instructions.getFirst(); p != null; p = p.getNext())
+            {
+                if (p.getOpcode() == Opcodes.ASTORE && ((VarInsnNode)p).var == 0)
+                    return 0;
+                if (p.getOpcode() != Opcodes.INVOKESPECIAL)
+                    continue;
+                var c = (MethodInsnNode)p;
+                if (c.name != "<init>" || c.owner == cn.name || c.owner == super)
+                    continue;
+                if (c.owner != "java/lang/Object" && !IsAncestor(byName, super, c.owner))
+                    continue;
+                candidates.Add(c);
+            }
+            if (candidates.Count == 0)
+                return 0;
+
+            // Stock SourceInterpreter (no copy pass-through): a receiver loaded by ALOAD 0 reports that
+            // ALOAD as its only producing instruction, which distinguishes `this` from NEW results —
+            // those are the legal targets of an ancestor <init> and belong to FixMethod's shapes.
+            Frame[] frames;
+            try
+            {
+                frames = new Analyzer(new SourceInterpreter()).analyze(cn.name, mn);
+            }
+            catch (AnalyzerException ex)
+            {
+                _logger.LogTrace(ex,
+                    "DexNewInstanceCorrector: ctor dataflow analysis failed, skipping {Class}.{Method}{Desc}",
+                    cn.name, mn.name, mn.desc);
+                return 0;
+            }
+
+            var insns = mn.instructions.toArray();
+            var index = new Dictionary<AbstractInsnNode, int>(ReferenceEqualityComparer.Instance);
+            for (int i = 0; i < insns.Length; i++)
+                index[insns[i]] = i;
+
+            int n = 0;
+            foreach (var min in candidates)
+            {
+                if (!index.TryGetValue(min, out int i) || i >= frames.Length)
+                    continue;
+                var fr = frames[i];
+                if (fr == null)
+                    continue;
+                int argSize = org.objectweb.asm.Type.getArgumentTypes(min.desc).Length;
+                int recvIndex = fr.getStackSize() - 1 - argSize;
+                if (recvIndex < 0)
+                    continue;
+                var recv = (SourceValue)fr.getStack(recvIndex);
+                bool isThis = false;
+                foreach (var src in IterateInsns(recv.insns))
+                {
+                    if (src is VarInsnNode v && v.getOpcode() == Opcodes.ALOAD && v.var == 0)
+                    {
+                        isThis = true;
+                    }
+                    else
+                    {
+                        isThis = false;
+                        break;
+                    }
+                }
+                if (!isThis)
+                    continue;
+
+                var chain = PlanConstructorChain(byName, super, min.desc, min.owner);
+                if (chain == null)
+                {
+                    _logger.LogTrace(
+                        "DexNewInstanceCorrector: cannot synthesise ctor chain {Super}->{Owner}{CtorDesc} for {Class}.{Method}{Desc}",
+                        super, min.owner, min.desc, cn.name, mn.name, mn.desc);
+                    continue;
+                }
+                _logger.LogTrace(
+                    "DexNewInstanceCorrector: retargeted ctor super call {Owner}{CtorDesc} -> {Super} in {Class}.{Method}{Desc}",
+                    min.owner, min.desc, super, cn.name, mn.name, mn.desc);
+                min.owner = super;
+                foreach (var link in chain)
+                    ctorNeeded.Add(link);
+                n++;
             }
             return n;
         }
