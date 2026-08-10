@@ -223,80 +223,36 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
             if (rootKind == JsonValueKind.Object)
             {
-                var root = JsonSerializer.Deserialize<MihonIndexV2>(body, options);
+                var root = JsonSerializer.Deserialize<TachiyomiRepositoryV2>(body, options);
                 // Only the inline extension list variant of the oneof is supported;
                 // extensionListUrl (or anything else) falls through to the next candidate.
-                if (root?.ExtensionList?.Extensions == null)
+                if (root?.extensionList?.extensions == null)
                     return null;
-                return MapV2Extensions(root.ExtensionList.Extensions, logger);
+
+                var result = new List<TachiyomiExtension>();
+                foreach (var entry in root.extensionList.extensions)
+                {
+                    if (entry == null || string.IsNullOrWhiteSpace(entry.packageName))
+                    {
+                        logger?.LogWarning("Skipping index entry '{Name}': missing packageName.", entry?.name);
+                        continue;
+                    }
+                    if (string.IsNullOrWhiteSpace(entry.resources?.apkUrl))
+                    {
+                        logger?.LogWarning("Skipping index entry '{Package}': missing apkUrl.", entry.packageName);
+                        continue;
+                    }
+                    if (!int.TryParse(entry.versionCode, out _))
+                    {
+                        logger?.LogWarning("Skipping index entry '{Package}': unparseable versionCode '{VersionCode}'.", entry.packageName, entry.versionCode);
+                        continue;
+                    }
+                    result.Add(entry.ToTachiyomiExtension());
+                }
+                return result;
             }
 
             return null;
-        }
-
-        private static List<TachiyomiExtension> MapV2Extensions(List<MihonIndexV2Extension> entries, ILogger? logger)
-        {
-            var result = new List<TachiyomiExtension>();
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrWhiteSpace(entry.PackageName))
-                {
-                    logger?.LogWarning("Skipping index entry '{Name}': missing packageName.", entry.Name);
-                    continue;
-                }
-
-                var apk = ExtractFileNameFromUrl(entry.Resources?.ApkUrl);
-                if (string.IsNullOrWhiteSpace(apk))
-                {
-                    logger?.LogWarning("Skipping index entry '{Package}': missing or invalid apkUrl.", entry.PackageName);
-                    continue;
-                }
-
-                if (!int.TryParse(entry.VersionCode, out var versionCode))
-                {
-                    logger?.LogWarning("Skipping index entry '{Package}': unparseable versionCode '{VersionCode}'.", entry.PackageName, entry.VersionCode);
-                    continue;
-                }
-
-                var sources = entry.Sources ?? new List<MihonIndexV2Source>();
-                var languages = sources.Select(s => s.Language).Distinct().ToList();
-                var language = languages.Count == 1 && !string.IsNullOrWhiteSpace(languages[0]) ? languages[0]! : "all";
-
-                result.Add(new TachiyomiExtension
-                {
-                    Name = entry.Name ?? string.Empty,
-                    Package = entry.PackageName,
-                    Apk = apk,
-                    Language = language,
-                    VersionCode = versionCode,
-                    Version = entry.VersionName ?? string.Empty,
-                    Nsfw = entry.ContentWarning != null && entry.ContentWarning.EndsWith("NSFW", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
-                    IconUrl = entry.Resources?.IconUrl,
-                    Sources = sources.Select(s => new TachiyomiSource
-                    {
-                        Id = s.Id ?? string.Empty,
-                        Name = s.Name ?? string.Empty,
-                        Language = s.Language ?? string.Empty,
-                        BaseUrl = s.HomeUrl ?? string.Empty
-                    }).ToList()
-                });
-            }
-            return result;
-        }
-
-        private static string? ExtractFileNameFromUrl(string? url)
-        {
-            if (string.IsNullOrWhiteSpace(url))
-                return null;
-            var path = url;
-            var cut = path.IndexOfAny(new[] { '?', '#' });
-            if (cut >= 0)
-                path = path[..cut];
-            var slash = path.LastIndexOf('/');
-            var segment = slash >= 0 ? path[(slash + 1)..] : path;
-            if (string.IsNullOrWhiteSpace(segment))
-                return null;
-            return Uri.UnescapeDataString(segment);
         }
 
         /// <summary>
@@ -317,7 +273,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Version)) throw new ArgumentException("Extension Version cannot be null or whitespace.", nameof(workUnit));
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Package)) throw new ArgumentException("Extension Package cannot be null or whitespace.", nameof(workUnit));
 
-            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.GetApkFilename());
+            // GetApkUrl honours an absolute apkUrl from the new (Mihon 0.20+) index format and falls
+            // back to the conventional <repo>/apk/<file> layout for legacy repositories.
+            var apkUrl = workUnit.Entry.Extension.GetApkUrl(repository);
            
             var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.GetApkFilename());
             var client = CreateHttpClient();

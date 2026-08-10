@@ -33,8 +33,9 @@ public record TachiyomiExtension
     [JsonPropertyName("sources")]
     public List<TachiyomiSource> Sources { get; set; } = [];
     /// <summary>
-    /// Absolute icon URL from the new (Mihon 0.20+) repository index format.
-    /// Null for legacy-format repositories; absent in previously persisted repos.
+    /// Legacy-persisted absolute icon URL. New-format (Mihon 0.20+) parses now store the absolute
+    /// icon URL in <see cref="Icon"/>; this field remains only so repositories persisted by earlier
+    /// builds keep resolving their icons (see GetIconUrl's preference chain).
     /// </summary>
     [JsonPropertyName("iconUrl")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

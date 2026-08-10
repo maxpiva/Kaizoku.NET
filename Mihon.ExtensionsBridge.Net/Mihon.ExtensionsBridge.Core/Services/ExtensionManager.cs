@@ -433,7 +433,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 WorkingFolder = new PinnedDirectory(discoveryFolder)
             };
 
-            string apkPath = Path.Combine(discoveryFolder, ext.Apk);
+            // Apk holds an absolute URL for new-format (Mihon 0.20+) repositories; always resolve
+            // the local artifact by its filename.
+            string apkPath = Path.Combine(discoveryFolder, ext.GetApkFilename());
             if (File.Exists(apkPath))
             {
                 entry.Apk = await apkPath.CalculateFileHashAsync(token).ConfigureAwait(false);

@@ -338,9 +338,10 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 throw new ArgumentNullException(nameof(extension));
 
             List<TachiyomiSource> sources = extension.sources?.Select(s => s.ToTachiyomiSource()).ToList() ?? new List<TachiyomiSource>();
-            string language = sources.FirstOrDefault()?.Language ?? string.Empty;
-            if (sources.Count > 1)
-                language = "all";
+            // Multi-source extensions sharing one language keep it (e.g. two "en" sources);
+            // mixed or unknown languages collapse to "all", matching the legacy index's lang field.
+            var languages = sources.Select(s => s.Language).Distinct().ToList();
+            string language = languages.Count == 1 && !string.IsNullOrWhiteSpace(languages[0]) ? languages[0] : "all";
             return new TachiyomiExtension
             {
                 Name = extension.name,
