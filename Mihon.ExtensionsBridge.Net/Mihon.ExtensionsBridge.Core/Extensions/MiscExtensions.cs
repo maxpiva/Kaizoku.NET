@@ -76,12 +76,31 @@ public static class MiscExtensions
 
     public static string GetApkUrl(this TachiyomiExtension ext, TachiyomiRepository repository)
     {
+        if (ext.Apk.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+            return ext.Apk;
         return $"{RepoFromUrl(repository.Url)}/apk/{ext.Apk}";
+    }
+    public static string GetApkFilename(this TachiyomiExtension ext)
+    {
+        if (string.IsNullOrWhiteSpace(ext.Apk))
+            return "";
+        var path = ext.Apk;
+        var cut = path.IndexOfAny(new[] { '?', '#' });
+        if (cut >= 0)
+            path = path[..cut];
+        var slash = path.LastIndexOf('/');
+        var segment = slash >= 0 ? path[(slash + 1)..] : path;
+        if (string.IsNullOrWhiteSpace(segment))
+            return "";
+        return Uri.UnescapeDataString(segment);
+
     }
     public static string GetIconUrl(this TachiyomiExtension ext, TachiyomiRepository repository)
     {
         if (!string.IsNullOrWhiteSpace(ext.IconUrl))
             return ext.IconUrl;
+        if (!string.IsNullOrWhiteSpace(ext.Icon) && ext.Icon.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+            return ext.Icon;
         string iconName = ext.Package+"."+"png";
         return $"{RepoFromUrl(repository.Url)}/icon/{iconName}";
     }

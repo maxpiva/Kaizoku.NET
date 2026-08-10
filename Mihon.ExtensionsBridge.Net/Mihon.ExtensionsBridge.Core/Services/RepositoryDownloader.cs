@@ -60,7 +60,6 @@ namespace Mihon.ExtensionsBridge.Core.Services
             return client;
         }
 
-
         // index.json first: newer repos (keiyoushi) repurposed index.json as the new protojson
         // object format while leaving index.min.json as a legacy-format stub, so the legacy
         // file must only be used as a fallback.
@@ -133,6 +132,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
                 // Try index candidates: first file whose body parses as a known format wins.
                 List<TachiyomiExtension>? extensions = null;
+                int indexVersion = 1;
                 foreach (var fileName in index)
                 {
                     var candidateUrl = repository.Url.CombineUrl(fileName);
@@ -155,6 +155,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
                     }
 
                     extensions = parsed;
+                    using (JsonDocument indexDocument = JsonDocument.Parse(body))
+                        indexVersion = indexDocument.RootElement.ValueKind == JsonValueKind.Object ? 2 : 1;
                     usedUrl = candidateUrl;
                     break;
                 }
@@ -165,6 +167,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
                 _logger.LogInformation("Resolved repository index at: {ResolvedUrl}", usedUrl);
 
+                repository.Version = indexVersion;
                 repository.Extensions = extensions;
                 repository.LastUpdatedUTC = DateTimeOffset.UtcNow;
 
@@ -314,9 +317,9 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Version)) throw new ArgumentException("Extension Version cannot be null or whitespace.", nameof(workUnit));
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Package)) throw new ArgumentException("Extension Package cannot be null or whitespace.", nameof(workUnit));
 
-            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.Apk);
+            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.GetApkFilename());
            
-            var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.Apk);
+            var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.GetApkFilename());
             var client = CreateHttpClient();
             try
             {

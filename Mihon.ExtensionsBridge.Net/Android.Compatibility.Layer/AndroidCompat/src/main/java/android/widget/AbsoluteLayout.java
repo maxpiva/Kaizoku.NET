@@ -45,7 +45,7 @@ public class AbsoluteLayout extends ViewGroup {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        throw new RuntimeException("Stub!");
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
     @Override
@@ -56,7 +56,9 @@ public class AbsoluteLayout extends ViewGroup {
     @Override
     protected void onLayout(boolean changed, int l, int t,
             int r, int b) {
-       throw new RuntimeException("Stub!");
+        // AbsoluteLayout doesn't position children — it's a deprecated layout
+        // that relies on absolute coordinates. WebView extends AbsoluteLayout
+        // for backward compatibility but manages its own layout internally.
     }
 
     @Override
@@ -92,7 +94,6 @@ public class AbsoluteLayout extends ViewGroup {
 
         public LayoutParams(Context c, AttributeSet attrs) {
             super(c, attrs);
-            throw new RuntimeException("Stub!");
         }
 
         public LayoutParams(ViewGroup.LayoutParams source) {

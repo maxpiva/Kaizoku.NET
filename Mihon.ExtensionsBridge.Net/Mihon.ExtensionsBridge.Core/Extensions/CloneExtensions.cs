@@ -17,7 +17,8 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Name = source.Name,
                 Language = source.Language,
                 BaseUrl = source.BaseUrl,
-                VersionId = source.VersionId
+                VersionId = source.VersionId,
+                MirrorUrls = source.MirrorUrls,
             };
         }
 
@@ -34,6 +35,10 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 VersionCode = extension.VersionCode,
                 Version = extension.Version,
                 Nsfw = extension.Nsfw,
+                Mixed = extension.Mixed,
+                Icon = extension.Icon,
+                ExtensionLib = extension.ExtensionLib,
+                Jar = extension.Jar,
                 Sources = extension.Sources.ConvertAll(source => source.Clone())
             };
         }
@@ -48,6 +53,8 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Fingerprint = repository.Fingerprint,
                 Name = repository.Name,
                 WebSite = repository.WebSite,
+                Url = repository.Url,
+                Version = repository.Version,
                 Extensions = repository.Extensions.ConvertAll(extension => extension.Clone())
             };
         }

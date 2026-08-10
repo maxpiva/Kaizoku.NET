@@ -56,8 +56,15 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// their <c>&lt;init&gt;</c> calls, so the oracle now orders types by their constructor call (matching
         /// dex2jar's NEW emission sites) instead of raw allocation order, fixing leftover mispairing
         /// (ArrayTypeMismatch in generated getFilterList, wrong-subclass filter construction).
+        /// Bumped to 1.3.0 for three related fixes surfaced by BatCave/Bookwalker coroutine state machines:
+        /// the ancestor-<c>&lt;init&gt;</c> retarget (dex2jar keeps the correct <c>NEW T</c> but translates the
+        /// DEX's stripped-ctor <c>invoke-direct &lt;ancestor&gt;.&lt;init&gt;</c> verbatim — "Call to wrong
+        /// initialization method"), the interface bit on static calls to library interfaces
+        /// (<c>Job.cancel$default</c> — "interface method must be invoked using invokeinterface", with such
+        /// classes kept at v52), and max_stack padding so understated dex2jar values no longer abort the
+        /// corrector's dataflow analysis.
         /// </remarks>
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
@@ -229,7 +236,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 // DEX type names are normalised through the same replacement map Transform applied, so a
                 // replaced class reference (e.g. SimpleDateFormat) never miscounts as a mistranslation.
                 var corrector = new DexNewInstanceCorrector(oracle, _logger,
-                    type => _classesToReplace.Contains(type) ? REPLACEMENT_PATH + "/" + type : type);
+                    type => _classesToReplace.Contains(type) ? REPLACEMENT_PATH + "/" + type : type,
+                    IsLibraryInterface);
                 corrector.CorrectAll(entries.Select(e => e.node).ToList());
 
                 // Write each corrected class back (frame hygiene + version lowering applied per class).
@@ -244,6 +252,26 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 try { fs?.close(); } catch { /* ignore */ }
             }
 
+        }
+
+        /// <summary>
+        /// True when the given internal type name resolves to an interface on the compat classloader the
+        /// converted extension will run under. Used to repair dex2jar's interface-blindness on static
+        /// calls to library types (see <see cref="DexNewInstanceCorrector"/>); resolution is
+        /// initialization-free and any failure (type not present) counts as "not an interface".
+        /// </summary>
+        private static bool IsLibraryInterface(string internalName)
+        {
+            try
+            {
+                var cls = java.lang.Class.forName(internalName.Replace('/', '.'), false,
+                    Mihon.ExtensionsBridge.Core.Extensions.MiscExtensions.ClassLoader);
+                return cls.isInterface();
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool ShouldRemoveNamespace(string className)
