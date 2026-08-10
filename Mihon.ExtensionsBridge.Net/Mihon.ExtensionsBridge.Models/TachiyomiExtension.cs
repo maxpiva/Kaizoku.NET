@@ -30,8 +30,16 @@ public record TachiyomiExtension
     public int Nsfw { get; set; }
     [JsonPropertyName("mixed")]
     public int Mixed { get; set; }
-    [JsonPropertyName("sources")]    
+    [JsonPropertyName("sources")]
     public List<TachiyomiSource> Sources { get; set; } = [];
+    /// <summary>
+    /// Legacy-persisted absolute icon URL. New-format (Mihon 0.20+) parses now store the absolute
+    /// icon URL in <see cref="Icon"/>; this field remains only so repositories persisted by earlier
+    /// builds keep resolving their icons (see GetIconUrl's preference chain).
+    /// </summary>
+    [JsonPropertyName("iconUrl")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IconUrl { get; set; }
 }
 public record TachiyomiExtensionV2
 {

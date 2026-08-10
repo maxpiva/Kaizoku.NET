@@ -80,6 +80,25 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// </summary>
         private List<RepositoryGroup> LocalExtensions { get; } = [];
 
+        /// <summary>
+        /// Cache of shadow-loaded (discovery) interops keyed by extension folder name.
+        /// Discovery loads never touch <see cref="LocalExtensions"/> or the persisted local repository,
+        /// so nothing downstream (provider cache, jobs, Sources UI) can observe them as installed.
+        /// </summary>
+        private ConcurrentDictionary<string, Lazy<Task<GatekeptExtensionInterop>>> DiscoveryInterops { get; } = new();
+
+        /// <summary>
+        /// Maps extension package names to their <see cref="DiscoveryInterops"/> cache key, so a
+        /// loaded discovery interop can be looked up by package without knowing the folder name.
+        /// </summary>
+        private ConcurrentDictionary<string, string> DiscoveryPackages { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// In-flight discovery artifact preparations (download + dex2jar, no classload), keyed by
+        /// extension folder name so concurrent callers never duplicate work on the same APK.
+        /// </summary>
+        private ConcurrentDictionary<string, Lazy<Task<DiscoveryArtifact>>> DiscoveryPrepares { get; } = new();
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ExtensionManager"/> class.
@@ -289,6 +308,208 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 throw;
             }
         }
+        /// <summary>
+        /// Shadow-loads an online (not installed) extension for discovery searches and returns an interop for it.
+        /// </summary>
+        /// <remarks>
+        /// Pipeline mirrors <see cref="AddExtensionAsync(TachiyomiRepository, TachiyomiExtension, bool, CancellationToken)"/>
+        /// (download APK, parse manifest, dex2jar convert, classload) but artifacts live under
+        /// <c>extensions/_discovery/&lt;name&gt;/&lt;version&gt;_&lt;repoId&gt;_c&lt;converterVersion&gt;/</c> and the
+        /// extension is never added to <see cref="LocalExtensions"/> nor persisted, so it cannot appear installed.
+        /// Interops are cached per extension for reuse within the process lifetime and disposed on shutdown.
+        /// </remarks>
+        public async Task<IExtensionInterop> GetDiscoveryInteropAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            if (!_localInitialized)
+                throw new InvalidOperationException("Local extensions not initialized.");
+            if (extension == null) throw new ArgumentNullException(nameof(extension));
+
+            // If the extension is actually installed (any version), always use the normal installed interop.
+            (RepositoryGroup? group, RepositoryEntry? _) = await FindRepositoryEntryFromExtensionAsync(extension, token).ConfigureAwait(false);
+            if (group != null)
+                return await GetInteropAsync(group, token).ConfigureAwait(false);
+
+            string key = extension.GetName();
+            Lazy<Task<GatekeptExtensionInterop>> lazy = DiscoveryInterops.GetOrAdd(key, _ =>
+                new Lazy<Task<GatekeptExtensionInterop>>(
+                    () => CreateDiscoveryInteropAsync(extension.Clone()),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+            if (!string.IsNullOrEmpty(extension.Package))
+                DiscoveryPackages[extension.Package] = key;
+            try
+            {
+                // The shared creation task is detached from any single caller's token so that one
+                // cancelled caller doesn't poison the cache for everyone else; WaitAsync lets this
+                // caller give up while the download/conversion keeps running for later reuse.
+                return await lazy.Value.WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                DiscoveryInterops.TryRemove(key, out _);
+                _logger.LogError(ex, "Failed to shadow-load discovery extension {Name}.", key);
+                throw;
+            }
+        }
+
+        private async Task<GatekeptExtensionInterop> CreateDiscoveryInteropAsync(TachiyomiExtension extension)
+        {
+            DiscoveryArtifact artifact = await PrepareDiscoveryArtifactsAsync(extension, CancellationToken.None).ConfigureAwait(false);
+            GatekeptExtensionInterop interop = new GatekeptExtensionInterop(_workingStructure, artifact.Entry,
+                (wk, en, log) => new JarExtensionInterop(wk, en, log, artifact.Folder), _logger);
+            _logger.LogInformation("Shadow-loaded discovery extension {Name} version {Version} with {Count} sources.",
+                artifact.Entry.Name, artifact.Entry.Extension.Version, interop.Sources.Count);
+            return interop;
+        }
+
+        /// <summary>
+        /// Prepares the on-disk artifacts (download APK + dex2jar convert) for a not-installed extension
+        /// without classloading anything, so the JAR can be loaded by a worker process instead. Concurrent
+        /// calls for the same extension share one in-flight preparation; completed results are re-validated
+        /// from disk on the next call (both steps are cheap no-ops when the cached files exist).
+        /// </summary>
+        public async Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            if (!_localInitialized)
+                throw new InvalidOperationException("Local extensions not initialized.");
+            if (extension == null) throw new ArgumentNullException(nameof(extension));
+
+            string key = extension.GetName();
+            Lazy<Task<DiscoveryArtifact>> lazy = DiscoveryPrepares.GetOrAdd(key, _ =>
+                new Lazy<Task<DiscoveryArtifact>>(
+                    () => PrepareDiscoveryWorkUnitAsync(extension.Clone()),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+            try
+            {
+                // Like GetDiscoveryInteropAsync, the shared work is detached from any single caller's
+                // token; WaitAsync lets this caller give up while the preparation keeps running.
+                return await lazy.Value.WaitAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                // Only forget completed preparations (success or failure): success is re-validated
+                // cheaply from disk next time, failure becomes retryable. An in-flight task stays
+                // cached so a new caller never races a duplicate download/convert of the same APK.
+                if (lazy.Value.IsCompleted)
+                    DiscoveryPrepares.TryRemove(key, out _);
+            }
+        }
+
+        private async Task<DiscoveryArtifact> PrepareDiscoveryWorkUnitAsync(TachiyomiExtension extension)
+        {
+            // Deliberately not tied to a caller token: once the expensive download + dex2jar work
+            // starts it should run to completion so later discovery searches can reuse the artifacts.
+            CancellationToken token = CancellationToken.None;
+
+            var repositoryManager = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IInternalRepositoryManager>(_serviceProvider);
+            if (repositoryManager == null)
+                throw new InvalidOperationException("RepositoryManager service is not available.");
+            (TachiyomiRepository? repository, TachiyomiExtension? ext) = repositoryManager.FindRealRepository(extension);
+            if (repository == null || ext == null)
+                throw new InvalidOperationException("Extension's repository not found in online repositories.");
+            ext = ext.Clone(); // never mutate the online repository's own instance
+
+            RepositoryEntry entry = new RepositoryEntry
+            {
+                Name = ext.GetName(),
+                Extension = ext,
+                RepositoryId = repository.Id,
+                IsLocal = false
+            };
+
+            // Discovery artifacts live outside the installed-extension layout so nothing that scans
+            // or persists local extensions ever sees them. The converter version is part of the folder
+            // name so a dex2jar bump naturally invalidates previously cached jars.
+            string discoveryFolder = Path.Combine(_workingStructure.ExtensionsFolder, "_discovery",
+                entry.Name, $"{ext.Version}_{repository.Id}_c{_dex2Jar.Version}");
+            Directory.CreateDirectory(discoveryFolder);
+
+            ExtensionWorkUnit unit = new ExtensionWorkUnit
+            {
+                Entry = entry,
+                WorkingFolder = new PinnedDirectory(discoveryFolder)
+            };
+
+            // Apk holds an absolute URL for new-format (Mihon 0.20+) repositories; always resolve
+            // the local artifact by its filename.
+            string apkPath = Path.Combine(discoveryFolder, ext.GetApkFilename());
+            if (File.Exists(apkPath))
+            {
+                entry.Apk = await apkPath.CalculateFileHashAsync(token).ConfigureAwait(false);
+                entry.DownloadUTC = DateTimeOffset.UtcNow;
+                _logger.LogInformation("Reusing cached discovery APK for {Apk}.", ext.Apk);
+            }
+            else
+            {
+                using (IServiceScope scope = _serviceProvider.CreateScope())
+                {
+                    var downloader = scope.ServiceProvider.GetRequiredService<IRepositoryDownloader>();
+                    await downloader.DownloadExtensionAsync(repository, unit, token).ConfigureAwait(false);
+                }
+                _logger.LogInformation("Downloaded discovery extension {Apk} version {Version}.", ext.Apk, ext.Version);
+            }
+
+            unit = await WorkUnitFromManifestAsync(unit, token).ConfigureAwait(false);
+
+            string jarPath = Path.ChangeExtension(Path.Combine(discoveryFolder, unit.Entry.Apk.FileName), ".jar");
+            if (File.Exists(jarPath))
+            {
+                unit.Entry.Jar = await jarPath.CalculateFileHashAsync(_dex2Jar.Version, token).ConfigureAwait(false);
+                _logger.LogInformation("Reusing cached discovery JAR for {Apk}.", ext.Apk);
+            }
+            else
+            {
+                bool converted = await _dex2Jar.ConvertAsync(unit, token).ConfigureAwait(false);
+                if (!converted)
+                    throw new InvalidOperationException($"DEX to JAR conversion failed for discovery extension {ext.Apk}.");
+            }
+
+            return new DiscoveryArtifact { Entry = unit.Entry, Folder = discoveryFolder };
+        }
+
+        /// <summary>
+        /// Returns the already shadow-loaded discovery interop for a package, or null.
+        /// Never triggers a shadow-load: only interops that a discovery search has fully
+        /// created (and that are still cached) are returned.
+        /// </summary>
+        public IExtensionInterop? TryGetLoadedDiscoveryInterop(string package)
+        {
+            if (string.IsNullOrEmpty(package))
+                return null;
+            if (!DiscoveryPackages.TryGetValue(package, out string? key))
+                return null;
+            if (!DiscoveryInterops.TryGetValue(key, out var lazyInterop) || !lazyInterop.IsValueCreated)
+                return null;
+            Task<GatekeptExtensionInterop> task = lazyInterop.Value;
+            return task.IsCompletedSuccessfully ? task.Result : null;
+        }
+
+        /// <summary>
+        /// Drops (and disposes) a cached discovery interop, e.g. after the extension gets properly installed.
+        /// </summary>
+        private void RemoveDiscoveryInterop(string name)
+        {
+            foreach (var pkg in DiscoveryPackages.Where(kv => kv.Value == name).Select(kv => kv.Key).ToList())
+            {
+                DiscoveryPackages.TryRemove(pkg, out _);
+            }
+            if (DiscoveryInterops.TryRemove(name, out var lazyInterop) && lazyInterop.IsValueCreated)
+            {
+                try
+                {
+                    if (lazyInterop.Value.IsCompletedSuccessfully)
+                        lazyInterop.Value.Result.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error disposing discovery interop {Name}.", name);
+                }
+            }
+        }
+
         public RepositoryGroup? FindExtension(RepositoryGroup grp) => FindExtension(grp.Name);
         public RepositoryGroup? FindExtension(string name)
         {
@@ -819,6 +1040,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
                 group = await UpdateEntriesAsync(group, entry, token). ConfigureAwait(false);
                 await _workingStructure.SaveLocalRepositoryGroupsAsync(LocalExtensions, token). ConfigureAwait(false);
                 _logger.LogInformation("Persisted local repository groups after adding/updating extension {Apk} version {Version}.", extension.GetApkFilename(), extension.Version);
+                // A properly installed extension supersedes any discovery shadow-load of the same extension.
+                RemoveDiscoveryInterop(extension.GetName());
                 return group;
             }
             catch (OperationCanceledException)
@@ -1075,6 +1298,14 @@ namespace Mihon.ExtensionsBridge.Core.Services
 
                 // Ensure cache is empty
                 InteropCache.Clear();
+
+                // Dispose any shadow-loaded discovery interops as well.
+                foreach (var discoveryKey in DiscoveryInterops.Keys.ToList())
+                {
+                    RemoveDiscoveryInterop(discoveryKey);
+                }
+                DiscoveryInterops.Clear();
+                DiscoveryPackages.Clear();
 
                 _logger.LogInformation("Shutdown completed: Interop cache cleared.");
             }

@@ -220,6 +220,13 @@ public class TitleMatcher
         }
     }
 
+    /// <summary>
+    /// Public, allocation-light title normalization for building/querying token indexes (e.g. the
+    /// snapshot search index). Delegates to the same private <see cref="Normalize"/> used by scoring
+    /// so index tokens and match tokens agree exactly.
+    /// </summary>
+    public static string NormalizeForIndex(string title) => Normalize(title);
+
     private static string Normalize(string value)
     {
         value = RemoveDiacritics(value).ToLowerInvariant();

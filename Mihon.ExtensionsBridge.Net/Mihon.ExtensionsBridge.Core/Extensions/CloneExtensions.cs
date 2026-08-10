@@ -37,6 +37,7 @@ namespace Mihon.ExtensionsBridge.Core.Extensions
                 Nsfw = extension.Nsfw,
                 Mixed = extension.Mixed,
                 Icon = extension.Icon,
+                IconUrl = extension.IconUrl,
                 ExtensionLib = extension.ExtensionLib,
                 Jar = extension.Jar,
                 Sources = extension.Sources.ConvertAll(source => source.Clone())

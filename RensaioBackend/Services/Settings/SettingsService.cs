@@ -8,12 +8,16 @@ using RensaioBackend.Services.Jobs;
 using RensaioBackend.Services.Jobs.Models;
 using RensaioBackend.Services.Jobs.Settings;
 using RensaioBackend.Services.Providers;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace RensaioBackend.Services.Settings
@@ -23,14 +27,17 @@ namespace RensaioBackend.Services.Settings
         private readonly IConfiguration _config;
         private readonly AppDbContext _db;
         private readonly IServiceScopeFactory _prov;
+        private readonly ILogger<SettingsService> _logger;
 
         private static SettingsDto? _settings;
 
-        public SettingsService(IConfiguration config, IServiceScopeFactory prov, AppDbContext db)
+        public SettingsService(IConfiguration config, IServiceScopeFactory prov, AppDbContext db,
+            ILogger<SettingsService>? logger = null)
         {
             _config = config;
             _db = db;
             _prov = prov;
+            _logger = logger ?? NullLogger<SettingsService>.Instance;
 
         }
 
@@ -68,8 +75,11 @@ namespace RensaioBackend.Services.Settings
                         setting.Value = p.GetValue(editableSettings)?.ToString() ?? string.Empty;
                         break;
                     case "string[]":
-                        string[] array = (string[])p.GetValue(editableSettings)!;
-                        setting.Value = string.Join('|', array);
+                        string[] array = p.GetValue(editableSettings) as string[] ?? [];
+                        // Persist as JSON: entries such as ContributionSourceAllowlist's
+                        // "package|numericSourceId" contain '|' and would be corrupted by a
+                        // '|'-joined round-trip. Reads fall back to the legacy '|' format.
+                        setting.Value = JsonSerializer.Serialize(array);
                         break;
                     case "int32":
                         setting.Value = p.GetValue(editableSettings)?.ToString() ?? "0";
@@ -118,7 +128,7 @@ namespace RensaioBackend.Services.Settings
                     {
                         case "string[]":
                             string[] split = p.GetValue(defaultValues) as string[] ?? [];
-                            value = string.Join('|', split);
+                            value = JsonSerializer.Serialize(split);
                             break;
                         default:
                             // Use InvariantCulture for numeric types to avoid culture-specific decimal separators
@@ -177,8 +187,7 @@ namespace RensaioBackend.Services.Settings
                         p.SetValue(newEditableSettings, setting.Value);
                         break;
                     case "string[]":
-                        string[] split = setting.Value.Split('|');
-                        p.SetValue(newEditableSettings, split);
+                        p.SetValue(newEditableSettings, ParseStringArray(setting.Value));
                         break;
                     case "int32":
                         p.SetValue(newEditableSettings, int.TryParse(setting.Value, out int intValue) ? intValue : 0);
@@ -200,6 +209,28 @@ namespace RensaioBackend.Services.Settings
             }
             return (needSave, newEditableSettings);
         }
+        /// <summary>
+        /// Parses a persisted string-array setting. New values are stored as JSON arrays;
+        /// values from existing databases use the legacy '|'-joined format, so anything that
+        /// does not parse as a JSON array falls back to a '|' split.
+        /// </summary>
+        private static string[] ParseStringArray(string value)
+        {
+            if (value.TrimStart().StartsWith('['))
+            {
+                try
+                {
+                    return JsonSerializer.Deserialize<string[]>(value) ?? [];
+                }
+                catch (JsonException)
+                {
+                    // Not actually JSON (e.g. a legacy value that happens to start with '[');
+                    // fall through to the legacy format.
+                }
+            }
+            return value.Split('|');
+        }
+
         private static string JoinAndSortArray(string[] array)
         {
             return string.Join('|', array.OrderBy(a => a));
@@ -229,8 +260,133 @@ namespace RensaioBackend.Services.Settings
             }
         }
 
+        /// <summary>
+        /// Placeholder the settings API returns instead of the stored contributor UUID
+        /// (GET /api/settings is reachable without auth, and the UUID is the upload
+        /// credential). A PUT that round-trips the sentinel keeps the stored value.
+        /// </summary>
+        public const string UuidSentinel = "__SET__";
+
+        /// <summary>
+        /// Resolves the incoming contributor UUID against the sentinel contract: the sentinel
+        /// keeps the currently stored value, a parseable UUID (or empty, to clear) replaces it,
+        /// and anything else is rejected.
+        /// </summary>
+        public static void ApplyContributorUuidPolicy(EditableSettingsDto set, EditableSettingsDto? current)
+        {
+            if (set.ContributionContributorUuid == UuidSentinel)
+                set.ContributionContributorUuid = current?.ContributionContributorUuid ?? string.Empty;
+            else if (!string.IsNullOrWhiteSpace(set.ContributionContributorUuid) &&
+                     !Guid.TryParse(set.ContributionContributorUuid, out _))
+                throw new ArgumentException("contributionContributorUuid must be a UUID.", nameof(set));
+        }
+
+        /// <summary>
+        /// Endpoint path segments <see cref="Contributions.Upload.ContributionUploadClient"/> appends
+        /// to the configured base URL. A pasted full endpoint link (e.g.
+        /// "https://contribution.rensaio.net/contributor?contributor=&lt;uuid&gt;", the shape of the
+        /// example link shown in the UI) ends in one of these, which is how normalization tells it
+        /// apart from a legitimate base-URL subpath (a self-hosted worker can live under its own
+        /// subpath, e.g. "https://host/worker").
+        /// </summary>
+        private static readonly string[] UploadWorkerEndpointSegments = ["contributor", "upload"];
+
+        /// <summary>
+        /// Normalizes and validates a contribution worker base URL entered as a raw setting value:
+        /// trims whitespace, prepends "https://" when the value has no scheme, strips a query
+        /// string/fragment and (for <paramref name="stripKnownEndpointSegment"/> callers) a trailing
+        /// endpoint path segment that indicate the value is a pasted full worker link rather than a
+        /// base URL, and throws <see cref="ArgumentException"/> — the same rejection mechanism as
+        /// <see cref="ApplyContributorUuidPolicy"/>'s malformed-UUID case — when what remains still
+        /// isn't an absolute http(s) URL. A legitimate base path (e.g. a self-hosted worker under a
+        /// subpath, or the default snapshot export's "/maxpiva/Rensaio-Metadata/main") is preserved.
+        /// Anything normalized away is appended to <paramref name="warnings"/> for the caller to log;
+        /// a stray "contributor=&lt;uuid&gt;" query pair is never adopted into the stored contributor
+        /// UUID — it is only ever stripped and logged, since a URL field must never become a source of
+        /// truth for a credential.
+        /// </summary>
+        private static string NormalizeContributionUrl(string fieldName, string? rawValue,
+            bool stripKnownEndpointSegment, string? contributorUuid, ICollection<string> warnings)
+        {
+            string trimmed = (rawValue ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+                return trimmed;
+
+            string candidate = trimmed;
+            if (!candidate.Contains("://", StringComparison.Ordinal))
+            {
+                candidate = "https://" + candidate;
+                warnings.Add($"{fieldName} had no scheme; assumed https://.");
+            }
+
+            if (!Uri.TryCreate(candidate, UriKind.Absolute, out Uri? uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+                string.IsNullOrEmpty(uri.Host))
+                throw new ArgumentException($"{fieldName} must be a valid absolute http(s) URL.", fieldName);
+
+            string path = uri.AbsolutePath;
+            if (stripKnownEndpointSegment)
+            {
+                string trimmedPath = path.TrimEnd('/');
+                string? matched = UploadWorkerEndpointSegments.FirstOrDefault(seg =>
+                    trimmedPath.EndsWith("/" + seg, StringComparison.OrdinalIgnoreCase));
+                if (matched != null)
+                {
+                    path = trimmedPath[..^(matched.Length + 1)];
+                    warnings.Add($"{fieldName} looked like a pasted worker endpoint link (\"/{matched}\"); trimmed to its base URL.");
+                }
+            }
+
+            if (uri.Query.Length > 0)
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+                bool hadContributorParam = query.TryGetValue("contributor", out var contributorValues) &&
+                    contributorValues.Any(v => Guid.TryParse(v, out _));
+                if (hadContributorParam)
+                {
+                    warnings.Add($"{fieldName} contained a 'contributor' query parameter; it was removed and NOT " +
+                        (string.IsNullOrWhiteSpace(contributorUuid)
+                            ? "applied to the stored contributor UUID (which is currently empty)."
+                            : "applied to the stored contributor UUID."));
+                }
+                else
+                {
+                    warnings.Add($"{fieldName} contained a query string that was removed.");
+                }
+            }
+            if (uri.Fragment.Length > 0)
+                warnings.Add($"{fieldName} contained a fragment that was removed.");
+
+            // A bare root path ("/") is not a meaningful base path; drop it so a scheme-only
+            // input round-trips as "https://host" rather than "https://host/".
+            if (path == "/")
+                path = string.Empty;
+
+            return $"{uri.Scheme}://{uri.Authority}{path}";
+        }
+
+        /// <summary>
+        /// Normalizes and validates <see cref="EditableSettingsDto.ContributionUploadUrl"/> and
+        /// <see cref="EditableSettingsDto.ContributionSnapshotUrl"/> in place. Returns any
+        /// human-readable warnings describing what was normalized away, for the caller to log.
+        /// </summary>
+        public static List<string> ApplyContributionUrlPolicy(EditableSettingsDto set)
+        {
+            var warnings = new List<string>();
+            set.ContributionUploadUrl = NormalizeContributionUrl(
+                "contributionUploadUrl", set.ContributionUploadUrl, stripKnownEndpointSegment: true,
+                set.ContributionContributorUuid, warnings);
+            set.ContributionSnapshotUrl = NormalizeContributionUrl(
+                "contributionSnapshotUrl", set.ContributionSnapshotUrl, stripKnownEndpointSegment: false,
+                set.ContributionContributorUuid, warnings);
+            return warnings;
+        }
+
         public async Task SaveSettingsAsync(EditableSettingsDto set, bool force = false, CancellationToken token = default)
         {
+            ApplyContributorUuidPolicy(set, _settings);
+            foreach (string warning in ApplyContributionUrlPolicy(set))
+                _logger.LogWarning("{Warning}", warning);
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
                 set.ChapterDownloadFailRetries != _settings?.ChapterDownloadFailRetries ||
                 set.ChapterDownloadFailRetryTime != _settings?.ChapterDownloadFailRetryTime || 
@@ -244,6 +400,31 @@ namespace RensaioBackend.Services.Settings
             {
                 await SetTimesSettingsAsync(set, token).ConfigureAwait(false);
             }
+            // The discovery-eligible extension set depends on preferred languages and NSFW
+            // visibility; re-run the artifact precache job when they (or its own toggles) change.
+            if (_settings != null &&
+                (JoinAndSortArray(set.PreferredLanguages) != JoinAndSortArray(_settings.PreferredLanguages) ||
+                 set.NsfwVisibility != _settings.NsfwVisibility ||
+                 set.DiscoveryPrecacheEnabled != _settings.DiscoveryPrecacheEnabled ||
+                 set.DiscoveryIncludeInSearch != _settings.DiscoveryIncludeInSearch ||
+                 set.MaxDiscoverySearchExtensions != _settings.MaxDiscoverySearchExtensions))
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageDiscoveryPrecacheAsync(
+                    set.DiscoveryIncludeInSearch && set.DiscoveryPrecacheEnabled, runNow: true, token).ConfigureAwait(false);
+            }
+            bool contributionSettingsChanged = _settings != null &&
+                (set.ContributionCollectorEnabled != _settings.ContributionCollectorEnabled ||
+                 JoinAndSortArray(set.ContributionPackageAllowlist) != JoinAndSortArray(_settings.ContributionPackageAllowlist) ||
+                 JoinAndSortArray(set.ContributionSourceAllowlist) != JoinAndSortArray(_settings.ContributionSourceAllowlist));
+            bool contributionUploadSettingsChanged = _settings != null &&
+                (set.ContributionUploadEnabled != _settings.ContributionUploadEnabled ||
+                 !string.Equals(set.ContributionContributorUuid, _settings.ContributionContributorUuid, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(set.ContributionUploadUrl, _settings.ContributionUploadUrl, StringComparison.OrdinalIgnoreCase));
+            bool contributionSnapshotSettingsChanged = _settings != null &&
+                (set.ContributionSnapshotEnabled != _settings.ContributionSnapshotEnabled ||
+                 !string.Equals(set.ContributionSnapshotUrl, _settings.ContributionSnapshotUrl, StringComparison.OrdinalIgnoreCase));
             using (var scope = _prov.CreateScope())
             {
                 MihonBridgeService bridgeManager = scope.ServiceProvider.GetRequiredService<MihonBridgeService>();
@@ -316,6 +497,27 @@ namespace RensaioBackend.Services.Settings
             if (needSave)
                 await _db.SaveChangesAsync(token).ConfigureAwait(false);
             _settings = GetFromEditableSettings(set);
+            if (contributionSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionCollectorAsync(
+                    set.ContributionCollectorEnabled, runNow: set.ContributionCollectorEnabled, token).ConfigureAwait(false);
+            }
+            if (contributionUploadSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionUploaderAsync(
+                    set.ContributionUploadEnabled, runNow: set.ContributionUploadEnabled, token).ConfigureAwait(false);
+            }
+            if (contributionSnapshotSettingsChanged)
+            {
+                using var jobScope = _prov.CreateScope();
+                var jobBusiness = jobScope.ServiceProvider.GetRequiredService<JobBusinessService>();
+                await jobBusiness.ManageContributionSnapshotAsync(
+                    set.ContributionSnapshotEnabled, runNow: set.ContributionSnapshotEnabled, token).ConfigureAwait(false);
+            }
         }
         
         public async Task SaveSettingsAsync(SettingsDto settings, bool force, CancellationToken token = default)
@@ -328,6 +530,22 @@ namespace RensaioBackend.Services.Settings
                 NumberOfSimultaneousDownloads = settings.NumberOfSimultaneousDownloads,
                 NumberOfSimultaneousDownloadsPerProvider = settings.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = settings.NumberOfSimultaneousSearches,
+                MaxDiscoverySearchExtensions = settings.MaxDiscoverySearchExtensions,
+                DiscoverySearchWorkersEnabled = settings.DiscoverySearchWorkersEnabled,
+                DiscoveryWorkerBatchSize = settings.DiscoveryWorkerBatchSize,
+                MaxDiscoveryWorkers = settings.MaxDiscoveryWorkers,
+                DiscoveryIncludeInSearch = settings.DiscoveryIncludeInSearch,
+                DiscoveryPrecacheEnabled = settings.DiscoveryPrecacheEnabled,
+                DiscoveryWarmPoolEnabled = settings.DiscoveryWarmPoolEnabled,
+                DiscoveryWorkerIdleTimeout = settings.DiscoveryWorkerIdleTimeout,
+                ContributionCollectorEnabled = settings.ContributionCollectorEnabled,
+                ContributionPackageAllowlist = settings.ContributionPackageAllowlist,
+                ContributionSourceAllowlist = settings.ContributionSourceAllowlist,
+                ContributionUploadEnabled = settings.ContributionUploadEnabled,
+                ContributionContributorUuid = settings.ContributionContributorUuid,
+                ContributionUploadUrl = settings.ContributionUploadUrl,
+                ContributionSnapshotEnabled = settings.ContributionSnapshotEnabled,
+                ContributionSnapshotUrl = settings.ContributionSnapshotUrl,
                 ChapterDownloadFailRetryTime = settings.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = settings.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = settings.PerTitleUpdateSchedule,
@@ -370,6 +588,22 @@ namespace RensaioBackend.Services.Settings
                 NumberOfSimultaneousDownloads = ed.NumberOfSimultaneousDownloads,
                 NumberOfSimultaneousDownloadsPerProvider = ed.NumberOfSimultaneousDownloadsPerProvider,
                 NumberOfSimultaneousSearches = ed.NumberOfSimultaneousSearches,
+                MaxDiscoverySearchExtensions = ed.MaxDiscoverySearchExtensions,
+                DiscoverySearchWorkersEnabled = ed.DiscoverySearchWorkersEnabled,
+                DiscoveryWorkerBatchSize = ed.DiscoveryWorkerBatchSize,
+                MaxDiscoveryWorkers = ed.MaxDiscoveryWorkers,
+                DiscoveryIncludeInSearch = ed.DiscoveryIncludeInSearch,
+                DiscoveryPrecacheEnabled = ed.DiscoveryPrecacheEnabled,
+                DiscoveryWarmPoolEnabled = ed.DiscoveryWarmPoolEnabled,
+                DiscoveryWorkerIdleTimeout = ed.DiscoveryWorkerIdleTimeout,
+                ContributionCollectorEnabled = ed.ContributionCollectorEnabled,
+                ContributionPackageAllowlist = ed.ContributionPackageAllowlist,
+                ContributionSourceAllowlist = ed.ContributionSourceAllowlist,
+                ContributionUploadEnabled = ed.ContributionUploadEnabled,
+                ContributionContributorUuid = ed.ContributionContributorUuid,
+                ContributionUploadUrl = ed.ContributionUploadUrl,
+                ContributionSnapshotEnabled = ed.ContributionSnapshotEnabled,
+                ContributionSnapshotUrl = ed.ContributionSnapshotUrl,
                 ChapterDownloadFailRetryTime = ed.ChapterDownloadFailRetryTime,
                 ChapterDownloadFailRetries = ed.ChapterDownloadFailRetries,
                 PerTitleUpdateSchedule = ed.PerTitleUpdateSchedule,
@@ -456,6 +690,20 @@ namespace RensaioBackend.Services.Settings
             if (needSave)
                 await SaveSettingsAsync(_settings, true, token).ConfigureAwait(false);
             return _settings;
+        }
+
+        /// <summary>
+        /// Settings as served by the API: a copy with the contributor UUID replaced by
+        /// <see cref="UuidSentinel"/> when one is stored, so the credential never leaves
+        /// the backend.
+        /// </summary>
+        public async ValueTask<SettingsDto> GetMaskedSettingsAsync(CancellationToken token = default)
+        {
+            SettingsDto settings = await GetSettingsAsync(token).ConfigureAwait(false);
+            SettingsDto masked = GetFromEditableSettings(settings);
+            if (!string.IsNullOrEmpty(masked.ContributionContributorUuid))
+                masked.ContributionContributorUuid = UuidSentinel;
+            return masked;
         }
     }
 }

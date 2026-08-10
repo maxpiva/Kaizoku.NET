@@ -18,15 +18,18 @@ namespace RensaioBackend.Services.Images.Providers
         private readonly AppDbContext _db;
         private readonly CacheOptions _options;
         private readonly MihonBridgeService _mihonBridgeService;
+        private readonly Services.Search.Discovery.DiscoverySourceHeaderRegistry _discoveryHeaders;
 
 
-        public UrlImageProvider(ILogger<UrlImageProvider> logger, IHttpClientFactory factory, AppDbContext db, IOptions<CacheOptions> options, MihonBridgeService mihonBridgeService)
+        public UrlImageProvider(ILogger<UrlImageProvider> logger, IHttpClientFactory factory, AppDbContext db, IOptions<CacheOptions> options,
+            MihonBridgeService mihonBridgeService, Services.Search.Discovery.DiscoverySourceHeaderRegistry discoveryHeaders)
         {
             _logger = logger;
             _factory = factory;
             _db = db;
             _options = options.Value;
             _mihonBridgeService = mihonBridgeService;
+            _discoveryHeaders = discoveryHeaders;
         }
 
         public static async Task<string> ComputeMd5HashFromStreamAsync(Stream stream, CancellationToken token = default)
@@ -94,6 +97,29 @@ namespace RensaioBackend.Services.Images.Providers
             return null;
         }
 
+        /// <summary>
+        /// Resolves the source interop for a Mihon provider id. When the extension is not installed
+        /// (discovery search results), falls back to an already shadow-loaded discovery interop so
+        /// covers can be fetched with the source's own HTTP client/headers. Never triggers a
+        /// shadow-load just to render a thumbnail — only interops the discovery search already
+        /// loaded are reused.
+        /// </summary>
+        private async Task<ISourceInterop?> ResolveSourceInteropAsync(string mihonProviderId)
+        {
+            try
+            {
+                return await _mihonBridgeService.SourceFromProviderIdAsync(mihonProviderId).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Not installed (or unresolvable) — try a shadow-loaded discovery extension.
+                ISourceInterop? discovery = _mihonBridgeService.TryGetLoadedDiscoverySource(mihonProviderId);
+                if (discovery == null)
+                    _logger.LogDebug("No installed or shadow-loaded source available for provider {ProviderId}.", mihonProviderId);
+                return discovery;
+            }
+        }
+
         public async Task UpdateCacheWithRemoteAsync(EtagCacheEntity cache, HttpClient httpClient, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(cache.Url))
@@ -139,10 +165,10 @@ namespace RensaioBackend.Services.Images.Providers
                 if (response.StatusCode != HttpStatusCode.OK)
                 {
                     //try source
+                    bool recovered = false;
                     if (cache.MihonProviderId != null)
                     {
-
-                        ISourceInterop interop = await _mihonBridgeService.SourceFromProviderIdAsync(cache.MihonProviderId).ConfigureAwait(false);
+                        ISourceInterop? interop = await ResolveSourceInteropAsync(cache.MihonProviderId).ConfigureAwait(false);
                         if (interop != null)
                         {
                             ContentTypeStream? image;
@@ -161,17 +187,42 @@ namespace RensaioBackend.Services.Images.Providers
                             if (image == null)
                                 return; //Warning already logged in the wrapper
                             await image.CopyToAsync(memoryStream, token).ConfigureAwait(false);
+                            recovered = true;
                         }
                         else
+                        {
+                            // No interop in this process (worker-mode discovery). Replay the plain
+                            // request with the headers the source's own HTTP client would send
+                            // (referer/user-agent checks are the common cover-blocker; Cloudflare
+                            // walls may still refuse — acceptable).
+                            var replayHeaders = _discoveryHeaders.Get(cache.MihonProviderId);
+                            if (replayHeaders != null)
+                            {
+                                using var replayRequest = new HttpRequestMessage(HttpMethod.Get, cache.Url);
+                                foreach (var kv in replayHeaders)
+                                {
+                                    replayRequest.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+                                }
+                                using var replayResponse = await httpClient.SendAsync(replayRequest, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+                                if (replayResponse.StatusCode == HttpStatusCode.OK)
+                                {
+                                    await replayResponse.Content.CopyToAsync(memoryStream, token).ConfigureAwait(false);
+                                    string? replayMediaType = replayResponse.Content.Headers.ContentType?.MediaType;
+                                    if (!string.IsNullOrEmpty(replayMediaType))
+                                        mediaType = replayMediaType;
+                                    recovered = true;
+                                    _logger.LogDebug("Recovered image {Key} by replaying the discovery source's headers.", cache.Key);
+                                }
+                            }
+                        }
+                    }
+                    if (!recovered)
+                    {
+                        if (memoryStream.Length == 0)
                         {
                             _logger.LogWarning("Error downloading the image for {Key}. Http error: {StatusCode}", cache.Key, response.StatusCode);
                             return;
                         }
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Error downloading the image for {Key}. Http error: {StatusCode}", cache.Key, response.StatusCode);
-                        return;
                     }
                 }
                 else

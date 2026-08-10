@@ -33,6 +33,7 @@ export interface AddSeriesState {
   selectedLinkedSeries: string[]; // Array of LinkedSeries IDs
   searchKeyword: string;
   allLinkedSeries: LinkedSeries[];
+  discoveryLinkedSeries: LinkedSeries[]; // Results from not-installed sources (discovery search)
   fullSeries: FullSeries[];
   originalAugmentedResponse?: AugmentedResponse; // Store the original response for final submission
   storagePath?: string; // User-edited storage path

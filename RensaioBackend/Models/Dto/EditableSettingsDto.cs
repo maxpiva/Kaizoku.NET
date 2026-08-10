@@ -13,6 +13,100 @@ public class EditableSettingsDto
 
     [JsonPropertyName("numberOfSimultaneousSearches")]
     public int NumberOfSimultaneousSearches { get; set; } = 10;
+
+    /// <summary>
+    /// Upper bound on how many not-installed extensions a single discovery
+    /// ("search more sources") request will shadow-load and search.
+    /// </summary>
+    [JsonPropertyName("maxDiscoverySearchExtensions")]
+    public int MaxDiscoverySearchExtensions { get; set; } = 0;
+
+    /// <summary>
+    /// When true (default), discovery searches classload and search not-installed extensions in
+    /// short-lived worker processes so their memory is returned to the OS afterwards and a crashing
+    /// extension cannot take down the backend. When false (or when a worker cannot be spawned),
+    /// the legacy in-process shadow-load path is used.
+    /// </summary>
+    [JsonPropertyName("discoverySearchWorkersEnabled")]
+    public bool DiscoverySearchWorkersEnabled { get; set; } = true;
+
+    /// <summary>
+    /// How many extensions a single discovery worker process handles before it exits and is
+    /// replaced (bounds per-worker memory growth, since loaded JARs cannot be unloaded).
+    /// </summary>
+    [JsonPropertyName("discoveryWorkerBatchSize")]
+    public int DiscoveryWorkerBatchSize { get; set; } = 10;
+
+    /// <summary>
+    /// Maximum number of discovery worker processes running concurrently.
+    /// </summary>
+    [JsonPropertyName("maxDiscoveryWorkers")]
+    public int MaxDiscoveryWorkers { get; set; } = 2;
+
+    /// <summary>
+    /// When true (default), discovery workers stay resident between sweeps with their classloaded
+    /// extensions warm, so repeat searches skip the classload entirely. When false, every worker
+    /// exits after its batch (pre-warm-pool behavior).
+    /// </summary>
+    [JsonPropertyName("discoveryWarmPoolEnabled")]
+    public bool DiscoveryWarmPoolEnabled { get; set; } = true;
+
+    /// <summary>
+    /// How long an idle warm discovery worker stays resident before being recycled.
+    /// </summary>
+    [JsonPropertyName("discoveryWorkerIdleTimeout")]
+    public TimeSpan DiscoveryWorkerIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Enables the local contribution collector. Disabled unless explicitly opted in.</summary>
+    [JsonPropertyName("contributionCollectorEnabled")]
+    public bool ContributionCollectorEnabled { get; set; } = false;
+
+    /// <summary>Extension package names the collector is allowed to load.</summary>
+    [JsonPropertyName("contributionPackageAllowlist")]
+    public string[] ContributionPackageAllowlist { get; set; } = [];
+
+    /// <summary>Source identities in package|numericSourceId form the collector is allowed to query.</summary>
+    [JsonPropertyName("contributionSourceAllowlist")]
+    public string[] ContributionSourceAllowlist { get; set; } = [];
+
+    /// <summary>Enables uploading collected contributions to the cloud contribution DB. Off by default.</summary>
+    [JsonPropertyName("contributionUploadEnabled")]
+    public bool ContributionUploadEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Contributor UUID authenticating uploads. Secret: the settings API returns the
+    /// "__SET__" sentinel instead of the stored value; see SettingsService.UuidSentinel.
+    /// </summary>
+    [JsonPropertyName("contributionContributorUuid")]
+    public string ContributionContributorUuid { get; set; } = "";
+
+    /// <summary>Base URL of the contribution worker.</summary>
+    [JsonPropertyName("contributionUploadUrl")]
+    public string ContributionUploadUrl { get; set; } = "https://contribution.rensaio.net";
+
+    /// <summary>Enables downloading the cloud contribution snapshot export. Off by default.</summary>
+    [JsonPropertyName("contributionSnapshotEnabled")]
+    public bool ContributionSnapshotEnabled { get; set; } = false;
+
+    /// <summary>Base URL the snapshot export (titles.json, sources.json, metadata.json) is served from.</summary>
+    [JsonPropertyName("contributionSnapshotUrl")]
+    public string ContributionSnapshotUrl { get; set; } = "https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main";
+
+    /// <summary>
+    /// Master toggle: when true (default), every search automatically also sweeps eligible
+    /// not-installed sources and streams those results into the same list. When false, search is
+    /// installed-sources only and no discovery affordance is shown.
+    /// </summary>
+    [JsonPropertyName("discoveryIncludeInSearch")]
+    public bool DiscoveryIncludeInSearch { get; set; } = true;
+
+    /// <summary>
+    /// When true (default), a low-priority background job pre-downloads and pre-converts the
+    /// artifacts of all eligible not-installed extensions so the first discovery search never pays
+    /// the cold download+dex2jar cost.
+    /// </summary>
+    [JsonPropertyName("discoveryPrecacheEnabled")]
+    public bool DiscoveryPrecacheEnabled { get; set; } = true;
     [JsonPropertyName("chapterDownloadFailRetryTime")]
     public TimeSpan ChapterDownloadFailRetryTime { get; set; } = TimeSpan.FromMinutes(30);
     [JsonPropertyName("chapterDownloadFailRetries")]

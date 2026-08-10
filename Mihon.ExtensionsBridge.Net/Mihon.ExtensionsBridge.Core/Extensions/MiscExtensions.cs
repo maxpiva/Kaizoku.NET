@@ -97,7 +97,9 @@ public static class MiscExtensions
     }
     public static string GetIconUrl(this TachiyomiExtension ext, TachiyomiRepository repository)
     {
-        if (ext.Icon!=null && ext.Icon.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(ext.IconUrl))
+            return ext.IconUrl;
+        if (!string.IsNullOrWhiteSpace(ext.Icon) && ext.Icon.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
             return ext.Icon;
         string iconName = ext.Package+"."+"png";
         return $"{RepoFromUrl(repository.Url)}/icon/{iconName}";

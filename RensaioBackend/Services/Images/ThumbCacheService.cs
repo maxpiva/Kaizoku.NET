@@ -30,6 +30,14 @@ namespace RensaioBackend.Services.Images
         private readonly static Dictionary<string, EtagCacheEntity> _etagCache = new Dictionary<string,EtagCacheEntity>();
         private readonly static SemaphoreSlim _urlLock = new SemaphoreSlim(1);
         private readonly static SemaphoreSlim _eTagLock = new SemaphoreSlim(1);
+        /// <summary>
+        /// Serializes ETagCache row creation across ALL scopes/DbContexts. Streaming discovery
+        /// sweeps register hundreds of thumb URLs concurrently with normal searches; unserialized,
+        /// those concurrent SQLite writes (worse, ones aborted mid-command by a sweep cancellation)
+        /// corrupt Microsoft.Data.Sqlite's connection pool (NRE in SqliteConnectionPool.Return).
+        /// Lock ordering: _urlLock may be held when taking this; never the reverse.
+        /// </summary>
+        private readonly static SemaphoreSlim _urlWriteLock = new SemaphoreSlim(1);
 
         public ThumbCacheService(IOptions<CacheOptions> options,
             ILogger<ThumbCacheService> logger,
@@ -119,7 +127,9 @@ namespace RensaioBackend.Services.Images
                 }
                 Dictionary<string, List<IThumb>> allUrl = all.GroupBy(a => a.ThumbnailUrl, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
-                etags = await _db.ETagCache.AsNoTracking().Where(e => allUrl.Keys.Contains(e.Url)).ToListAsync(token).ConfigureAwait(false);                
+                // Deliberately not cancellable mid-command (see AddInternalUrlAsync): an aborted
+                // SQLite command poisons the connection pool, and this lookup is cheap.
+                etags = await _db.ETagCache.AsNoTracking().Where(e => allUrl.Keys.Contains(e.Url)).ToListAsync(CancellationToken.None).ConfigureAwait(false);
                 foreach(EtagCacheEntity m in etags)
                 {
                     List<IThumb> allT = allUrl[m.Url];
@@ -221,19 +231,48 @@ namespace RensaioBackend.Services.Images
                 if (provider == null)
                     return null;
                 string key = Guid.NewGuid().ToString("N");
-                var existingEntry = await _db.ETagCache.FirstOrDefaultAsync(e => e.Url == url, token).ConfigureAwait(false);
-                if (existingEntry != null)
-                    return existingEntry;
-                var newCacheEntry = new Models.Database.EtagCacheEntity
+                // The caller's token is honored only while waiting for the write gate. Once the
+                // DB work starts it runs to completion with CancellationToken.None: aborting a
+                // SQLite command mid-flight (e.g. a cancelled discovery sweep) poisons the
+                // Microsoft.Data.Sqlite connection pool, and these check+insert writes are
+                // millisecond-scale anyway.
+                await _urlWriteLock.WaitAsync(token).ConfigureAwait(false);
+                try
                 {
-                    Key = key,
-                    Url = url,
-                    MihonProviderId = mihonProviderId,
-                    NextUpdateUTC = DateTime.UtcNow.Add(GetCacheDuration())
-                };
-                await _db.ETagCache.AddAsync(newCacheEntry, token).ConfigureAwait(false);
-                await _db.SaveChangesAsync(token).ConfigureAwait(false);
-                return newCacheEntry;
+                    var existingEntry = await _db.ETagCache.FirstOrDefaultAsync(e => e.Url == url, CancellationToken.None).ConfigureAwait(false);
+                    if (existingEntry != null)
+                    {
+                        // Backfill the provider id on rows created without one (e.g. discovery thumbs
+                        // registered via PopulateThumbsAsync before the source association was known),
+                        // so the image cache's source-interop fallback can fetch protected covers.
+                        if (string.IsNullOrEmpty(existingEntry.MihonProviderId) && !string.IsNullOrEmpty(mihonProviderId))
+                        {
+                            existingEntry.MihonProviderId = mihonProviderId;
+                            await _db.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+                        }
+                        return existingEntry;
+                    }
+                    var newCacheEntry = new Models.Database.EtagCacheEntity
+                    {
+                        Key = key,
+                        Url = url,
+                        MihonProviderId = mihonProviderId,
+                        NextUpdateUTC = DateTime.UtcNow.Add(GetCacheDuration())
+                    };
+                    await _db.ETagCache.AddAsync(newCacheEntry, CancellationToken.None).ConfigureAwait(false);
+                    await _db.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+                    return newCacheEntry;
+                }
+                finally
+                {
+                    _urlWriteLock.Release();
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // Cancelled before the write started (waiting for the gate) — losing a thumb
+                // registration is fine and must never throw past this service.
+                return null;
             }
             catch (Exception ex)
             {

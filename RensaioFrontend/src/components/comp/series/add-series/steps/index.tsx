@@ -12,6 +12,7 @@ import {
 import React from "react";
 import { useAddSeries } from "@/lib/api/hooks/useSeries";
 import { useAugmentSeries } from "@/lib/api/hooks/useSearch";
+import { providerService } from "@/lib/api/services/providerService";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { type LinkedSeries, type FullSeries, type ExistingSource, type AugmentedResponse } from "@/lib/api/types";
@@ -53,6 +54,7 @@ export function AddSeriesSteps({
     selectedLinkedSeries: [],
     searchKeyword: title || "",
     allLinkedSeries: [],
+    discoveryLinkedSeries: [],
     fullSeries: [],
     originalAugmentedResponse: undefined,
     storagePath: undefined,
@@ -62,6 +64,7 @@ export function AddSeriesSteps({
   const [canProgress, setCanProgress] = React.useState(false);
   const [pendingNextStep, setPendingNextStep] = React.useState(false);
   const [currentStep, setCurrentStep] = React.useState(0);
+  const [isInstallingExtensions, setIsInstallingExtensions] = React.useState(false);
 
   const addSeries = useAddSeries();
   const augmentSeries = useAugmentSeries();
@@ -108,12 +111,60 @@ export function AddSeriesSteps({
     }
   };
 
+  /**
+   * Installs the extensions backing any selected discovery ("not installed") results
+   * via the normal install flow, so the standard augment/add pipeline can proceed.
+   * Returns false (and surfaces the error) if any install fails.
+   */
+  const installMissingExtensions = async (selectedLinked: LinkedSeries[]): Promise<boolean> => {
+    const notInstalled = selectedLinked.filter(s => s.installed === false && s.extensionPkg);
+    if (notInstalled.length === 0) return true;
+
+    // Dedupe by package; keep the repo name for a deterministic install.
+    const packages = new Map<string, string | undefined>();
+    notInstalled.forEach(s => {
+      if (!packages.has(s.extensionPkg!)) packages.set(s.extensionPkg!, s.extensionRepoName ?? undefined);
+    });
+
+    setIsInstallingExtensions(true);
+    try {
+      for (const [pkg, repoName] of packages) {
+        const label = notInstalled.find(s => s.extensionPkg === pkg)?.extensionName ?? pkg;
+        toast({ title: "Installing extension", description: `Installing ${label}…` });
+        await providerService.installProvider(pkg, repoName ? { repoName } : undefined);
+      }
+      // Mark the affected results as installed so a retry/back-navigation doesn't reinstall.
+      const installedPkgs = new Set(packages.keys());
+      setFormState(prev => ({
+        ...prev,
+        allLinkedSeries: prev.allLinkedSeries.map(s =>
+          s.extensionPkg && installedPkgs.has(s.extensionPkg) ? { ...s, installed: true } : s
+        ),
+        discoveryLinkedSeries: prev.discoveryLinkedSeries.map(s =>
+          s.extensionPkg && installedPkgs.has(s.extensionPkg) ? { ...s, installed: true } : s
+        ),
+      }));
+      return true;
+    } catch (err) {
+      console.error('Failed to install extension:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to install extension.';
+      setError(msg);
+      toast({ title: 'Failed to install extension', description: msg, variant: 'destructive' });
+      return false;
+    } finally {
+      setIsInstallingExtensions(false);
+    }
+  };
+
   const handleNext = async () => {
     try {
       const allLinkedSeries = formState.allLinkedSeries;
       const selectedLinked: LinkedSeries[] = allLinkedSeries.filter((series: LinkedSeries) =>
         formState.selectedLinkedSeries.includes(series.mihonId ?? series.providerId)
       );
+      // Discovery results first need their extension installed via the normal install flow.
+      const installed = await installMissingExtensions(selectedLinked);
+      if (!installed) return;
       const augmentedResponse = await augmentSeries.mutateAsync(selectedLinked);
 
       if (isAddSourcesMode && seriesId) {
@@ -145,7 +196,7 @@ export function AddSeriesSteps({
     setCurrentStep((step) => Math.max(0, step - 1));
   };
 
-  const isPending = Boolean(augmentSeries.isPending) || Boolean(addSeries.isPending);
+  const isPending = Boolean(augmentSeries.isPending) || Boolean(addSeries.isPending) || isInstallingExtensions;
   const isStage0 = currentStep === 0;
 
   const getButtonLabel = (): { label: string; icon: React.ReactNode } => {

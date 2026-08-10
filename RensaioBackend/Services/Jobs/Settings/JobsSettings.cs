@@ -34,7 +34,11 @@ namespace RensaioBackend.Services.Jobs.Settings
             { JobType.UpdateExtensions, TimeSpan.FromHours(1)},
             { JobType.GetChapters, TimeSpan.FromHours(2)},
             { JobType.GetLatest, TimeSpan.FromMinutes(30)},
-            { JobType.DailyUpdate,TimeSpan.FromDays(1)}
+            { JobType.DailyUpdate,TimeSpan.FromDays(1)},
+            { JobType.PrepareDiscovery, TimeSpan.FromDays(1)},
+            { JobType.CollectContributions, TimeSpan.FromDays(1)},
+            { JobType.UploadContributions, TimeSpan.FromDays(1)},
+            { JobType.DownloadContributionSnapshot, TimeSpan.FromDays(1)}
         };
     }
 }

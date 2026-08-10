@@ -15,16 +15,23 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/auth-context";
 import { useMutation } from "@tanstack/react-query";
 import { userService } from "@/lib/api/services/userService";
-import { UserIcon, Upload } from "lucide-react";
+import { UserIcon, Upload, Download } from "lucide-react";
 import { fetchGravatarBase64 } from "@/lib/gravatar";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, Save, Loader2, GripVertical } from "lucide-react";
+import { Plus, X, Save, Loader2, GripVertical, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   useSettings,
   useAvailableLanguages,
   useUpdateSettings,
 } from "@/lib/api/hooks/useSettings";
+import {
+  useContributionCollectorStatus,
+  useRunContributionCollector,
+  useRunContributionUpload,
+  useRunContributionSnapshot,
+  useValidateContributor,
+} from "@/lib/api/hooks/useContributionCollector";
 import { type Settings, NsfwVisibility } from "@/lib/api/types";
 import { useToast } from "@/hooks/use-toast";
 import ReactCountryFlag from "react-country-flag";
@@ -124,6 +131,35 @@ const timeInputToTimeSpanSeconds = (timeInput: string): string => {
 
   return `${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
 };
+
+const formatCollectorDate = (value?: string | null): string => {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+};
+
+const getCollectorStateLabel = (state?: string | null): string => {
+  const normalized = (state ?? "idle").trim();
+  return normalized
+    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+    : "Idle";
+};
+
+// States during which the backend has an active or imminent run.
+const ACTIVE_COLLECTOR_STATES = new Set(["queued", "running", "yielding"]);
+
+const isCollectorActive = (state?: string | null): boolean =>
+  ACTIVE_COLLECTOR_STATES.has((state ?? "").toLowerCase());
+
+/** Placeholder the settings API returns instead of the stored contributor UUID. */
+const UUID_SENTINEL = "__SET__";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Sortable Language Badge Component
 function SortableLanguageBadge({
@@ -353,8 +389,14 @@ function ContentPreferencesSection({
           className="space-y-2"
         >
           <div className="flex items-center gap-2">
-            <RadioGroupItem value={NsfwVisibility.AlwaysHide} id="nsfw-always-hide" />
-            <Label htmlFor="nsfw-always-hide" className="cursor-pointer text-sm">
+            <RadioGroupItem
+              value={NsfwVisibility.AlwaysHide}
+              id="nsfw-always-hide"
+            />
+            <Label
+              htmlFor="nsfw-always-hide"
+              className="cursor-pointer text-sm"
+            >
               Always hide
             </Label>
             <span className="text-muted-foreground text-xs">
@@ -362,8 +404,14 @@ function ContentPreferencesSection({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <RadioGroupItem value={NsfwVisibility.HideByDefault} id="nsfw-hide-default" />
-            <Label htmlFor="nsfw-hide-default" className="cursor-pointer text-sm">
+            <RadioGroupItem
+              value={NsfwVisibility.HideByDefault}
+              id="nsfw-hide-default"
+            />
+            <Label
+              htmlFor="nsfw-hide-default"
+              className="cursor-pointer text-sm"
+            >
               Hide by default
             </Label>
             <span className="text-muted-foreground text-xs">
@@ -464,10 +512,138 @@ function DownloadSettingsSection({
   localSettings: Settings;
   setLocalSettings: (updater: (prev: Settings) => Settings) => void;
 }) {
+  const { canOwner } = useAuth();
+  const { toast } = useToast();
+  const collectorEnabled = localSettings.contributionCollectorEnabled ?? false;
+  const uploadEnabled = localSettings.contributionUploadEnabled ?? false;
+  const snapshotEnabled = localSettings.contributionSnapshotEnabled ?? false;
+  const statusQuery = useContributionCollectorStatus(
+    canOwner && (collectorEnabled || uploadEnabled || snapshotEnabled),
+  );
+  const runCollectorMutation = useRunContributionCollector();
+  const runUploadMutation = useRunContributionUpload();
+  const runSnapshotMutation = useRunContributionSnapshot();
+  const validateContributorMutation = useValidateContributor();
+  const collectorStatus = statusQuery.data;
+  const collectorActive = isCollectorActive(collectorStatus?.state);
+  const uploadStatus = collectorStatus?.upload;
+  const uploadActive = isCollectorActive(uploadStatus?.state);
+  const uploadBanned = (uploadStatus?.state ?? "").toLowerCase() === "banned";
+  const snapshotStatus = collectorStatus?.snapshot;
+  const snapshotActive = isCollectorActive(snapshotStatus?.state);
+  // Latches: once the fetched settings carried the sentinel we know a UUID is stored,
+  // so emptying the input restores the sentinel instead of clearing the stored value.
+  const hadStoredUuidRef = React.useRef(false);
+  if (localSettings.contributionContributorUuid === UUID_SENTINEL)
+    hadStoredUuidRef.current = true;
+  const uuidIsSentinel =
+    localSettings.contributionContributorUuid === UUID_SENTINEL;
+  const uuidValue = uuidIsSentinel
+    ? ""
+    : (localSettings.contributionContributorUuid ?? "");
+  const uuidLooksInvalid = uuidValue !== "" && !UUID_PATTERN.test(uuidValue);
+  const runDisabled =
+    !canOwner ||
+    !collectorEnabled ||
+    statusQuery.isLoading ||
+    collectorStatus?.enabled === false ||
+    collectorActive ||
+    runCollectorMutation.isPending;
+
+  const handleRunCollector = async () => {
+    try {
+      await runCollectorMutation.mutateAsync();
+      toast({
+        title: "Contribution run started",
+        description: "Collector status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Collector did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the collector status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRunUpload = async () => {
+    try {
+      await runUploadMutation.mutateAsync();
+      toast({
+        title: "Contribution upload started",
+        description: "Upload status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Upload did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the upload status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRunSnapshot = async () => {
+    try {
+      await runSnapshotMutation.mutateAsync();
+      toast({
+        title: "Snapshot download started",
+        description: "Snapshot status will update here while it runs.",
+      });
+    } catch (error) {
+      toast({
+        title: "Snapshot download did not start",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check the snapshot status and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleValidateContributor = async () => {
+    try {
+      const result = await validateContributorMutation.mutateAsync();
+      if (result.valid && result.active) {
+        toast({
+          title: "Contributor UUID is valid",
+          description: result.admin
+            ? "Validated with admin privileges."
+            : "Validated and active.",
+        });
+      } else {
+        toast({
+          title: result.valid
+            ? "Contributor is not active"
+            : "Contributor UUID was rejected",
+          description:
+            result.banReason ??
+            result.error ??
+            "The contribution worker did not accept the stored UUID.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Validation failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Could not reach the contribution worker.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <CardContent className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
-        {" "}
         <div>
           <Label htmlFor="simultaneous-downloads">
             Number of Simultaneous Downloads
@@ -532,6 +708,465 @@ function DownloadSettingsSection({
             Maximum number of searches that can run simultaneously
           </p>
         </div>
+        <div className="flex items-center space-x-2">
+          <Switch
+            id="discovery-include-in-search"
+            checked={localSettings.discoveryIncludeInSearch ?? true}
+            onCheckedChange={(checked) =>
+              setLocalSettings((prev) => ({
+                ...prev,
+                discoveryIncludeInSearch: checked,
+              }))
+            }
+          />
+          <Label htmlFor="discovery-include-in-search">
+            Include not-installed sources in search results
+          </Label>
+        </div>
+        <p className="text-muted-foreground mt-1 text-sm md:col-span-2">
+          When enabled, searching for a series also sweeps sources whose
+          extensions are not installed and streams the matches into the same
+          results list. Selecting one installs the extension automatically.
+        </p>
+        {(localSettings.discoveryIncludeInSearch ?? true) && (
+          <div className="border-muted space-y-2 border-l-2 pl-6 md:col-span-2">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="discovery-precache-enabled"
+                checked={localSettings.discoveryPrecacheEnabled ?? true}
+                onCheckedChange={(checked) =>
+                  setLocalSettings((prev) => ({
+                    ...prev,
+                    discoveryPrecacheEnabled: checked,
+                  }))
+                }
+              />
+              <Label htmlFor="discovery-precache-enabled">
+                Prepare not-installed sources in the background
+              </Label>
+            </div>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Pre-downloads and converts eligible extensions at low priority so
+              the first search of the day is never slowed down by cold
+              conversions.
+            </p>
+          </div>
+        )}
+        {canOwner && (
+          <div className="border-muted bg-muted/20 space-y-3 rounded-lg border p-4 md:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="contribution-collector-enabled"
+                    checked={collectorEnabled}
+                    onCheckedChange={(checked) =>
+                      setLocalSettings((prev) => ({
+                        ...prev,
+                        contributionCollectorEnabled: checked,
+                      }))
+                    }
+                  />
+                  <Label htmlFor="contribution-collector-enabled">
+                    Enable contribution collector
+                  </Label>
+                </div>
+                <p className="text-muted-foreground text-sm">
+                  Enabling this contacts third-party sources during collection
+                  runs and saves local contribution data for future sharing.
+                </p>
+              </div>
+              {collectorEnabled && (
+                <Badge
+                  variant={
+                    statusQuery.isError
+                      ? "destructive"
+                      : collectorActive
+                        ? "default"
+                        : "secondary"
+                  }
+                  className="w-fit"
+                >
+                  {statusQuery.isError
+                    ? "Status unavailable"
+                    : statusQuery.isFetching && !collectorActive
+                      ? "Checking"
+                      : getCollectorStateLabel(collectorStatus?.state)}
+                </Badge>
+              )}
+            </div>
+
+            {collectorEnabled && (
+              <Card className="bg-background/70 shadow-none">
+                <CardContent className="space-y-3 p-4">
+                  <div className="grid gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <p className="text-muted-foreground">Last started</p>
+                      <p className="font-medium">
+                        {formatCollectorDate(collectorStatus?.lastStartedUtc)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last completed</p>
+                      <p className="font-medium">
+                        {formatCollectorDate(collectorStatus?.lastCompletedUtc)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Items collected</p>
+                      <p className="font-medium">
+                        {collectorStatus?.itemsCollected ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                  {statusQuery.isError && (
+                    <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                      Could not load collector status
+                      {statusQuery.error instanceof Error &&
+                      statusQuery.error.message
+                        ? `: ${statusQuery.error.message}`
+                        : "."}
+                    </div>
+                  )}
+                  {collectorStatus?.lastError && (
+                    <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                      {collectorStatus.lastError}
+                    </div>
+                  )}
+                  {collectorStatus?.enabled === false && (
+                    <p className="text-muted-foreground text-sm">
+                      Save settings before starting the collector.
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleRunCollector()}
+                    disabled={runDisabled}
+                    className="w-full sm:w-auto"
+                  >
+                    {runCollectorMutation.isPending || collectorActive ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    {collectorActive
+                      ? getCollectorStateLabel(collectorStatus?.state)
+                      : "Run now"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="border-muted space-y-3 border-t pt-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="contribution-upload-enabled"
+                      checked={uploadEnabled}
+                      onCheckedChange={(checked) =>
+                        setLocalSettings((prev) => ({
+                          ...prev,
+                          contributionUploadEnabled: checked,
+                        }))
+                      }
+                    />
+                    <Label htmlFor="contribution-upload-enabled">
+                      Upload contributions to the shared database
+                    </Label>
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    Sends collected series data to the community contribution
+                    database. Requires a contributor UUID issued by the
+                    project.
+                  </p>
+                </div>
+                {uploadEnabled && (
+                  <Badge
+                    variant={
+                      uploadBanned ||
+                      uploadStatus?.state === "failed" ||
+                      uploadStatus?.state === "invalid"
+                        ? "destructive"
+                        : uploadActive
+                          ? "default"
+                          : "secondary"
+                    }
+                    className="w-fit"
+                  >
+                    {getCollectorStateLabel(uploadStatus?.state)}
+                  </Badge>
+                )}
+              </div>
+
+              {uploadEnabled && (
+                <Card className="bg-background/70 shadow-none">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label htmlFor="contribution-contributor-uuid">
+                          Contributor UUID
+                        </Label>
+                        <Input
+                          id="contribution-contributor-uuid"
+                          type="password"
+                          autoComplete="off"
+                          value={uuidValue}
+                          placeholder={
+                            uuidIsSentinel
+                              ? "Saved — type to replace"
+                              : "e.g. 123e4567-e89b-42d3-a456-426614174000"
+                          }
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setLocalSettings((prev) => ({
+                              ...prev,
+                              contributionContributorUuid:
+                                next === "" && hadStoredUuidRef.current
+                                  ? UUID_SENTINEL
+                                  : next,
+                            }));
+                          }}
+                        />
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          {uuidLooksInvalid
+                            ? "This does not look like a UUID; saving will be rejected."
+                            : "Stored securely on the server and never shown again."}
+                        </p>
+                      </div>
+                      <div>
+                        <Label htmlFor="contribution-upload-url">
+                          Worker URL (advanced)
+                        </Label>
+                        <Input
+                          id="contribution-upload-url"
+                          type="text"
+                          value={
+                            localSettings.contributionUploadUrl ??
+                            "https://contribution.rensaio.net"
+                          }
+                          onChange={(e) =>
+                            setLocalSettings((prev) => ({
+                              ...prev,
+                              contributionUploadUrl: e.target.value,
+                            }))
+                          }
+                        />
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          Leave as-is unless you run your own contribution
+                          worker. Changing it re-uploads everything.
+                        </p>
+                      </div>
+                    </div>
+
+                    {uploadBanned && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm font-medium">
+                        This contributor has been banned
+                        {uploadStatus?.contributor?.banReason
+                          ? `: ${uploadStatus.contributor.banReason}`
+                          : "."}{" "}
+                        Uploads are rejected until the ban is lifted.
+                      </div>
+                    )}
+                    {!uploadBanned && uploadStatus?.lastError && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                        {uploadStatus.lastError}
+                      </div>
+                    )}
+                    {uploadStatus && (
+                      <p className="text-muted-foreground text-sm">
+                        Last upload:{" "}
+                        {formatCollectorDate(uploadStatus.lastCompletedUtc)}
+                        {" · "}
+                        {uploadStatus.uploaded} uploaded,{" "}
+                        {uploadStatus.skipped} unchanged,{" "}
+                        {uploadStatus.failed} rejected
+                      </p>
+                    )}
+                    {uploadStatus?.enabled === false && (
+                      <p className="text-muted-foreground text-sm">
+                        Save settings before starting an upload.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleValidateContributor()}
+                        disabled={
+                          !canOwner || validateContributorMutation.isPending
+                        }
+                      >
+                        {validateContributorMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <UserIcon className="mr-2 h-4 w-4" />
+                        )}
+                        Validate UUID
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleRunUpload()}
+                        disabled={
+                          !canOwner ||
+                          statusQuery.isLoading ||
+                          uploadStatus?.enabled === false ||
+                          uploadActive ||
+                          uploadBanned ||
+                          runUploadMutation.isPending
+                        }
+                      >
+                        {runUploadMutation.isPending || uploadActive ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="mr-2 h-4 w-4" />
+                        )}
+                        {uploadActive
+                          ? getCollectorStateLabel(uploadStatus?.state)
+                          : "Upload now"}
+                      </Button>
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                      Validation checks the UUID currently saved on the server
+                      — save settings first after changing it.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            <div className="border-muted space-y-3 border-t pt-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="contribution-snapshot-enabled"
+                      checked={snapshotEnabled}
+                      onCheckedChange={(checked) =>
+                        setLocalSettings((prev) => ({
+                          ...prev,
+                          contributionSnapshotEnabled: checked,
+                        }))
+                      }
+                    />
+                    <Label htmlFor="contribution-snapshot-enabled">
+                      Community snapshot
+                    </Label>
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    Downloads the public community contribution snapshot so
+                    match suggestions benefit from data other users have
+                    shared, and surfaces its series in discovery search. No
+                    contributor UUID required.
+                  </p>
+                </div>
+                {snapshotEnabled && (
+                  <Badge
+                    variant={
+                      statusQuery.isError || snapshotStatus?.state === "failed"
+                        ? "destructive"
+                        : snapshotActive
+                          ? "default"
+                          : "secondary"
+                    }
+                    className="w-fit"
+                  >
+                    {statusQuery.isError
+                      ? "Status unavailable"
+                      : statusQuery.isFetching && !snapshotActive
+                        ? "Checking"
+                        : getCollectorStateLabel(snapshotStatus?.state)}
+                  </Badge>
+                )}
+              </div>
+
+              {snapshotEnabled && (
+                <Card className="bg-background/70 shadow-none">
+                  <CardContent className="space-y-3 p-4">
+                    <div>
+                      <Label htmlFor="contribution-snapshot-url">
+                        Snapshot URL (advanced)
+                      </Label>
+                      <Input
+                        id="contribution-snapshot-url"
+                        type="text"
+                        value={
+                          localSettings.contributionSnapshotUrl ??
+                          "https://raw.githubusercontent.com/maxpiva/Rensaio-Metadata/main"
+                        }
+                        onChange={(e) =>
+                          setLocalSettings((prev) => ({
+                            ...prev,
+                            contributionSnapshotUrl: e.target.value,
+                          }))
+                        }
+                      />
+                      <p className="text-muted-foreground mt-1 text-sm">
+                        Leave as-is unless you host your own snapshot export.
+                        Changing it re-downloads everything.
+                      </p>
+                    </div>
+
+                    {snapshotStatus?.lastError && (
+                      <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+                        {snapshotStatus.lastError}
+                      </div>
+                    )}
+                    {snapshotStatus && (
+                      <p className="text-muted-foreground text-sm">
+                        Last download:{" "}
+                        {formatCollectorDate(snapshotStatus.lastCompletedUtc)}
+                        {" · "}
+                        {snapshotStatus.titles} titles,{" "}
+                        {snapshotStatus.recordsDecoded} records
+                        {snapshotStatus.recordsSkipped > 0
+                          ? `, ${snapshotStatus.recordsSkipped} skipped`
+                          : ""}
+                        {snapshotStatus.recordsFailed > 0
+                          ? `, ${snapshotStatus.recordsFailed} failed`
+                          : ""}
+                        {snapshotStatus.unchanged ? " (unchanged)" : ""}
+                      </p>
+                    )}
+                    {snapshotStatus?.enabled === false && (
+                      <p className="text-muted-foreground text-sm">
+                        Save settings before downloading a snapshot.
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleRunSnapshot()}
+                      disabled={
+                        !canOwner ||
+                        statusQuery.isLoading ||
+                        snapshotStatus?.enabled === false ||
+                        snapshotActive ||
+                        runSnapshotMutation.isPending
+                      }
+                      className="w-full sm:w-auto"
+                    >
+                      {runSnapshotMutation.isPending || snapshotActive ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-2 h-4 w-4" />
+                      )}
+                      {snapshotActive
+                        ? getCollectorStateLabel(snapshotStatus?.state)
+                        : "Download now"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        )}
         <div>
           <Label htmlFor="download-retry-time">
             Chapter Download Retry Time
@@ -1011,48 +1646,64 @@ function ProfileSection({
 }) {
   const { user } = useAuth();
   const updateMutation = useMutation({
-    mutationFn: (data: { avatarBase64?: string; avatarContentType?: string; removeAvatar?: boolean }) =>
-      userService.updateMe(data),
+    mutationFn: (data: {
+      avatarBase64?: string;
+      avatarContentType?: string;
+      removeAvatar?: boolean;
+    }) => userService.updateMe(data),
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [gravatarEmail, setGravatarEmail] = useState('');
-  const [localError, setLocalError] = useState('');
+  const [gravatarEmail, setGravatarEmail] = useState("");
+  const [localError, setLocalError] = useState("");
 
   const avatarSrc = user?.avatarBase64
-    ? `data:${user.avatarContentType || 'image/png'};base64,${user.avatarBase64}`
+    ? `data:${user.avatarContentType || "image/png"};base64,${user.avatarBase64}`
     : null;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLocalError('');
-    if (file.size > 2 * 1024 * 1024) { setLocalError('Image must be less than 2MB'); return; }
+    setLocalError("");
+    if (file.size > 2 * 1024 * 1024) {
+      setLocalError("Image must be less than 2MB");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = (reader.result as string).split(',')[1];
+      const base64 = (reader.result as string).split(",")[1];
       try {
-        await updateMutation.mutateAsync({ avatarBase64: base64, avatarContentType: file.type });
-      } catch { setLocalError('Failed to upload avatar'); }
+        await updateMutation.mutateAsync({
+          avatarBase64: base64,
+          avatarContentType: file.type,
+        });
+      } catch {
+        setLocalError("Failed to upload avatar");
+      }
     };
     reader.readAsDataURL(file);
   };
 
   const handleGravatar = async () => {
     if (!gravatarEmail.trim()) return;
-    setLocalError('');
+    setLocalError("");
     try {
       const { base64, contentType } = await fetchGravatarBase64(gravatarEmail);
-      await updateMutation.mutateAsync({ avatarBase64: base64, avatarContentType: contentType });
-      setGravatarEmail('');
+      await updateMutation.mutateAsync({
+        avatarBase64: base64,
+        avatarContentType: contentType,
+      });
+      setGravatarEmail("");
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : 'Gravatar error');
+      setLocalError(e instanceof Error ? e.message : "Gravatar error");
     }
   };
 
   const handleRemove = async () => {
     try {
       await updateMutation.mutateAsync({ removeAvatar: true });
-    } catch { setLocalError('Failed to remove avatar'); }
+    } catch {
+      setLocalError("Failed to remove avatar");
+    }
   };
 
   return (
@@ -1060,42 +1711,85 @@ function ProfileSection({
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+            <div className="bg-muted flex h-16 w-16 items-center justify-center overflow-hidden rounded-full">
               {avatarSrc ? (
-                <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
+                <img
+                  src={avatarSrc}
+                  alt="Avatar"
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <UserIcon className="w-8 h-8 text-muted-foreground" />
+                <UserIcon className="text-muted-foreground h-8 w-8" />
               )}
             </div>
             <div>
               <p className="font-medium">{user.username}</p>
-              <p className="text-sm text-muted-foreground">{user.opdsPath}</p>
+              <p className="text-muted-foreground text-sm">{user.opdsPath}</p>
             </div>
           </div>
           {localError && (
-            <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">{localError}</div>
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-500 dark:bg-red-950">
+              {localError}
+            </div>
           )}
           {updateMutation.isSuccess && (
-            <div className="p-3 text-sm text-green-600 bg-green-50 dark:bg-green-950 rounded-md">Avatar updated!</div>
+            <div className="rounded-md bg-green-50 p-3 text-sm text-green-600 dark:bg-green-950">
+              Avatar updated!
+            </div>
           )}
           <div className="space-y-2">
             <Label>Upload Image</Label>
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="w-4 h-4 mr-2" /> Choose File
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mr-2 h-4 w-4" /> Choose File
             </Button>
-            <p className="text-xs text-muted-foreground">PNG, JPG, GIF, WebP up to 2MB</p>
-            <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={handleFileUpload} />
+            <p className="text-muted-foreground text-xs">
+              PNG, JPG, GIF, WebP up to 2MB
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,.gif,.webp"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="gravatar">Get from Gravatar</Label>
             <div className="flex gap-2">
-              <Input id="gravatar" type="email" placeholder="Enter email" value={gravatarEmail} onChange={(e) => setGravatarEmail(e.target.value)} />
-              <Button type="button" variant="secondary" size="sm" onClick={handleGravatar}>Fetch</Button>
+              <Input
+                id="gravatar"
+                type="email"
+                placeholder="Enter email"
+                value={gravatarEmail}
+                onChange={(e) => setGravatarEmail(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleGravatar}
+              >
+                Fetch
+              </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Email used only on the frontend — never sent to the backend.</p>
+            <p className="text-muted-foreground text-xs">
+              Email used only on the frontend — never sent to the backend.
+            </p>
           </div>
           {avatarSrc && (
-            <Button type="button" variant="outline" size="sm" onClick={handleRemove}>Remove Avatar</Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRemove}
+            >
+              Remove Avatar
+            </Button>
           )}
         </>
       )}
@@ -1162,13 +1856,14 @@ function SecuritySection({
           placeholder="https://rensaio.example.com"
         />
         {externalDomainError && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+          <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
             <span>⚠</span>
             <span>{externalDomainError}</span>
           </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          Used for invite links and OPDS URLs when accessed from outside your local network.
+        <p className="text-muted-foreground text-xs">
+          Used for invite links and OPDS URLs when accessed from outside your
+          local network.
         </p>
       </div>
     </CardContent>
@@ -1352,10 +2047,14 @@ export function SettingsManager({
     if (!localSettings) return;
 
     // Validate externalDomain: if non-empty, it must have a schema
-    if (localSettings.externalDomain && !/^https?:\/\//.test(localSettings.externalDomain)) {
+    if (
+      localSettings.externalDomain &&
+      !/^https?:\/\//.test(localSettings.externalDomain)
+    ) {
       toast({
         title: "Validation Error",
-        description: "External Domain is missing the URL schema (e.g. https://)",
+        description:
+          "External Domain is missing the URL schema (e.g. https://)",
         variant: "destructive",
       });
       return;

@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mihon.ExtensionsBridge", "M
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RensaioOAuthProxy", "RensaioOAuthProxy\RensaioOAuthProxy.csproj", "{D4F26E51-3C8A-4B1F-9A5D-8E7B2C1F0A3B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RensaioBackend.Tests", "RensaioBackend.Tests\RensaioBackend.Tests.csproj", "{07E451D0-2C9C-4D7E-949C-B313907660E5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -99,6 +101,18 @@ Global
 		{D4F26E51-3C8A-4B1F-9A5D-8E7B2C1F0A3B}.Release|x64.Build.0 = Release|Any CPU
 		{D4F26E51-3C8A-4B1F-9A5D-8E7B2C1F0A3B}.Release|x86.ActiveCfg = Release|Any CPU
 		{D4F26E51-3C8A-4B1F-9A5D-8E7B2C1F0A3B}.Release|x86.Build.0 = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|x64.Build.0 = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Debug|x86.Build.0 = Debug|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|x64.ActiveCfg = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|x64.Build.0 = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|x86.ActiveCfg = Release|Any CPU
+		{07E451D0-2C9C-4D7E-949C-B313907660E5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -149,6 +149,46 @@ namespace RensaioBackend.Services.Bridge
             return GetFromNameAsync(entry.Name, token);
         }
 
+        /// <summary>
+        /// Shadow-loads a not-installed online extension for discovery search.
+        /// Never registers the extension as installed anywhere.
+        /// </summary>
+        public Task<IExtensionInterop> GetDiscoveryInteropAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            return _bridgeManager.LocalExtensionManager.GetDiscoveryInteropAsync(extension, token);
+        }
+
+        public IExtensionInterop? TryGetLoadedDiscoveryInterop(string package)
+        {
+            return _bridgeManager.LocalExtensionManager.TryGetLoadedDiscoveryInterop(package);
+        }
+
+        /// <summary>
+        /// Resolves a source interop from an ALREADY shadow-loaded discovery extension, or null when
+        /// the extension isn't loaded (never triggers a shadow-load). Used as a fallback for fetching
+        /// discovery-result covers with the source's own HTTP client/headers when the plain HTTP
+        /// fetch is rejected (referer/Cloudflare/CDN checks) and the extension isn't installed.
+        /// </summary>
+        public ISourceInterop? TryGetLoadedDiscoverySource(string mihonProviderId)
+        {
+            if (string.IsNullOrEmpty(mihonProviderId))
+                return null;
+            string[] split = mihonProviderId.Split("|");
+            if (split.Length < 2 || !long.TryParse(split[1], out long sourceId))
+                return null;
+            IExtensionInterop? interop = _bridgeManager.LocalExtensionManager.TryGetLoadedDiscoveryInterop(split[0]);
+            return interop?.Sources.FirstOrDefault(a => a.Id == sourceId);
+        }
+
+        /// <summary>
+        /// Prepares discovery artifacts (APK + converted JAR on disk) without classloading, so a
+        /// worker process can load and search the extension out-of-process.
+        /// </summary>
+        public Task<DiscoveryArtifact> PrepareDiscoveryArtifactsAsync(TachiyomiExtension extension, CancellationToken token = default)
+        {
+            return _bridgeManager.LocalExtensionManager.PrepareDiscoveryArtifactsAsync(extension, token);
+        }
+
         public List<RepositoryGroup> ListExtensions()
         {
             return _bridgeManager.LocalExtensionManager.ListExtensions();

@@ -42,6 +42,22 @@ export interface Settings {
   socksProxyUsername: string;
   socksProxyPassword: string;
   nsfwVisibility: NsfwVisibility;
+  // Discovery ("include not-installed sources in search") settings
+  discoveryIncludeInSearch?: boolean;
+  discoveryPrecacheEnabled?: boolean;
+  maxDiscoverySearchExtensions?: number;
+  discoverySearchWorkersEnabled?: boolean;
+  discoveryWorkerBatchSize?: number;
+  maxDiscoveryWorkers?: number;
+  contributionCollectorEnabled?: boolean;
+  // Contribution upload (cloud contribution DB) settings
+  contributionUploadEnabled?: boolean;
+  /** Secret; the API returns the "__SET__" sentinel instead of the stored value. */
+  contributionContributorUuid?: string;
+  contributionUploadUrl?: string;
+  // Community contribution snapshot download settings
+  contributionSnapshotEnabled?: boolean;
+  contributionSnapshotUrl?: string;
   // Setup Wizard properties
   isWizardSetupComplete: boolean;
   wizardSetupStepCompleted: number;
@@ -63,6 +79,105 @@ export interface LinkedSeries {
   useCover: boolean;
   isStorage: boolean;
   isLocal: boolean;
+  /** Fuzzy relevance (0-100) of the title against the search keyword; used to merge
+   *  installed and discovery results into one relevance-ordered list. */
+  relevance?: number;
+  // Discovery-search extras (present only on results from not-installed sources)
+  installed?: boolean;
+  extensionPkg?: string;
+  extensionRepoName?: string;
+  extensionName?: string;
+  /** True when this result was surfaced from the community contribution snapshot
+   *  rather than a live source crawl. */
+  fromSnapshot?: boolean;
+  /** Filled by the background details augmentation ("80 ch · Ongoing" badge). */
+  chapterCount?: number | null;
+  seriesStatus?: SeriesStatus | null;
+}
+
+/** Counts of not-installed extensions/sources eligible for discovery search. */
+export interface DiscoverySources {
+  extensionCount: number;
+  sourceCount: number;
+}
+
+/** Response of POST /api/search/discovery/start. */
+export interface DiscoveryStart {
+  enabled: boolean;
+  done: boolean;
+  searchId?: string | null;
+  stage?: string | null;
+  totalExtensions: number;
+  totalSources: number;
+  completedExtensions: number;
+  results: LinkedSeries[];
+}
+
+/** "DiscoverySearch" SignalR event streamed on the /progress hub during a sweep. */
+export interface DiscoverySearchEvent {
+  searchId: string;
+  type:
+    | "results"
+    | "progress"
+    | "completed"
+    | "cancelled"
+    | "failed"
+    | "details"
+    | "detailsDone";
+  stage?: string | null;
+  completedExtensions: number;
+  totalExtensions: number;
+  results?: LinkedSeries[] | null;
+  totalResults?: number | null;
+}
+
+export interface ContributionCollectorStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  itemsCollected: number;
+  lastError?: string | null;
+  upload?: ContributionUploadStatus | null;
+  snapshot?: ContributionSnapshotStatus | null;
+}
+
+export interface ContributionUploadStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  uploaded: number;
+  skipped: number;
+  failed: number;
+  lastError?: string | null;
+  contributor?: ContributionContributorValidation | null;
+}
+
+/** Status of the community contribution snapshot downloader (GET /api/contributions/status). */
+export interface ContributionSnapshotStatus {
+  enabled: boolean;
+  state: string;
+  lastStartedUtc?: string | null;
+  lastCompletedUtc?: string | null;
+  unchanged: boolean;
+  titles: number;
+  recordsDecoded: number;
+  recordsSkipped: number;
+  recordsFailed: number;
+  danglingTitleRefs: number;
+  metadataLinks: number;
+  lastError?: string | null;
+}
+
+/** Result of POST /api/contributions/upload/validate (also nested in upload status). */
+export interface ContributionContributorValidation {
+  valid: boolean;
+  active: boolean;
+  admin: boolean;
+  banReason?: string | null;
+  validatedUtc?: string | null;
+  error?: string | null;
 }
 
 export interface FullSeries {
@@ -288,7 +403,12 @@ export interface ImportJobStatus {
   hasFailed: boolean;
 }
 
-export type SetupJobStatusValue = 'Running' | 'Waiting' | 'Completed' | 'Failed' | null;
+export type SetupJobStatusValue =
+  | "Running"
+  | "Waiting"
+  | "Completed"
+  | "Failed"
+  | null;
 
 export interface SetupJobsStatus {
   scanLocalFiles: SetupJobStatusValue;
@@ -519,9 +639,9 @@ export interface DownloadInfo {
 }
 
 export interface DownloadsMetrics {
-  downloads: number;  // Active downloads count
-  queued: number;     // Queued downloads count  
-  failed: number;     // Failed downloads count
+  downloads: number; // Active downloads count
+  queued: number; // Queued downloads count
+  failed: number; // Failed downloads count
 }
 
 export enum QueueStatus {
@@ -643,10 +763,10 @@ export interface LatestGenre {
 }
 
 export enum ArchiveResult {
-  Fine = 'Fine',
-  NotAnArchive = 'NotAnArchive',
-  NoImages = 'NoImages',
-  NotFound = 'NotFound',
+  Fine = "Fine",
+  NotAnArchive = "NotAnArchive",
+  NoImages = "NoImages",
+  NotFound = "NotFound",
 }
 
 export enum ErrorDownloadAction {

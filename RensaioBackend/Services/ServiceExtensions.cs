@@ -4,6 +4,7 @@ using RensaioBackend.Models.Enums;
 using RensaioBackend.Services.Auth;
 using RensaioBackend.Services.Background;
 using RensaioBackend.Services.Bridge;
+using RensaioBackend.Services.Contributions;
 using RensaioBackend.Services.Daily;
 using RensaioBackend.Services.Downloads;
 using RensaioBackend.Services.Helpers;
@@ -155,7 +156,42 @@ namespace RensaioBackend.Services
             // CQRS Search Services
             services.TryAddScoped<SearchQueryService>();
             services.TryAddScoped<SearchCommandService>();
-            
+            services.TryAddScoped<DiscoverySearchService>();
+            services.TryAddSingleton<Search.Discovery.DiscoverySearchCoordinator>();
+            services.TryAddSingleton<Search.Discovery.SnapshotSearchIndex>();
+            services.TryAddSingleton<Search.Discovery.DiscoveryWorkerPool>();
+            services.TryAddSingleton<Search.Discovery.DiscoverySourceHeaderRegistry>();
+            services.TryAddSingleton<InteractiveDiscoveryGate>();
+            services.TryAddSingleton<IContributionCheckpointStore, JsonContributionCheckpointStore>();
+            services.TryAddSingleton<IContributionSink, LocalJsonContributionSink>();
+            services.TryAddSingleton<IContributionWorkerController, ContributionWorkerController>();
+            services.TryAddScoped<ContributionCollector>();
+
+            // Contribution upload client: auth is a secret UUID in the query string, so the
+            // factory's default request-URI logging must not run for this named client.
+            services.AddHttpClient(Contributions.Upload.ContributionUploadClient.HttpClientName, client =>
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    SetHttpClientHeaders(client);
+                })
+                .RemoveAllLoggers();
+            services.TryAddSingleton<Contributions.Upload.IContributionUploadStateStore,
+                Contributions.Upload.JsonContributionUploadStateStore>();
+            services.TryAddScoped<Contributions.Upload.ContributionUploadClient>();
+            services.TryAddScoped<Contributions.Upload.ContributionUploader>();
+
+            // Contribution snapshot download client: the export files and the /key endpoint are
+            // public, so no request-URI scrubbing is needed (nothing secret is ever sent).
+            services.AddHttpClient(Contributions.Snapshot.ContributionSnapshotClient.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(60);
+                SetHttpClientHeaders(client);
+            });
+            services.TryAddSingleton<Contributions.Snapshot.IContributionSnapshotStateStore,
+                Contributions.Snapshot.JsonContributionSnapshotStateStore>();
+            services.TryAddScoped<Contributions.Snapshot.ContributionSnapshotClient>();
+            services.TryAddScoped<Contributions.Snapshot.ContributionSnapshotDownloader>();
+
             return services;
         }
 

@@ -28,4 +28,3 @@ public class TachiyomiRepositoryV2
         public ExtensionListV2 extensionList { get; set; }
 }
 
-

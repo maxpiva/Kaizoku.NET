@@ -11,6 +11,20 @@ namespace RensaioBackend
 
         public static async Task Main(string[] args)
         {
+            // Extension worker modes branch before ANY backend initialization — workers must not
+            // touch EnvironmentSetup, the database or the web host. Explicit Environment.Exit calls
+            // ensure lingering non-daemon IKVM/Java threads cannot keep a finished worker alive.
+            if (Services.Search.Discovery.DiscoveryWorkerProgram.IsWorkerInvocation(args))
+            {
+                Environment.Exit(await Services.Search.Discovery.DiscoveryWorkerProgram.RunAsync());
+                return;
+            }
+            if (Services.Contributions.ContributionWorkerProgram.IsWorkerInvocation(args))
+            {
+                Environment.Exit(await Services.Contributions.ContributionWorkerProgram.RunAsync());
+                return;
+            }
+
             // Initialize the zero-dependency fallback crash logger BEFORE registering
             // global handlers.  EnvironmentSetup.Path is resolved in the static
             // constructor so it's safe to use here.  This ensures crash-(date).log
