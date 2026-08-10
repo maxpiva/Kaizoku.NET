@@ -17,6 +17,7 @@ dependencies {
     implementation(libs.serialization.json.okio)
 
     testImplementation(libs.bundles.sharedTest)
+    testImplementation(kotlin("test"))
 
     // Android stub library
     implementation(libs.android.stubs)
