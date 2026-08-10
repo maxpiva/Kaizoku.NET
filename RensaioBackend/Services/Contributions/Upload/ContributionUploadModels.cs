@@ -37,6 +37,13 @@ public sealed class SourceItemData
     /// <summary>Lowercase-hex MD5 identity from <see cref="ContributionUploadKey"/>.</summary>
     [JsonPropertyName("id")]
     public string Id { get; init; } = string.Empty;
+    /// <summary>
+    /// Mihon source identifier. This is serialized as a decimal string because source IDs are
+    /// signed 64-bit values and JSON numbers cannot represent every possible value exactly in
+    /// the worker's JavaScript runtime.
+    /// </summary>
+    [JsonPropertyName("mihonId")]
+    public string MihonId { get; init; } = string.Empty;
     [JsonPropertyName("title")]
     public string Title { get; init; } = string.Empty;
     /// <summary>Base64 of the <see cref="ContributionBlobEnvelope"/>, or null.</summary>

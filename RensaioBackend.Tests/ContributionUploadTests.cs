@@ -105,6 +105,49 @@ public sealed class ContributionUploadTests : IDisposable
     }
 
     [Fact]
+    public async Task Run_SourceUploadIncludesExactMihonIdString()
+    {
+        using SettingsScope _ = SettingsScope.Enable();
+        var handler = new FakeHandler(ContributorOk(), UploadOk());
+        const long sourceId = 9_007_199_254_740_993L; // First integer JavaScript cannot represent exactly.
+        WriteContributions(Record("/manga/one", "One", sourceId: sourceId));
+
+        Assert.Equal(1, await NewUploader(handler).RunAsync());
+
+        CapturedRequest upload = Assert.Single(handler.Requests, r => r.Uri.AbsolutePath == "/upload");
+        using JsonDocument document = JsonDocument.Parse(upload.Body);
+        JsonElement data = Assert.Single(document.RootElement.GetProperty("items").EnumerateArray().ToList())
+            .GetProperty("data");
+        Assert.Equal(JsonValueKind.String, data.GetProperty("mihonId").ValueKind);
+        Assert.Equal("9007199254740993", data.GetProperty("mihonId").GetString());
+    }
+
+    [Fact]
+    public async Task Run_PreMihonIdDeltaEntryIsUploadedAgain()
+    {
+        using SettingsScope _ = SettingsScope.Enable();
+        ContributionRecordV1 record = Record("/manga/one", "One");
+        WriteContributions(record);
+        string key = ContributionUploadKey.Create(record);
+        string oldHash = ContributionBlobEnvelope.PayloadHash(
+            ContributionBlobPayloadV1.FromRecord(record, DateTime.UtcNow));
+        var store = new JsonContributionUploadStateStore(Path.Combine(_folder, "upload-state.json"));
+        await store.WriteAsync(new ContributionUploadStateV1
+        {
+            ServerUrl = ServerUrl,
+            Entries = new Dictionary<string, ContributionUploadEntryV1>(StringComparer.Ordinal)
+            {
+                [key] = new() { Hash = oldHash, UploadedUtc = DateTime.UtcNow }
+            }
+        });
+        var handler = new FakeHandler(ContributorOk(), UploadOk());
+
+        Assert.Equal(1, await NewUploader(handler, store).RunAsync());
+        Assert.Single(handler.Requests, r => r.Uri.AbsolutePath == "/upload");
+        Assert.StartsWith("source-mihon-id-v1:", (await store.ReadAsync()).Entries[key].Hash);
+    }
+
+    [Fact]
     public async Task Run_NoRecords_MakesNoUploadCall()
     {
         using SettingsScope _ = SettingsScope.Enable();
@@ -426,11 +469,11 @@ public sealed class ContributionUploadTests : IDisposable
             JsonSerializer.Serialize(batch, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
     }
 
-    private static ContributionRecordV1 Record(string url, string title, string? internalId = null) => new()
+    private static ContributionRecordV1 Record(string url, string title, string? internalId = null, long sourceId = 42) => new()
     {
-        Id = internalId ?? ContributionIdentity.Create("pkg.example", 42, url),
+        Id = internalId ?? ContributionIdentity.Create("pkg.example", sourceId, url),
         Package = "pkg.example",
-        SourceId = 42,
+        SourceId = sourceId,
         SourceName = "Example",
         SourceLanguage = "en",
         Url = url,

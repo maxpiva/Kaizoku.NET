@@ -1,5 +1,6 @@
 using RensaioBackend.Models.Dto;
 using RensaioBackend.Services.Settings;
+using System.Globalization;
 using System.Text.Json;
 
 namespace RensaioBackend.Services.Contributions.Upload;
@@ -14,6 +15,7 @@ namespace RensaioBackend.Services.Contributions.Upload;
 public sealed class ContributionUploader
 {
     public const int BatchSize = 50;
+    private const string UploadFingerprintVersion = "source-mihon-id-v1";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly SemaphoreSlim RunGate = new(1, 1);
@@ -322,7 +324,10 @@ public sealed class ContributionUploader
                 continue;
             string key = ContributionUploadKey.Create(record);
             ContributionBlobPayloadV1 payload = ContributionBlobPayloadV1.FromRecord(record, contributions.GeneratedUtc);
-            deduped[key] = (record, payload, ContributionBlobEnvelope.PayloadHash(payload));
+            // The fingerprint version is part of the delta hash so clients that previously
+            // confirmed this payload without the required mihonId field resend it once.
+            string hash = UploadFingerprintVersion + ":" + ContributionBlobEnvelope.PayloadHash(payload);
+            deduped[key] = (record, payload, hash);
         }
 
         var pending = new List<PendingUpload>();
@@ -341,6 +346,7 @@ public sealed class ContributionUploader
                 Data = new SourceItemData
                 {
                     Id = key,
+                    MihonId = record.SourceId.ToString(CultureInfo.InvariantCulture),
                     Title = record.Title,
                     Data = ContributionBlobEnvelope.EncodeBase64(payload)
                 }
