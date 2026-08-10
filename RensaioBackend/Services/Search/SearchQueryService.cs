@@ -95,6 +95,8 @@ namespace RensaioBackend.Services.Search
         {
             if (string.IsNullOrWhiteSpace(keyword) || languages == null || languages.Count == 0)
             {
+                _logger.LogWarning("Search for '{keyword}' skipped: {reason}.", keyword,
+                    string.IsNullOrWhiteSpace(keyword) ? "empty keyword" : "no languages provided");
                 return [];
             }
 

@@ -116,6 +116,14 @@ namespace RensaioBackend.Controllers
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .ToList();
 
+            if (languageList.Count == 0)
+            {
+                // An empty PreferredLanguages setting would otherwise make every search return
+                // an empty list while looking like a successful request.
+                _logger.LogWarning("Search requested with no languages and PreferredLanguages is empty; falling back to 'en'. Check Settings > Preferred Languages.");
+                languageList = ["en"];
+            }
+
             try
             {
                 var results = await _searchQueryService.SearchSeriesAsync(keyword, languageList, searchSources, 0.1f, token).ConfigureAwait(false);
