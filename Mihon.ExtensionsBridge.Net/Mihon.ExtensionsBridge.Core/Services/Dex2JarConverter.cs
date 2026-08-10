@@ -63,8 +63,14 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// (<c>Job.cancel$default</c> — "interface method must be invoked using invokeinterface", with such
         /// classes kept at v52), and max_stack padding so understated dex2jar values no longer abort the
         /// corrector's dataflow analysis.
+        /// Bumped to 1.4.0 for the constructor super-call retarget: R8 strips trivial pass-through
+        /// constructors along the superclass chain and rewrites the subclass <c>&lt;init&gt;</c>'s
+        /// <c>invoke-direct</c> to target the surviving ancestor constructor directly (commonly
+        /// <c>Object.&lt;init&gt;</c>). ART accepts it; the JVM verifier requires the direct superclass
+        /// ("Call to wrong initialization method", MangaDex serialization DTOs). Unlike the 1.3.0 shape the
+        /// receiver is the uninitialised <c>this</c>, not a NEW result.
         /// </remarks>
-        public const string Version = "1.3.0";
+        public const string Version = "1.4.0";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
