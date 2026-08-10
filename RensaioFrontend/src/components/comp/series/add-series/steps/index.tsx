@@ -14,7 +14,7 @@ import { useAddSeries } from "@/lib/api/hooks/useSeries";
 import { useAugmentSeries } from "@/lib/api/hooks/useSearch";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { type LinkedSeries, type FullSeries, type ExistingSource, type AugmentedResponse } from "@/lib/api/types";
+import { type LinkedSeries, type FullSeries, type ExistingSource, type AugmentedResponse, type AugmentSourceError } from "@/lib/api/types";
 
 /** Find the first series whose language matches the user's preferred languages. */
 function findPreferredSeriesIndex(series: FullSeries[], preferredLanguages: string[] | undefined | null): number {
@@ -108,13 +108,36 @@ export function AddSeriesSteps({
     }
   };
 
+  const formatSourceErrors = (errors: AugmentSourceError[]): string =>
+    errors
+      .map((e) => (e.provider ? `${e.provider}: ${e.reason}` : e.reason))
+      .join(" ");
+
   const handleNext = async () => {
+    setError(null);
     try {
       const allLinkedSeries = formState.allLinkedSeries;
       const selectedLinked: LinkedSeries[] = allLinkedSeries.filter((series: LinkedSeries) =>
         formState.selectedLinkedSeries.includes(series.mihonId ?? series.providerId)
       );
       const augmentedResponse = await augmentSeries.mutateAsync(selectedLinked);
+
+      const sourceErrors = augmentedResponse.sourceErrors ?? [];
+      if (!augmentedResponse.series || augmentedResponse.series.length === 0) {
+        const detail = sourceErrors.length > 0
+          ? formatSourceErrors(sourceErrors)
+          : "None of the selected sources returned any details.";
+        setError(detail);
+        toast({ title: "Couldn't fetch series details", description: detail, variant: "destructive" });
+        return;
+      }
+      if (sourceErrors.length > 0) {
+        toast({
+          title: "Some sources were skipped",
+          description: formatSourceErrors(sourceErrors),
+          variant: "destructive",
+        });
+      }
 
       if (isAddSourcesMode && seriesId) {
         augmentedResponse.existingSeries = true;
@@ -138,6 +161,9 @@ export function AddSeriesSteps({
       setPendingNextStep(true);
     } catch (err) {
       console.error('Failed to augment series:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to fetch series details.';
+      setError(msg);
+      toast({ title: 'Failed to fetch series details', description: msg, variant: 'destructive' });
     }
   };
 
