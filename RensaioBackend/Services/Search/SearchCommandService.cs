@@ -67,7 +67,12 @@ namespace RensaioBackend.Services.Search
 
                 // Fetch full series data in parallel
                 var seriesDetailsMap = new ConcurrentDictionary<string, (ParsedManga, List<ParsedChapter>)>();
+                var sourceErrors = new ConcurrentBag<AugmentSourceErrorDto>();
                 var validSeries = linkedSeries.Where(ls => !string.IsNullOrEmpty(ls.MihonId)).ToList();
+                foreach (var ls in linkedSeries.Where(ls => string.IsNullOrEmpty(ls.MihonId)))
+                {
+                    sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = "Source is not installed or unavailable." });
+                }
                 var maxConcurrency = Math.Min(appSettings.NumberOfSimultaneousSearches, validSeries.Count);
                 var parallelOptions = new ParallelOptions
                 {
@@ -97,6 +102,12 @@ namespace RensaioBackend.Services.Search
                             });
                             seriesDetailsMap.TryAdd(ls.MihonId!, (fullData, chapterData));
                         }
+                        else
+                        {
+                            var reason = fullData == null ? "Source returned no details for this series." : "Source has no readable chapters for this series.";
+                            _logger.LogWarning("Skipping {Title} from {Provider}: {Reason}", ls.Title, ls.Provider, reason);
+                            sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = reason });
+                        }
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
@@ -105,14 +116,17 @@ namespace RensaioBackend.Services.Search
                     catch (TimeoutException)
                     {
                         _logger.LogWarning("Fetching details for {Title} from {Provider} timed out after {Seconds}s; skipping.", ls.Title, ls.Provider, SourceTimeout.DefaultTimeout.TotalSeconds);
+                        sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = $"Timed out after {SourceTimeout.DefaultTimeout.TotalSeconds:0}s." });
                     }
                     catch (HttpRequestException r)
                     {
-                        _logger.LogWarning("Error fetching series details for {Title} from {Provider}: Http Error {StatusCode}.", ls.Title, ls.Provider, r.StatusCode);
+                        _logger.LogWarning("Error fetching series details for {Title} from {Provider}: Http Error {StatusCode}. {Message}", ls.Title, ls.Provider, r.StatusCode, r.Message);
+                        sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = r.StatusCode != null ? $"HTTP error {(int)r.StatusCode} ({r.StatusCode})." : $"Connection error: {r.Message}" });
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Error fetching details for series ID {Title}: {Message}", ls.Title, ex.Message);
+                        sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = ex.Message });
                     }
                 }).ConfigureAwait(false);
 
@@ -209,6 +223,7 @@ namespace RensaioBackend.Services.Search
                 return new AugmentedResponseDto
                 {
                     Series = ProviderSeriesDetailsResults,
+                    SourceErrors = sourceErrors.ToList(),
                     StorageFolderPath = appSettings.StorageFolder,
                     UseCategoriesForPath = appSettings.CategorizedFolders,
                     Categories = appSettings.Categories?.ToList() ?? [],
@@ -219,7 +234,10 @@ namespace RensaioBackend.Services.Search
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in AugmentSeriesAsync: {Message}", ex.Message);
-                return new AugmentedResponseDto();
+                return new AugmentedResponseDto
+                {
+                    SourceErrors = [new AugmentSourceErrorDto { Reason = $"Unexpected error while fetching series details: {ex.Message}" }]
+                };
             }
         }
     }

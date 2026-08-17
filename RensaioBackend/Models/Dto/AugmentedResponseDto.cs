@@ -35,6 +35,9 @@ namespace RensaioBackend.Models.Dto
         [JsonPropertyName("startChapter")]
         public decimal? StartChapter { get; set; } = null;
 
+        [JsonPropertyName("sourceErrors")]
+        public List<AugmentSourceErrorDto> SourceErrors { get; set; } = [];
+
         [JsonIgnore] 
         public ImportSeriesSnapshot LocalInfo { get; set; } = new ImportSeriesSnapshot();
         [JsonIgnore]
