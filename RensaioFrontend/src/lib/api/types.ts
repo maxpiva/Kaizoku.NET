@@ -182,6 +182,12 @@ export enum InLibraryStatus {
   InLibraryButDisabled = 2,
 }
 
+export interface AugmentSourceError {
+  provider: string;
+  title: string;
+  reason: string;
+}
+
 export interface AugmentedResponse {
   storageFolderPath: string;
   useCategoriesForPath: boolean;
@@ -192,6 +198,7 @@ export interface AugmentedResponse {
   preferredLanguages: string[];
   disableJobs?: boolean;
   startChapter?: number;
+  sourceErrors?: AugmentSourceError[];
 }
 export interface ExistingSource {
   provider: string;
