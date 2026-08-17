@@ -215,8 +215,8 @@ namespace Mihon.ExtensionsBridge.Core.Services
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Version)) throw new ArgumentException("Extension Version cannot be null or whitespace.", nameof(workUnit));
             if (string.IsNullOrWhiteSpace(workUnit.Entry.Extension.Package)) throw new ArgumentException("Extension Package cannot be null or whitespace.", nameof(workUnit));
 
-            var apkUrl = repository.Url.CombineUrl("apk", workUnit.Entry.Extension.GetApkFilename());
-           
+            var apkUrl = workUnit.Entry.Extension.GetApkUrl(repository);
+
             var apkDestination = Path.Combine(workUnit.WorkingFolder.Path, workUnit.Entry.Extension.GetApkFilename());
             var client = CreateHttpClient();
             try
