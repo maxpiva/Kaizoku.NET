@@ -245,12 +245,50 @@ private fun installJulBridge() {
     root.addHandler(handler)
 }
 
+/**
+ * Pre-warms the AWT/Swing event infrastructure so its threads are created once during startup,
+ * while the process still has ample thread capacity.
+ *
+ * JCEF's OSR rendering path posts events via `SwingUtilities.invokeLater`; AWT lazily starts the
+ * event-dispatch thread, the Swing `TimerQueue` thread, and the `AWTAutoShutdown` blocker thread
+ * on the *first* post. If that first post happens late in the app's life (e.g. while CEF native
+ * workers, IKVM-attached threads and search/download task workers have consumed the process thread
+ * budget), `java.lang.Thread.start` can fail with `OutOfMemoryError: unable to create native thread`.
+ * Warming these threads up early avoids that failure mode entirely.
+ */
+private fun prewarmAwtEventThreads(logger: AndroidCompatLogger) {
+    try {
+        val fired = java.util.concurrent.CountDownLatch(1)
+        // Scheduling a Swing Timer starts the TimerQueue thread; when it fires it posts to the
+        // EventQueue via SwingUtilities.invokeLater, which starts the AWT event-dispatch thread
+        // and the AWTAutoShutdown blocker thread. All three threads are then created at startup.
+        val timer = javax.swing.Timer(50) { fired.countDown() }
+        timer.isRepeats = false
+        timer.start()
+        if (fired.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            logger.debug { "Pre-warmed AWT/Swing event infrastructure" }
+        } else {
+            logger.debug { "AWT pre-warm timed out; continuing" }
+        }
+    } catch (t: Throwable) {
+        // Best-effort only: a restricted/headless toolkit may not support AWT; JCEF will still
+        // attempt its own event posting later and any failure there is logged separately.
+        logger.debug { "AWT pre-warm skipped: $t" }
+    }
+}
+
 fun applicationSetup(dataRoot: String, tempRoot: String, sink: AndroidCompatLogSink, externalCef: Boolean)
 {
     val logger = androidCompatLogger(SettingsConfig::class.java)
     // Register sink via manager
     AndroidCompatRuntime.registerSink(sink)
     installJulBridge()
+    // Desktop builds (external pump mode / CEF in use) exercise the AWT/Swing OSR path; pre-warm
+    // its event threads now. Headless server builds (externalCef == false) skip this to avoid
+    // starting AWT machinery that is never used.
+    if (externalCef) {
+        prewarmAwtEventThreads(logger)
+    }
     AndroidCompatRuntime.setDefaultUncaughtHandler(Thread.UncaughtExceptionHandler { _, throwable ->
         logger.error(throwable) { "unhandled exception" }
     })

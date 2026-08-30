@@ -22,11 +22,32 @@ namespace Mihon.ExtensionsBridge.Models
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
     }
+    public class CefPreferences
+    {
+        /// <summary>
+        /// Maximum number of concurrently alive CEF renderer processes (jcef_helper --type=renderer)
+        /// across ALL extensions. Bounded by RendererLeaseGate and the WebViewPool.
+        /// </summary>
+        public int MaxRenderers { get; set; } = 4;
+
+        /// <summary>
+        /// Idle timeout (ms) before an unused pooled WebView's browser is destroyed.
+        /// </summary>
+        public long IdleTimeoutMs { get; set; } = 300_000;
+
+        /// <summary>
+        /// Whether WebView pooling/reuse across requests is enabled.
+        /// </summary>
+        public bool WebViewPoolEnabled { get; set; } = true;
+    }
+
     public class Preferences
     {
         public FlareSolverrPreferences FlareSolverr { get; set; } = new FlareSolverrPreferences();
 
         public SocksProxyPreferences SocksProxy { get; set; } = new SocksProxyPreferences();
+
+        public CefPreferences Cef { get; set; } = new CefPreferences();
 
         public Dictionary<string, Dictionary<string, string>> Interceptors = [];
     }

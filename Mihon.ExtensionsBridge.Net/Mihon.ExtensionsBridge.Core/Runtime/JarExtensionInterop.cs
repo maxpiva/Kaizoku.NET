@@ -57,28 +57,44 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             _jarPath = jarPath;
             Name = entry.Name;
             Version = entry.Extension.Version;
+
+            // Older extensions store a relative class name in the manifest (e.g. "source.Generated"),
+            // so it must be prefixed with the package name. Newer keiyoushi-generated APKs store an
+            // absolute FQCN (e.g. "keiyoushi.source.Generated"); prefixing it produces a non-existent
+            // class. Try the prefixed form first (legacy), then fall back to the manifest value as-is.
             string className = entry.Extension.Package + entry.ClassName;
+            if (!(entry.Extension.Package.EndsWith(".") || entry.ClassName.StartsWith(".")))
+                className = entry.Extension.Package + "." + entry.ClassName;
             java.util.List ops = null;
             try
             {
                 ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, className);
-
             }
-            catch (System.Exception ae)
+            catch (System.Exception)
             {
-                while (ae != null)
+                // The prefixed name may not exist for newer plugins; retry with the manifest value
+                // verbatim before giving up.
+                _logger.LogDebug("Failed to load extension entry class via prefixed name {PrefixedClassName}; retrying with manifest value {ClassName}.", className, entry.ClassName);
+                try
                 {
-                    _logger.LogError(ae, ae.ToString());
-
-                    if (ae is java.lang.Throwable)
-                    {
-                        java.lang.Throwable cause = (java.lang.Throwable)ae;
-                        ae = cause.getCause();
-                    }
-                    else
-                        ae = null;
+                    ops = extension.bridge.Extensions.INSTANCE.loadExtensionSources(jarPath, entry.ClassName);
                 }
-                throw;
+                catch (System.Exception ae)
+                {
+                    while (ae != null)
+                    {
+                        _logger.LogError(ae, ae.ToString());
+
+                        if (ae is java.lang.Throwable)
+                        {
+                            java.lang.Throwable cause = (java.lang.Throwable)ae;
+                            ae = cause.getCause();
+                        }
+                        else
+                            ae = null;
+                    }
+                    throw;
+                }
             }
             var list = new List<ISourceInterop>();
             ops.toArray().Cast<Source>().ToList().ForEach(s => list.Add(new SourceInterop(s, logger)));

@@ -28,6 +28,9 @@ class SettingsConfig(
         var flareSolverrSessionName: String = "extension.bridge",
         var flareSolverrSessionTtl: Int = 15,
         var flareSolverrAsResponseFallback: Boolean = false,
+        var cefMaxRenderers: Int = 4,
+        var cefIdleTimeoutMs: Long = 300_000L,
+        var cefWebViewPoolEnabled: Boolean = true,
         var interceptorOverrides: MutableMap<String, MutableMap<String, Boolean>> = mutableMapOf(),
     )
 
@@ -54,6 +57,9 @@ class SettingsConfig(
         updateIfChanged("flareSolverrSessionName", current.flareSolverrSessionName, settings.flareSolverrSessionName)
         updateIfChanged("flareSolverrSessionTtl", current.flareSolverrSessionTtl, settings.flareSolverrSessionTtl)
         updateIfChanged("flareSolverrAsResponseFallback", current.flareSolverrAsResponseFallback, settings.flareSolverrAsResponseFallback)
+        updateIfChanged("cefMaxRenderers", current.cefMaxRenderers, settings.cefMaxRenderers)
+        updateIfChanged("cefIdleTimeoutMs", current.cefIdleTimeoutMs, settings.cefIdleTimeoutMs)
+        updateIfChanged("cefWebViewPoolEnabled", current.cefWebViewPoolEnabled, settings.cefWebViewPoolEnabled)
         updateIfChanged("interceptorOverrides", current.interceptorOverrides, settings.interceptorOverrides)
 
         return settings
@@ -83,6 +89,9 @@ class SettingsConfig(
                 "flareSolverrAsResponseFallback",
                 defaults.flareSolverrAsResponseFallback,
             ),
+            cefMaxRenderers = intOrDefault("cefMaxRenderers", defaults.cefMaxRenderers),
+            cefIdleTimeoutMs = longOrDefault("cefIdleTimeoutMs", defaults.cefIdleTimeoutMs),
+            cefWebViewPoolEnabled = booleanOrDefault("cefWebViewPoolEnabled", defaults.cefWebViewPoolEnabled),
             interceptorOverrides = nestedBooleanMapOrDefault("interceptorOverrides", defaults.interceptorOverrides),
         )
 
@@ -194,6 +203,24 @@ object Settings {
             state().flareSolverrAsResponseFallback = value
         }
 
+    var cefMaxRenderers: Int
+        get() = state().cefMaxRenderers
+        set(value) {
+            state().cefMaxRenderers = value
+        }
+
+    var cefIdleTimeoutMs: Long
+        get() = state().cefIdleTimeoutMs
+        set(value) {
+            state().cefIdleTimeoutMs = value
+        }
+
+    var cefWebViewPoolEnabled: Boolean
+        get() = state().cefWebViewPoolEnabled
+        set(value) {
+            state().cefWebViewPoolEnabled = value
+        }
+
     var interceptorOverrides: MutableMap<String, MutableMap<String, Boolean>>
         get() = state().interceptorOverrides
         set(value) {
@@ -248,6 +275,9 @@ private fun Config.intOrDefault(path: String, default: Int): Int =
 private fun Config.stringOrDefault(path: String, default: String): String =
     if (hasPath(path)) getString(path) else default
 
+private fun Config.longOrDefault(path: String, default: Long): Long =
+    if (hasPath(path)) getLong(path) else default
+
 private fun Config.nestedBooleanMapOrDefault(
     path: String,
     default: MutableMap<String, MutableMap<String, Boolean>>,
@@ -293,6 +323,9 @@ private fun SettingsConfig.Settings.updateFrom(other: SettingsConfig.Settings) {
     flareSolverrSessionName = other.flareSolverrSessionName
     flareSolverrSessionTtl = other.flareSolverrSessionTtl
     flareSolverrAsResponseFallback = other.flareSolverrAsResponseFallback
+    cefMaxRenderers = other.cefMaxRenderers
+    cefIdleTimeoutMs = other.cefIdleTimeoutMs
+    cefWebViewPoolEnabled = other.cefWebViewPoolEnabled
     interceptorOverrides = other.interceptorOverrides.deepCopy()
 }
 

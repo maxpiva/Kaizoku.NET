@@ -73,7 +73,9 @@ namespace RensaioBackend.Services.Search
                 {
                     sourceErrors.Add(new AugmentSourceErrorDto { Provider = ls.Provider, Title = ls.Title, Reason = "Source is not installed or unavailable." });
                 }
-                var maxConcurrency = Math.Min(appSettings.NumberOfSimultaneousSearches, validSeries.Count);
+                // Cap concurrency: each details/chapters fetch crosses the IKVM boundary and consumes
+                // process thread budget shared with CEF (see SourceTimeoutGate).
+                var maxConcurrency = Math.Min(appSettings.NumberOfSimultaneousSearches, Math.Min(6, validSeries.Count));
                 var parallelOptions = new ParallelOptions
                 {
                     MaxDegreeOfParallelism = maxConcurrency,

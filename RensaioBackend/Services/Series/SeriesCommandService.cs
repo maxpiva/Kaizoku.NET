@@ -287,10 +287,13 @@ namespace RensaioBackend.Services.Series
                         return JobResult.Failed;
 
                     SettingsDto s = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
+                    // Cap concurrency: each details/chapters fetch crosses the IKVM boundary and
+                    // consumes process thread budget shared with CEF (see SourceTimeoutGate).
+                    var latestMaxConcurrency = Math.Min(s.NumberOfSimultaneousDownloadsPerProvider, 4);
                     await Parallel.ForEachAsync(res.Mangas, new ParallelOptions
                     {
                         CancellationToken = token,
-                        MaxDegreeOfParallelism = s.NumberOfSimultaneousDownloadsPerProvider
+                        MaxDegreeOfParallelism = latestMaxConcurrency
                     },
                         async (ss, b) =>
                         {

@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { queueService } from '../services/queueService';
+import { downloadsService } from '../services/downloadsService';
 import { getProgressHub } from '../signalr/progressHub';
-import { JobType, ProgressStatus } from '../types';
+import { ErrorDownloadAction, JobType, ProgressStatus } from '../types';
 import type { ProgressState, DownloadCardInfo } from '../types';
 
 export function useQueue() {
@@ -13,13 +14,21 @@ export function useQueue() {
   });
 }
 
+/**
+ * Removes a download entry (queued/waiting, completed or failed) through the real
+ * backend endpoint. For a queued item this acts as a cancel: the queue row is
+ * deleted so the download never starts. Active/running downloads are excluded
+ * upstream (they are SignalR-driven and rendered read-only).
+ */
 export function useRemoveFromQueue() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: (id: string) => queueService.removeFromQueue(id),
+    mutationFn: (id: string) =>
+      downloadsService.manageErrorDownload(id, ErrorDownloadAction.Delete),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['queue'] });
+      // Invalidate every downloads-backed query so the removed row disappears immediately.
+      queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
   });
 }

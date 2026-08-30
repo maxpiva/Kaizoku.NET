@@ -293,6 +293,12 @@ namespace RensaioBackend.Services.Settings
                         Version = set.SocksProxyVersion,
                         Username = set.SocksProxyUsername,
                         Password = set.SocksProxyPassword
+                    },
+                    Cef = new CefPreferences
+                    {
+                        MaxRenderers = set.CefMaxRenderers,
+                        IdleTimeoutMs = set.CefIdleTimeoutMs,
+                        WebViewPoolEnabled = set.CefWebViewPoolEnabled
                     }
                 }, token).ConfigureAwait(false);
             }
@@ -340,6 +346,9 @@ namespace RensaioBackend.Services.Settings
                 FlareSolverrTimeout = settings.FlareSolverrTimeout,
                 FlareSolverrSessionTtl = settings.FlareSolverrSessionTtl,
                 FlareSolverrAsResponseFallback = settings.FlareSolverrAsResponseFallback,
+                CefMaxRenderers = settings.CefMaxRenderers,
+                CefIdleTimeoutMs = settings.CefIdleTimeoutMs,
+                CefWebViewPoolEnabled = settings.CefWebViewPoolEnabled,
                 IsWizardSetupComplete = settings.IsWizardSetupComplete,
                 WizardSetupStepCompleted = settings.WizardSetupStepCompleted,
                 SocksProxyEnabled = settings.SocksProxyEnabled,
@@ -382,6 +391,9 @@ namespace RensaioBackend.Services.Settings
                 FlareSolverrTimeout = ed.FlareSolverrTimeout,
                 FlareSolverrSessionTtl = ed.FlareSolverrSessionTtl,
                 FlareSolverrAsResponseFallback = ed.FlareSolverrAsResponseFallback,
+                CefMaxRenderers = ed.CefMaxRenderers,
+                CefIdleTimeoutMs = ed.CefIdleTimeoutMs,
+                CefWebViewPoolEnabled = ed.CefWebViewPoolEnabled,
                 IsWizardSetupComplete = ed.IsWizardSetupComplete,
                 WizardSetupStepCompleted = ed.WizardSetupStepCompleted,
                 SocksProxyEnabled = ed.SocksProxyEnabled,

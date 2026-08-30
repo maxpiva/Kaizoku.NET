@@ -70,7 +70,7 @@ namespace Mihon.ExtensionsBridge.Core.Services
         /// ("Call to wrong initialization method", MangaDex serialization DTOs). Unlike the 1.3.0 shape the
         /// receiver is the uninitialised <c>this</c>, not a NEW result.
         /// </remarks>
-        public const string Version = "1.4.0";
+        public const string Version = "1.5.2";
 
         /// <summary>
         /// Classpath prefix used to redirect certain Android framework classes to compatibility replacements.
@@ -259,7 +259,6 @@ namespace Mihon.ExtensionsBridge.Core.Services
             }
 
         }
-
         /// <summary>
         /// True when the given internal type name resolves to an interface on the compat classloader the
         /// converted extension will run under. Used to repair dex2jar's interface-blindness on static

@@ -705,7 +705,9 @@ public class OpdsFeedService
     private List<SeriesEntity> FilterByLast(List<SeriesEntity> seriesList)
     {
         DateTime last = DateTime.UtcNow.AddMonths(-2); // TODO: Move to appSettings
-        return seriesList.Where(a => a.Sources.SelectMany(s => s.Chapters).Select(b => b.DownloadDate ?? DateTime.MinValue).DefaultIfEmpty(DateTime.MinValue).Max() > last).ToList();
+        return seriesList.Where(a => a.Sources.SelectMany(s => s.Chapters).Select(b => b.DownloadDate ?? DateTime.MinValue).DefaultIfEmpty(DateTime.MinValue).Max() > last)
+            .OrderByDescending(a => a.Sources.SelectMany(s => s.Chapters).Select(b => b.DownloadDate ?? DateTime.MinValue).DefaultIfEmpty(DateTime.MinValue).Max())
+            .ToList();
     }
 
   

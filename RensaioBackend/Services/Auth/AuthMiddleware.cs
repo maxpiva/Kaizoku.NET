@@ -135,7 +135,28 @@ public class AuthMiddleware
         if (pathStr.StartsWith("/api/users/first", StringComparison.OrdinalIgnoreCase) && method == "POST") return true;
         if (pathStr.StartsWith("/api/users/", StringComparison.OrdinalIgnoreCase) && pathStr.EndsWith("/claim", StringComparison.OrdinalIgnoreCase) && method == "PUT") return true;
 
+        // Image endpoints always bypass auth so images (thumbnails, OPDS pages,
+        // cached images) flow regardless of authentication state. They are loaded
+        // from <img> tags and other non-browser contexts that cannot send headers.
+        if (pathStr.StartsWith("/api/image", StringComparison.OrdinalIgnoreCase)) return true;
+        if (IsImageRoute(path)) return true;
+
         return false;
+    }
+
+    /// <summary>
+    /// Detects OPDS image/thumbnail routes: /{opdsPath}/image/... and /{opdsPath}/thumb/...
+    /// These are exempt from auth so that image loads (page images, cached images,
+    /// thumbnails) work without a Bearer token.
+    /// </summary>
+    private static bool IsImageRoute(PathString path)
+    {
+        var pathStr = path.Value?.Trim('/') ?? "";
+        var segments = pathStr.Split('/');
+        if (segments.Length < 2)
+            return false;
+        return segments[1].Equals("image", StringComparison.OrdinalIgnoreCase)
+            || segments[1].Equals("thumb", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> IsAuthenticationEnabled(Services.Settings.SettingsService settings)

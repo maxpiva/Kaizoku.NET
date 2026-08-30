@@ -167,6 +167,24 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
                         update = true;
                     }
                 }
+                if (prefs.Cef != null)
+                {
+                    if (prefs.Cef.MaxRenderers > 0 && prefs.Cef.MaxRenderers != config.getCefMaxRenderers())
+                    {
+                        config.setCefMaxRenderers(prefs.Cef.MaxRenderers);
+                        update = true;
+                    }
+                    if (prefs.Cef.IdleTimeoutMs > 0 && prefs.Cef.IdleTimeoutMs != config.getCefIdleTimeoutMs())
+                    {
+                        config.setCefIdleTimeoutMs(prefs.Cef.IdleTimeoutMs);
+                        update = true;
+                    }
+                    if (prefs.Cef.WebViewPoolEnabled != config.getCefWebViewPoolEnabled())
+                    {
+                        config.setCefWebViewPoolEnabled(prefs.Cef.WebViewPoolEnabled);
+                        update = true;
+                    }
+                }
                 if (prefs.SocksProxy != null)
                 {
                     if (prefs.SocksProxy.Enabled != config.getSocksProxyEnabled())
@@ -208,7 +226,19 @@ namespace Mihon.ExtensionsBridge.Core.Runtime
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to apply preferences to the extension bridge; continuing with persisted preferences only.");
+                // Under IKVM, java.lang.Throwable (and therefore java.lang.Error subtypes like
+                // OutOfMemoryError) map to System.Exception subclasses, so they land here. Surface
+                // JVM errors explicitly so they aren't mistaken for ordinary config failures.
+                if (ex is java.lang.OutOfMemoryError)
+                {
+                    _logger.LogError(
+                        ex,
+                        "JVM OutOfMemoryError while applying preferences to the extension bridge; continuing with persisted preferences only.");
+                }
+                else
+                {
+                    _logger.LogError(ex, "Failed to apply preferences to the extension bridge; continuing with persisted preferences only.");
+                }
             }
 
             await _workingFolderStructure.SavePreferencesAsync(prefs, cancellationToken);

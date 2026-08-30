@@ -2,6 +2,7 @@
 using Mihon.ExtensionsBridge.Models;
 using Mihon.ExtensionsBridge.Models.Abstractions;
 using Microsoft.Extensions.Logging;
+using RensaioBackend.Services.Search;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -30,9 +31,16 @@ namespace RensaioBackend.Services.Bridge
         }
         public async Task<T?> MihonErrorWrapperAsync<T>(Func<Task<T>> func, string errorMessage, params object[] pars) where T : class, new()
         {
+            // Global in-flight budget for source-extension calls (see SourceTimeoutGate).
+            // All extension calls (details, chapters, pages, images, latest) flow through here,
+            // so this bounds the total concurrent IKVM-crossing work regardless of how many
+            // parallel loops or downloads are active.
             try
             {
-                return await func().ConfigureAwait(false);
+                using (await SourceTimeoutGate.AcquireAsync(CancellationToken.None).ConfigureAwait(false))
+                {
+                    return await func().ConfigureAwait(false);
+                }
             }
             catch (HttpRequestException httpEx)
             {

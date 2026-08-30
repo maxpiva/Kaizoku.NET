@@ -114,7 +114,10 @@ namespace RensaioBackend.Services.Search
         public async Task<List<LinkedSeriesDto>> SearchSeriesAsync(List<(string keyword, ProviderStorageEntity ps)> sources, SettingsDto? appSettings, double threshold = 0.1f, CancellationToken token = default)
         {
             var results = new ConcurrentBag<(string Keyword, ProviderStorageEntity Storage, MangaList Result)>();
-            var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
+            // Cap concurrency: each search crosses the IKVM boundary and consumes process thread
+            // budget shared with CEF (see SourceTimeoutGate). 6 keeps a library-wide search snappy
+            // without risking JVM thread-creation failure on desktop builds.
+            var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, Math.Min(6, sources.Count));
 
             await Parallel.ForEachAsync(
                 sources,
@@ -227,7 +230,9 @@ namespace RensaioBackend.Services.Search
                 }
                 // Execute parallel search across sources
                 var results = new ConcurrentBag<(string providerId, string lang, MangaList)>();
-                var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, sources.Count);
+                // Cap concurrency: see SearchSeriesAsync above — each search consumes thread budget
+                // shared with CEF on desktop builds.
+                var maxConcurrency = Math.Min(appSettings?.NumberOfSimultaneousSearches ?? 10, Math.Min(6, sources.Count));
 
                 await Parallel.ForEachAsync(
                     sourceDict.Keys,

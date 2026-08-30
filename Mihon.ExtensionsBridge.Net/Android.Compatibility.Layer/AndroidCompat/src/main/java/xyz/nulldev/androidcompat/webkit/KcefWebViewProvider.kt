@@ -88,6 +88,7 @@ import org.cef.network.CefRequest
 import org.cef.network.CefResponse
 import org.koin.mp.KoinPlatformTools
 import extension.bridge.cef.CefAppBridge
+import extension.bridge.cef.RendererGate
 import java.awt.Canvas as AwtCanvas
 import java.awt.Rectangle
 import java.awt.event.InputEvent as AwtInputEvent
@@ -146,6 +147,16 @@ class KcefWebViewProvider(
     private var cefClient: CefClient? = null
     private var browser: CefBrowser? = null
     private var messageRouter: CefMessageRouter? = null
+    // True while this provider holds a slot in the global RendererGate budget (i.e. its CEF
+    // browser/renderer process is alive). Guards against double-release on init->destroy with no
+    // browser yet, and against leaking the slot if browser creation fails mid-way.
+    @Volatile
+    private var rendererSlotHeld: Boolean = false
+    // Set when CEF native initialization failed or the CefApp is in a terminal state; callers
+    // should treat the provider as unavailable (fall back to FlareSolverr/direct network) instead
+    // of repeatedly hitting a dead client.
+    @Volatile
+    private var cefFailed = false
     private val renderHandler = HeadlessRenderHandler()
     private val viewDelegate = KcefViewDelegate()
     private val scrollDelegate = KcefScrollDelegate()
@@ -230,6 +241,7 @@ class KcefWebViewProvider(
                     trySetBooleanOption("external_message_pump", true)
                     trySetBooleanOption("multi_threaded_message_loop", false)
                 }
+                val maxRenderers = RendererGate.maxRenderers().coerceAtLeast(1)
                 builder.addJcefArgs(
                    "--no-sandbox",
                     "--disable-logging",
@@ -240,13 +252,35 @@ class KcefWebViewProvider(
                     "--off-screen-rendering-enabled",
                     "--disable-dev-shm-usage",
                     "--change-stack-guard-on-fork=disable",
+                    "--max-render-processes=$maxRenderers",
                 )
+
+                // Register a state observer so CEF state transitions (notably
+                // INITIALIZATION_FAILED, which carries no public cause getter on CefApp) are
+                // logged at the moment they happen instead of being silently swallowed.
+                runCatching {
+                    CefApp.addAppHandler(object : org.cef.handler.CefAppHandlerAdapter(null) {
+                        override fun stateHasChanged(newState: CefApp.CefAppState) {
+                            if (newState == CefApp.CefAppState.INITIALIZATION_FAILED) {
+                                Log.e(TAG, "JCEF state transitioned to INITIALIZATION_FAILED")
+                            } else if (newState == CefApp.CefAppState.INITIALIZED) {
+                                Log.i(TAG, "JCEF state transitioned to INITIALIZED")
+                            }
+                        }
+                    })
+                }.onFailure { t ->
+                    Log.w(TAG, "Unable to register CefAppHandler for state observation: $t")
+                }
 
                 try {
                     builder.build()
                 } catch (e: UnsupportedPlatformException) {
                     throw IllegalStateException("Unsupported platform for JCEF", e)
                 } catch (e: CefInitializationException) {
+                    // This is the synchronous failure path of deferred native init; log the full
+                    // cause so the "fatal exception" is captured even when the state transition
+                    // alone is not diagnostic.
+                    Log.e(TAG, "JCEF initialization threw synchronously", e)
                     throw IllegalStateException("Failed to initialize JCEF", e)
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
@@ -289,6 +323,19 @@ class KcefWebViewProvider(
             while (true) {
                 when (CefApp.getState()) {
                     CefApp.CefAppState.INITIALIZED -> return true
+                    CefApp.CefAppState.INITIALIZATION_FAILED -> {
+                        // CEF explicitly reported that native initialization failed. Fail fast with
+                        // a distinct diagnostic instead of silently retrying for the whole timeout.
+                        Log.e(
+                            TAG,
+                            "CEF native initialization FAILED (state=${CefApp.getState()}); " +
+                                "WebView-based sources will not work this run. " +
+                                "This is typically a native/JCEF-level failure (missing GPU/browser " +
+                                "resources or thread/JNI attachment failure) that cannot be retried " +
+                                "against the same CefApp instance.",
+                        )
+                        return false
+                    }
                     CefApp.CefAppState.SHUTTING_DOWN, CefApp.CefAppState.TERMINATED -> {
                         Log.w(TAG, "CEF entered state ${CefApp.getState()} while waiting for initialization")
                         return false
@@ -360,8 +407,15 @@ class KcefWebViewProvider(
         }
     }
 
-    private fun requireClient(): CefClient =
-        cefClient ?: throw IllegalStateException("JCEF client is not initialized")
+    private fun requireClient(): CefClient {
+        if (cefFailed) {
+            throw IllegalStateException(
+                "CEF failed to initialize; WebView-based requests are unavailable. " +
+                    "Falling back to direct network/FlareSolverr is recommended.",
+            )
+        }
+        return cefClient ?: throw IllegalStateException("JCEF client is not initialized")
+    }
 
     // CefBrowserOsrWithHandler paints straight into our HeadlessRenderHandler.
     // CefClient.createBrowser(url, true, false) would instead create
@@ -370,8 +424,25 @@ class KcefWebViewProvider(
     // with no displayable window its GL drawable is never realized ("Error
     // making context current" storms ending in a native crash). It can never
     // work in this process.
-    private fun createHeadlessBrowser(url: String): CefBrowser =
-        CefBrowserOsrWithHandler(requireClient(), url, null, renderHandler, awtEventComponent)
+    private fun createHeadlessBrowser(url: String): CefBrowser {
+        // EVERY WebView in the process creates its CEF browser here (interceptor, WebViewPool,
+        // or extension-owned like Keiyoushi-style runWebView). This is the single chokepoint
+        // where the global renderer budget is enforced, so the cap covers ALL WebViews.
+        if (!RendererGate.reserve()) {
+            throw IllegalStateException(
+                "CEF renderer budget exhausted (max=${RendererGate.maxRenderers()}, " +
+                    "live=${RendererGate.liveCount()}); refusing to spawn another renderer process",
+            )
+        }
+        rendererSlotHeld = true
+        return try {
+            CefBrowserOsrWithHandler(requireClient(), url, null, renderHandler, awtEventComponent)
+        } catch (t: Throwable) {
+            rendererSlotHeld = false
+            RendererGate.release()
+            throw t
+        }
+    }
 
     private fun createBrowserForUrl(url: String): CefBrowser =
         createHeadlessBrowser(url)
@@ -394,6 +465,10 @@ class KcefWebViewProvider(
             it.close(true)
         }
         browser = null
+        if (rendererSlotHeld) {
+            rendererSlotHeld = false
+            RendererGate.release()
+        }
     }
 
     private fun CefBrowser.ensureInitialSize() {
@@ -1296,7 +1371,29 @@ class KcefWebViewProvider(
         destroy()
         val cefApp = ensureCefApp()
 
-        val client = cefApp.createClient()
+        // If CEF already failed native initialization (previous attempt), do not call createClient()
+        // again against a dead CefApp — mark the provider failed so WebView-based sources degrade
+        // gracefully instead of failing with confusing per-call errors.
+        val cefState = CefApp.getState()
+        if (cefState == CefApp.CefAppState.INITIALIZATION_FAILED ||
+            cefState == CefApp.CefAppState.TERMINATED ||
+            cefState == CefApp.CefAppState.SHUTTING_DOWN
+        ) {
+            Log.e(TAG, "CEF is in terminal/failed state $cefState; WebView provider not initialized")
+            cefFailed = true
+            return
+        }
+
+        val client =
+            try {
+                cefApp.createClient()
+            } catch (t: Throwable) {
+                // Deferred native init throws from createClient() when it fails; capture the cause
+                // so the fatal exception is logged instead of being swallowed by the caller.
+                Log.e(TAG, "createClient() failed — CEF deferred native initialization threw", t)
+                cefFailed = true
+                return
+            }
         client.addDisplayHandler(DisplayHandler())
         client.addLoadHandler(LoadHandler())
         client.addRequestHandler(RequestHandler())
@@ -1313,7 +1410,18 @@ class KcefWebViewProvider(
         messageRouter = router
         // createClient() above is what triggers CEF's deferred native initialization; wait for it
         // so the init handler (cookie preload) and the first browser never race a half-started CEF.
-        awaitCefInitialized()
+        val initialized = awaitCefInitialized()
+        if (!initialized) {
+            // CEF failed to reach INITIALIZED (timeout or explicit INITIALIZATION_FAILED). Do NOT
+            // run the init handler against a broken CefApp; mark the provider failed so callers
+            // fall back to FlareSolverr/direct network instead of hitting a cascade of dead-client
+            // errors.
+            Log.e(TAG, "CEF initialization did not complete (state=${CefApp.getState()}); WebView provider not initialized")
+            cefFailed = true
+            cefClient = null
+            messageRouter = null
+            return
+        }
         initHandler.init(this)
     }
 

@@ -40,6 +40,13 @@ public class EditableSettingsDto
     [JsonPropertyName("flareSolverrAsResponseFallback")]
     public bool FlareSolverrAsResponseFallback { get; set; } = false;
 
+    [JsonPropertyName("cefMaxRenderers")]
+    public int CefMaxRenderers { get; set; } = 4;
+    [JsonPropertyName("cefIdleTimeoutMs")]
+    public int CefIdleTimeoutMs { get; set; } = 300_000;
+    [JsonPropertyName("cefWebViewPoolEnabled")]
+    public bool CefWebViewPoolEnabled { get; set; } = true;
+
     [JsonPropertyName("isWizardSetupComplete")]
     public bool IsWizardSetupComplete { get; set; } = false;
 
