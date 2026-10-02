@@ -43,7 +43,21 @@ namespace Mihon.ExtensionsBridge.Core.Utilities
         {
             // If chapter number is known return.
             if (chapterNumber is not null && (chapterNumber.Value == -2.0 || chapterNumber.Value > -1.0))
-                return Convert.ToDecimal(chapterNumber.Value);
+            {
+                decimal known = Convert.ToDecimal(chapterNumber.Value);
+
+                // Some extensions report only the whole part ("Capitolo 08.5" as 8), so the half
+                // chapter ends up with the same number as the chapter before it. When the name
+                // carries that same number with a fraction, the name is the more precise one.
+                if (known >= 0 && known == decimal.Truncate(known))
+                {
+                    decimal fromName = ParseChapterNumber(mangaTitle, chapterName, null);
+                    if (fromName != known && decimal.Truncate(fromName) == known)
+                        return fromName;
+                }
+
+                return known;
+            }
 
             // Get chapter title with lower case
             var cleanChapterName = (chapterName ?? string.Empty).ToLowerInvariant();
