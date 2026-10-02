@@ -622,6 +622,7 @@ namespace RensaioBackend.Services.Series
                 int page = 1;
                 bool upToDate = false;
                 bool neverDone = latestDates.Count == 0;
+                bool fetchNextPage;
                 ISourceInterop src;
                 try
                 {
@@ -715,8 +716,12 @@ namespace RensaioBackend.Services.Series
                         }).ConfigureAwait(false);
                     if (upToDate)
                         break;
+                    // Without an end condition of its own this loop only stops on a series it
+                    // already knows. When the stored state is stale that never happens, and the
+                    // run walks the whole catalog while nothing gets saved (saving is below).
+                    fetchNextPage = LatestPagingPolicy.ShouldFetchNextPage(page, res.Mangas.Count, res.HasNextPage, upToDate, neverDone);
                     page++;
-                } while (!upToDate && !neverDone);
+                } while (fetchNextPage);
 
                 List<string> ids = newChaps.Keys.ToList();
                 List<LatestSerieEntity> toUpdate = await _db.LatestSeries.Where(a => ids.Contains(a.MihonId)).ToListAsync(token).ConfigureAwait(false);
