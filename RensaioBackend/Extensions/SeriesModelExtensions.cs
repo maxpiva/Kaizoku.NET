@@ -58,6 +58,18 @@ public static class SeriesModelExtensions
         return NormalizeStoragePath(joined).Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
+    public static string? ValidateDisplayName(string? name)
+    {
+        if (name == null)
+            return null;
+        if (name.Any(char.IsControl))
+            throw new ArgumentException("Series display name must not contain control characters.");
+        name = name.Trim();
+        if (name.Length == 0 || name.Length > 250)
+            throw new ArgumentException("Series display name must contain 1 to 250 characters.");
+        return name;
+    }
+
     public static int ClampChapterCount(long value)
     {
         if (value <= 0)

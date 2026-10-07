@@ -15,6 +15,12 @@ public class SeriesComparer
 
         ImportSeriesResult seriesMetadata = ImportSeriesSnapshot.Series;
 
+        // Modern snapshots identify a physical library instance, not just a provider title.
+        if (ImportSeriesSnapshot.InstanceId.HasValue)
+        {
+            return allSeries.Where(s => s.Id == ImportSeriesSnapshot.InstanceId.Value).ToList();
+        }
+
         // 1. Try to find a direct path match
         foreach (var series in allSeries)
         {

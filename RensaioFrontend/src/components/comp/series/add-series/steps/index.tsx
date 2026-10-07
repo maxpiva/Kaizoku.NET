@@ -82,12 +82,14 @@ export function AddSeriesSteps({
       if (!formState.originalAugmentedResponse) {
         throw new Error('Original augmented response not found');
       }
-      const finalAugmentedResponse: AugmentedResponse = {
+      const finalAugmentedResponse: AugmentedResponse & { displayName?: string; createSeparateInstance?: boolean } = {
         ...formState.originalAugmentedResponse,
         series: selectedSeries,
         storageFolderPath: formState.storagePath || formState.originalAugmentedResponse.storageFolderPath,
-        existingSeries: isAddSourcesMode || formState.originalAugmentedResponse.existingSeries,
-        existingSeriesId: (isAddSourcesMode && seriesId) ? seriesId : formState.originalAugmentedResponse.existingSeriesId,
+        existingSeries: !isAddSourcesMode && formState.createSeparateInstance ? false : isAddSourcesMode || formState.originalAugmentedResponse.existingSeries,
+        existingSeriesId: !isAddSourcesMode && formState.createSeparateInstance ? undefined : (isAddSourcesMode && seriesId) ? seriesId : formState.originalAugmentedResponse.existingSeriesId,
+        displayName: isAddSourcesMode ? undefined : formState.displayName?.trim() || undefined,
+        createSeparateInstance: !isAddSourcesMode && formState.createSeparateInstance ? true : undefined,
       };
 
       await addSeries.mutateAsync(finalAugmentedResponse);

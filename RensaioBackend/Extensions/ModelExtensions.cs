@@ -97,6 +97,9 @@ namespace RensaioBackend.Extensions
             var info = new ImportSeriesSnapshot
             {
                 Title = series.Title,
+                InstanceId = series.Id,
+                DisplayName = series.Sources?.Any(s => s.IsTitle) == true ? null : series.Title,
+                StartChapter = series.StartFromChapter,
                 Status = series.Status,
                 Artist = series.Artist,
                 Author = series.Author,

@@ -16,6 +16,25 @@ namespace RensaioBackend.Models
             set => _series.Title = value;
         }
 
+        // Optional identity and manual title survive export/recovery without changing the DB schema.
+        public Guid? InstanceId
+        {
+            get => _series.InstanceId;
+            set => _series.InstanceId = value;
+        }
+
+        public string? DisplayName
+        {
+            get => _series.DisplayName;
+            set => _series.DisplayName = value;
+        }
+
+        public decimal? StartChapter
+        {
+            get => _series.StartChapter;
+            set => _series.StartChapter = value;
+        }
+
         public SeriesStatus Status
         {
             get => _series.Status;

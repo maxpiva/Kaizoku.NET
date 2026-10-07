@@ -466,8 +466,8 @@ public class ImportCommandService
                                 p.PopulateChapterPageCounts(seriesBasePath);
                             }
                         }
-                        s.FillSeriesFromProviderSeriesDetails(s.Sources.ToProviderSeriesDetails(),null);
-                        s.Sources.CalculateContinueAfterChapter(null);
+                        s.FillSeriesFromProviderSeriesDetails(s.Sources.ToProviderSeriesDetails(), s.StartFromChapter);
+                        s.Sources.CalculateContinueAfterChapter(s.StartFromChapter);
                         import.Status = ImportStatus.DoNotChange;
                         await _db.SaveChangesAsync(token).ConfigureAwait(false);
                         await _seriesProvider.CheckIfTheStorageFlagsChangedTheInLibraryStatusOfLastSeriesAsync(s.Sources, [], token)

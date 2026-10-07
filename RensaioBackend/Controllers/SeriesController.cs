@@ -384,6 +384,7 @@ namespace RensaioBackend.Controllers
         [RequireUserLevel(UserLevel.Manager)]
         [ProducesResponseType(typeof(object), 200)]
         [ProducesResponseType(400)]
+        [ProducesResponseType(409)]
         [ProducesResponseType(500)]
         public async Task<IActionResult> AddSeriesAsync([FromBody] AugmentedResponseDto series, CancellationToken token = default)
         {
@@ -406,6 +407,14 @@ namespace RensaioBackend.Controllers
                 }
 
                 return Ok(new { id = seriesId });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (SeriesStorageConflictException ex)
+            {
+                return Conflict(ex.Message);
             }
             catch (Exception ex)
             {

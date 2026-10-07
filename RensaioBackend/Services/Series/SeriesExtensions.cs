@@ -1029,7 +1029,10 @@ public static class SeriesExtensions
 
     public static void FillSeriesFromProviderSeriesDetails(this DbSeriesEntity dbSeries, ProviderSeriesDetails consolidatedSeries, decimal? startFromChapter)
     {
-        dbSeries.Title = consolidatedSeries.Title;
+        // No title source means the canonical title is user-owned. This also applies
+        // during import reconciliation, which calls this helper directly.
+        if (dbSeries.Sources.Any(p => p.IsTitle) || string.IsNullOrWhiteSpace(dbSeries.Title))
+            dbSeries.Title = consolidatedSeries.Title;
         dbSeries.Description = consolidatedSeries.Description ?? string.Empty;
         dbSeries.ThumbnailUrl = consolidatedSeries.ThumbnailUrl ?? string.Empty;
         dbSeries.Artist = consolidatedSeries.Artist ?? string.Empty;

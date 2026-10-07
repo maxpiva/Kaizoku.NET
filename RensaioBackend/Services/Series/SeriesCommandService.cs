@@ -31,6 +31,9 @@ namespace RensaioBackend.Services.Series
     /// </summary>
     public class SeriesCommandService
     {
+        // Serialize creation so independent requests cannot claim the same folder between
+        // the collision check and commit (also used by setup/import).
+        private static readonly SemaphoreSlim CreationLock = new(1, 1);
         private readonly AppDbContext _db;
         private readonly SettingsService _settings;
         private readonly ArchiveHelperService _archiveHelper;        private readonly SeriesProviderService _providerService;
@@ -86,9 +89,16 @@ namespace RensaioBackend.Services.Series
                 throw new ArgumentException("No series provided to add");
             }
 
-            using var transaction = await _db.Database.BeginTransactionAsync(token);
+            if (ProviderSeriesDetails.CreateSeparateInstance && ProviderSeriesDetails.ExistingSeriesId.HasValue)
+                throw new ArgumentException("A separate instance cannot target an existing series.");
+            string? displayName = SeriesModelExtensions.ValidateDisplayName(
+                ProviderSeriesDetails.DisplayName ?? ProviderSeriesDetails.LocalInfo?.DisplayName);
+            ProviderSeriesDetails.StartChapter ??= ProviderSeriesDetails.LocalInfo?.StartChapter;
+
+            await CreationLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
+                using var transaction = await _db.Database.BeginTransactionAsync(token);
                 var paths = await _db.GetPathsAsync(token).ConfigureAwait(false);
                 string? existingThumb = null;
                 List<SeriesProviderEntity> existingProviders = [];
@@ -111,13 +121,31 @@ namespace RensaioBackend.Services.Series
                 {
                     existingProviders = await _db.SeriesProviders.Where(a => a.SeriesId == dbSeries.Id)
                         .ToListAsync(token).ConfigureAwait(false);
+                    if (!ProviderSeriesDetails.ExistingSeriesId.HasValue && displayName != null && displayName != dbSeries.Title)
+                        throw new SeriesStorageConflictException("A matching series already exists. Select a separate instance and an unused storage path to give it a different name.");
+                    // Adding another source is not an explicit request to replace a manual title.
+                    if (existingProviders.Count > 0 && !existingProviders.Any(p => p.IsTitle))
+                        displayName ??= dbSeries.Title;
+                    ProviderSeriesDetails.StorageFolderPath = dbSeries.StoragePath;
                 }
 
                 existingProviders = await ProcessSeriesProvidersAsync(ProviderSeriesDetails, existingProviders, token).ConfigureAwait(false);
 
+                bool isNewSeries = dbSeries == null;
                 dbSeries = await ConsolidateDBSeriesFromProvidersAsync(dbSeries, existingProviders,
                     ProviderSeriesDetails.StorageFolderPath, ProviderSeriesDetails.DisableJobs, ProviderSeriesDetails.StartChapter, token).ConfigureAwait(false);
-                
+                if (isNewSeries && ProviderSeriesDetails.LocalInfo?.InstanceId is Guid recoveredId)
+                {
+                    if (recoveredId == Guid.Empty)
+                        throw new ArgumentException("The recovered series instance ID must not be empty.");
+                    dbSeries.Id = recoveredId;
+                }
+
+                if (displayName != null)
+                {
+                    dbSeries.Title = displayName;
+                    existingProviders.ForEach(p => p.IsTitle = false);
+                }
                 existingProviders.ForEach(a => a.SeriesId = dbSeries.Id);
                 existingProviders.CalculateContinueAfterChapter(ProviderSeriesDetails.StartChapter);
                 
@@ -187,6 +215,10 @@ namespace RensaioBackend.Services.Series
             {
                 _logger.LogError(ex, "Error in AddSeries: {Message}", ex.Message);
                 throw;
+            }
+            finally
+            {
+                CreationLock.Release();
             }
         }
 
@@ -1196,14 +1228,36 @@ namespace RensaioBackend.Services.Series
         private async Task<Models.Database.SeriesEntity?> FindExistingSeriesAsync(AugmentedResponseDto ProviderSeriesDetails,
             SettingsDto settings, Dictionary<string, Guid> paths, CancellationToken token)
         {
-            if (ProviderSeriesDetails.StorageFolderPath.StartsWith(settings.StorageFolder))
-                ProviderSeriesDetails.StorageFolderPath = ProviderSeriesDetails.StorageFolderPath[settings.StorageFolder.Length..]
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string path = ProviderSeriesDetails.StorageFolderPath;
+            // Legacy/import callers may supply an absolute path inside the configured root.
+            if (!ProviderSeriesDetails.CreateSeparateInstance && Path.IsPathRooted(path))
+                path = Path.GetRelativePath(Path.GetFullPath(settings.StorageFolder), Path.GetFullPath(path));
+            path = SeriesModelExtensions.SanitizeAndValidateStoragePath(path);
+            if (ProviderSeriesDetails.CreateSeparateInstance)
+                ValidateSeparateInstanceStorage(settings.StorageFolder, path, paths.Keys);
+            path = settings.StorageFolder.GetActualDirectoryPathCaseInsensitive(path);
+            ProviderSeriesDetails.StorageFolderPath = path;
 
-            ProviderSeriesDetails.StorageFolderPath = settings.StorageFolder.GetActualDirectoryPathCaseInsensitive(
-                ProviderSeriesDetails.StorageFolderPath);
+            if (ProviderSeriesDetails.CreateSeparateInstance)
+            {
+                ValidateSeparateInstanceStorage(settings.StorageFolder, path, paths.Keys);
+                return null;
+            }
 
-            if (paths.TryGetValue(ProviderSeriesDetails.StorageFolderPath, out Guid id))
+            // Exported snapshots have an identity. Never recover one physical instance into
+            // another just because both sources call the manga by the same name.
+            Guid? instanceId = ProviderSeriesDetails.LocalInfo?.InstanceId;
+            if (instanceId.HasValue)
+            {
+                if (paths.TryGetValue(path, out Guid owner) && owner != instanceId.Value)
+                    throw new SeriesStorageConflictException("The recovery storage path belongs to a different series instance.");
+                var recovered = await _db.Series.FirstOrDefaultAsync(s => s.Id == instanceId.Value, token).ConfigureAwait(false);
+                if (recovered != null && !string.Equals(recovered.StoragePath, path, StringComparison.OrdinalIgnoreCase))
+                    throw new SeriesStorageConflictException("The recovered instance already exists at another storage path.");
+                return recovered;
+            }
+
+            if (paths.TryGetValue(path, out Guid id))
             {
                 return await _db.Series.FirstOrDefaultAsync(s => s.Id == id, token).ConfigureAwait(false);
             }
@@ -1225,6 +1279,28 @@ namespace RensaioBackend.Services.Series
             }
 
             return null;
+        }
+
+        private static void ValidateSeparateInstanceStorage(string root, string path, IEnumerable<string> ownedPaths)
+        {
+            string prefix = path + Path.DirectorySeparatorChar;
+            if (ownedPaths.Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(p + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                throw new SeriesStorageConflictException("The separate instance needs its own unused storage path, outside any existing series folder.");
+
+            string current = Path.GetFullPath(root);
+            foreach (string part in path.Split(Path.DirectorySeparatorChar))
+            {
+                current = Path.Combine(current, part);
+                // Refuse links (including dangling ones) rather than following them out of storage.
+                if (new DirectoryInfo(current).LinkTarget != null || new FileInfo(current).LinkTarget != null)
+                    throw new ArgumentException("A separate instance storage path must not contain symbolic links.");
+                if (File.Exists(current))
+                    throw new SeriesStorageConflictException("The separate instance storage path is occupied by a file.");
+            }
+            if (Directory.Exists(current))
+                throw new SeriesStorageConflictException("The separate instance storage folder already exists. Choose an unused folder.");
         }
 
         private async Task<List<SeriesProviderEntity>> ProcessSeriesProvidersAsync(AugmentedResponseDto ProviderSeriesDetails, List<SeriesProviderEntity> existingProviders, CancellationToken token = default)
@@ -1512,6 +1588,11 @@ namespace RensaioBackend.Services.Series
             public List<ParsedChapter> Chapters { get; set; } = [];
         }
 
+    }
+
+    public sealed class SeriesStorageConflictException : InvalidOperationException
+    {
+        public SeriesStorageConflictException(string message) : base(message) { }
     }
 
     /// <summary>Outcome of a single-chapter (re-)download request.</summary>

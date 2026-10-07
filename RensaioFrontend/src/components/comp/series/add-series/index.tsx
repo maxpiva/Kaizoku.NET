@@ -36,6 +36,8 @@ export interface AddSeriesState {
   fullSeries: FullSeries[];
   originalAugmentedResponse?: AugmentedResponse; // Store the original response for final submission
   storagePath?: string; // User-edited storage path
+  displayName?: string;
+  createSeparateInstance?: boolean;
 }
 
 export interface AddSeriesProps {

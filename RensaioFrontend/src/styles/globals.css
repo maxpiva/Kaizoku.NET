@@ -1242,6 +1242,40 @@ body[data-scroll-locked] .page-shell-main {
   display: none;
 }
 
+/* Add-series options use the wizard palette, independent of the app theme. */
+.confirm-download-options {
+  color: hsl(var(--as-fg));
+  background: hsl(var(--as-bg-2));
+  border-color: hsla(var(--as-border));
+}
+.confirm-download-options label {
+  color: hsl(var(--as-fg));
+}
+.confirm-download-options p:not([role="alert"]),
+.confirm-download-options label span {
+  color: hsl(var(--as-fg-muted));
+}
+.confirm-download-options > div {
+  border-color: hsla(var(--as-border));
+}
+.confirm-download-options input {
+  min-height: 44px;
+  color: hsl(var(--as-fg));
+  background: hsl(var(--as-bg-1));
+  border-color: hsla(var(--as-border-strong));
+  transition: border-color 200ms ease, outline-color 200ms ease;
+}
+.confirm-download-options input::placeholder {
+  color: hsl(var(--as-fg-muted));
+}
+.confirm-download-options input:hover {
+  border-color: hsl(var(--as-fg-muted));
+}
+.confirm-download-options input:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
 /* CTA strip — sticky at bottom of scroll region */
 .cta-row {
   display: flex;

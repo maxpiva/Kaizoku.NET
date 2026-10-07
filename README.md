@@ -95,6 +95,9 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
 
 - 🔎 **Multi-Search & Multi-Linking**  
   Search and link one series to **multiple sources/providers**.
+  - In the add-series confirmation, choose **Start at chapter** (inclusive; decimals such as `12.5` are supported), or leave blank for all chapters.
+  - **Custom series name** optionally adds your own language/source tag to the library and future archive names; source refreshes retain it.
+  - For a distinct language/source edition, select the desired sources, enable **Create a separate library entry**, and choose a new unused storage folder. Separate entries do not merge by title; occupied or unsafe folders are rejected. The default remains linking matching series. Adding sources to an existing entry does not rename or split it.
 
 - 📥 **Automatic Downloads**
 

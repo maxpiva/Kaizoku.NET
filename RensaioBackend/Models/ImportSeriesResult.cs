@@ -13,6 +13,9 @@ public class ImportSeriesResult
     private List<ImportProviderSnapshot> _providers = new();
 
     public string Title { get; set; } = string.Empty;
+    public Guid? InstanceId { get; set; }
+    public string? DisplayName { get; set; }
+    public decimal? StartChapter { get; set; }
     public SeriesStatus Status { get; set; } = SeriesStatus.UNKNOWN;
     public string Artist { get; set; } = string.Empty;
     public string Author { get; set; } = string.Empty;

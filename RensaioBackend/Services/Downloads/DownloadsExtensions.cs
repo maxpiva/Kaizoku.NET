@@ -52,7 +52,12 @@ public static class DownloadsExtensions
 
         if (chapterData != null && chapterData.Count > 0)
         {
-            wanted = chapterData;
+            // ContinueAfterChapter is a rolling provider cursor and can be clamped to its
+            // current latest chapter. The chosen inclusive series start is a separate bound
+            // and must also apply to automatic update/redownload candidates below.
+            wanted = series.StartFromChapter.HasValue
+                ? chapterData.Where(c => c.ParsedNumber >= series.StartFromChapter.Value).ToList()
+                : chapterData;
             chapterData.ForEach(a =>
             {
                 if (string.IsNullOrEmpty(a.Scanlator))
