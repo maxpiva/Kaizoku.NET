@@ -174,41 +174,63 @@ namespace RensaioBackend.Extensions
             return ret.Trim();
         }
 
+        /// <summary>Resolve a strict child of the library, rejecting traversal and symlink ancestors.</summary>
+        public static string ResolveSafeSeriesPath(string library, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(library) || string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+                throw new IOException("Physical series path must be a non-empty relative library path.");
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(library));
+            string target = Path.GetFullPath(Path.Combine(root, relativePath));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (!target.StartsWith(root + Path.DirectorySeparatorChar, comparison))
+                throw new IOException("Physical series path must remain inside the library (not the library root).");
+
+            // Check the configured root's ancestors too: a library behind a symlink is not
+            // a safe deletion boundary. NFS mount points are directories, not symlinks.
+            for (DirectoryInfo? directory = new DirectoryInfo(target); directory != null; directory = directory.Parent)
+            {
+                try
+                {
+                    if ((File.GetAttributes(directory.FullName) & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Refusing physical operation through a symbolic link: " + directory.FullName);
+                }
+                catch (DirectoryNotFoundException) { }
+                catch (FileNotFoundException) { }
+            }
+            return target;
+        }
+
         public static void DeletePhysicalSeries(this SeriesEntity dbSeries, SettingsDto settings, ILogger? logger)
         {
-            if (string.IsNullOrEmpty(dbSeries.StoragePath))
-                return;
-            string seriesPath = Path.Combine(settings.StorageFolder, dbSeries.StoragePath);
-            if (!Directory.Exists(seriesPath))
-                return;
+            string seriesPath = ResolveSafeSeriesPath(settings.StorageFolder, dbSeries.StoragePath);
+            try
+            {
+                // GetAttributes (rather than Exists) preserves permission and I/O errors.
+                if ((File.GetAttributes(seriesPath) & FileAttributes.Directory) == 0)
+                    throw new IOException("The physical series path is not a directory.");
+            }
+            catch (DirectoryNotFoundException) { return; }
+            catch (FileNotFoundException) { return; }
+
+            // Preflight the entire tree before removing anything. Never follow a nested
+            // symlink, even if it currently points inside the library.
+            var directories = new Stack<string>();
+            directories.Push(seriesPath);
+            while (directories.TryPop(out string? directory))
+            {
+                foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    FileAttributes attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Refusing to delete a series containing a symbolic link: " + entry);
+                    if ((attributes & FileAttributes.Directory) != 0) directories.Push(entry);
+                }
+            }
+
             logger?.LogInformation("Deleting Series {Title} in path {seriesPath}.", dbSeries.Title, seriesPath);
-            List<string> files = dbSeries.Sources.SelectMany(a => a.Chapters).Where(a => !string.IsNullOrEmpty(a.Filename))
-                .Select(a => a.Filename!).ToList();
-            foreach (string file in files)
-            {
-                string fullPath = Path.Combine(seriesPath, file);
-                try
-                {
-                    if (File.Exists(fullPath))
-                        File.Delete(fullPath);
-                }
-                catch (Exception)
-                {
-                    logger?.LogWarning("Unable to delete {fullpath}.", fullPath);
-                }
-            }
-            string[] filesLeft = Directory.GetFileSystemEntries(seriesPath, "*.*", SearchOption.AllDirectories);
-            if (filesLeft.Length == 0)
-            {
-                try
-                {
-                    Directory.Delete(seriesPath, true);
-                }
-                catch (Exception e)
-                {
-                    logger?.LogWarning(e, "Unable to delete directory {seriesPath}.", seriesPath);
-                }
-            }
+            // The user selected physical deletion of the series folder, including covers,
+            // rensaio.json and untracked files. Failures propagate, so DB removal cannot run.
+            Directory.Delete(seriesPath, recursive: true);
         }
     }
 }

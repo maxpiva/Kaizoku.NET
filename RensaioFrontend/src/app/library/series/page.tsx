@@ -78,6 +78,8 @@ function SeriesPageContent() {
   // Delete dialog state management
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletePhysicalFiles, setDeletePhysicalFiles] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteInFlightRef = useRef(false);
   
   // Verify integrity dialog state management
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
@@ -782,13 +784,16 @@ function SeriesPageContent() {
 
   // Handler for delete series button click
   const handleDeleteSeriesClick = () => {
+    setDeleteError(null);
     setShowDeleteDialog(true);
   };
 
   // Handler for delete series confirmation
   const handleDeleteSeriesConfirm = async () => {
-    if (!seriesId) return;
-    
+    if (!seriesId || deleteInFlightRef.current) return;
+    deleteInFlightRef.current = true;
+    setDeleteError(null);
+
     try {
       // Set deleting state to prevent further queries and polling
       setIsDeleting(true);
@@ -802,22 +807,27 @@ function SeriesPageContent() {
         alsoPhysical: deletePhysicalFiles 
       });
       
-      // Navigate back to library after successful deletion
+      // Only successful deletion dismisses the dialog and resets its choice.
+      setShowDeleteDialog(false);
+      setDeletePhysicalFiles(false);
       router.push('/library');
     } catch (error) {
-      console.error('Failed to delete series:', error);
-      // Reset deleting state on error so user can try again
+      setDeleteError(error instanceof Error && error.message.trim()
+        ? error.message
+        : 'Failed to delete series. Please try again.');
+      // Keep the dialog and physical-files choice, and resume queries for retry.
       setIsDeleting(false);
     } finally {
-      setShowDeleteDialog(false);
-      setDeletePhysicalFiles(false); // Reset switch for next use
+      deleteInFlightRef.current = false;
     }
   };
 
   // Handler for delete series cancellation
   const handleDeleteSeriesCancel = () => {
+    if (deleteInFlightRef.current) return;
     setShowDeleteDialog(false);
     setDeletePhysicalFiles(false); // Reset switch for next use
+    setDeleteError(null);
   };
 
   // Handler for verify integrity button click
@@ -1214,7 +1224,7 @@ function SeriesPageContent() {
     );
   }
 
-  if (isDeleting) {
+  if (isDeleting && !showDeleteDialog) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-lg">Deleting series...</div>
@@ -1327,7 +1337,9 @@ function SeriesPageContent() {
     </div>
 
     {/* Delete Series Confirmation Dialog */}
-    <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+    <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+      if (!open) handleDeleteSeriesCancel();
+    }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Delete Series</DialogTitle>
@@ -1341,27 +1353,36 @@ function SeriesPageContent() {
             id="delete-physical-files"
             checked={deletePhysicalFiles}
             onCheckedChange={setDeletePhysicalFiles}
+            disabled={isDeleting || deleteSeries.isPending}
           />
           <Label htmlFor="delete-physical-files" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
             Also delete Physical Files
           </Label>
         </div>
-        
+
+        {deleteError && (
+          <div role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm break-words">
+            <p className="font-medium">Could not delete series</p>
+            <p className="mt-1 whitespace-pre-wrap">{deleteError}</p>
+            <p className="mt-2 text-muted-foreground">Resolve the problem and try again, or cancel.</p>
+          </div>
+        )}
+
         <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
           <Button 
             variant="outline" 
             onClick={handleDeleteSeriesCancel}
-            disabled={deleteSeries.isPending}
+            disabled={isDeleting || deleteSeries.isPending}
           >
             Cancel
           </Button>
           <Button 
             variant="destructive" 
             onClick={handleDeleteSeriesConfirm}
-            disabled={deleteSeries.isPending}
+            disabled={isDeleting || deleteSeries.isPending}
             className="flex items-center gap-2"
           >
-            {deleteSeries.isPending ? (
+            {isDeleting || deleteSeries.isPending ? (
               <>
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
                 Deleting...
