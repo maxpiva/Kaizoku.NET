@@ -29,6 +29,10 @@ public class EditableSettingsDto
     public bool CategorizedFolders { get; set; } = true;
     [JsonPropertyName("categories")]
     public string[] Categories { get; set; } = [];
+    [JsonPropertyName("chapterFilenameTemplate")]
+    public string ChapterFilenameTemplate { get; set; } = "";
+    [JsonPropertyName("injectSeriesCover")]
+    public bool InjectSeriesCover { get; set; } = false;
     [JsonPropertyName("flareSolverrEnabled")]
     public bool FlareSolverrEnabled { get; set; }
     [JsonPropertyName("flareSolverrUrl")]

@@ -740,6 +740,58 @@ function StorageSection({
         </p>
       </div>
 
+      <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+        <div>
+          <Label htmlFor="chapter-filename-template">Chapter filename template</Label>
+          <p id="chapter-filename-help" className="text-muted-foreground mt-1 text-sm">
+            Leave empty for canonical names. Applies to new downloads only; .cbz and a
+            source/language identity suffix are always added automatically.
+          </p>
+        </div>
+        <Input
+          id="chapter-filename-template"
+          value={localSettings.chapterFilenameTemplate ?? ""}
+          maxLength={160}
+          placeholder="Canonical naming (default)"
+          aria-describedby="chapter-filename-help chapter-filename-tokens chapter-filename-recovery"
+          onChange={(e) => setLocalSettings((prev) => ({ ...prev, chapterFilenameTemplate: e.target.value }))}
+          className="font-mono text-sm"
+        />
+        <p id="chapter-filename-tokens" className="text-muted-foreground text-sm break-words">
+          Tokens: {"{series}, {chapter}, {chapter:0000}, {title}, {source}, {language}"}.
+          Include a chapter token. Zero padding keeps fractional chapters (e.g. 0012.5).
+          No paths, dots, extensions, or other tokens. Example: {"Capítulo {chapter:0000}"}.
+        </p>
+        {!!localSettings.chapterFilenameTemplate?.trim() && (
+          <p id="chapter-filename-recovery" role="note" className="text-sm border-l-2 border-primary pl-3">
+            Keep rensaio.json with your series: custom filenames cannot guarantee filename-only
+            recovery. ComicInfo metadata is preserved. The existing Rename action skips custom archive names.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <Switch
+            id="inject-series-cover"
+            checked={localSettings.injectSeriesCover ?? false}
+            aria-describedby="inject-series-cover-help"
+            onCheckedChange={(checked) => setLocalSettings((prev) => ({ ...prev, injectSeriesCover: checked }))}
+          />
+          <Label htmlFor="inject-series-cover">Include series cover in new CBZ files</Label>
+        </div>
+        <p id="inject-series-cover-help" className="text-muted-foreground text-sm">
+          Adds the existing series cover.jpg as the first image and marks it as FrontCover
+          in ComicInfo. Choose the cover source in the series settings. Off by default.
+        </p>
+        <p className="text-muted-foreground text-sm">
+          New downloads only, not existing archives. Uses the already saved JPEG (up to 5 MiB,
+          8192 pixels per side, 32 megapixels), with no extra web requests. Missing or invalid
+          covers are skipped. Each CBZ contains its own copy, so storage usage increases.
+          No chapter-specific cover editor or RSS/web scraper is included.
+        </p>
+      </div>
+
       <div className="flex items-center space-x-2">
         <Switch
           id="categorized-folders"
@@ -1863,7 +1915,7 @@ export function SettingsManager({
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to save settings",
+        description: error instanceof Error ? error.message : "Failed to save settings. Please try again.",
         variant: "destructive",
       });
     }
