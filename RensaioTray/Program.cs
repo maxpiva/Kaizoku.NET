@@ -28,32 +28,7 @@ static class Program
         // that can AV without any managed exception handler being invoked.
         //NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
         //NativeCrashHandler.Install();
-        // Register FIRST-CHANCE exception handler to catch exceptions that are
-        // thrown and caught internally — these never reach UnhandledException.
-        AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
-        {
-            var source = e.Exception?.Source ?? "";
-            if (source.Contains("IKVM") || source.Contains("ikvm") ||
-                source.Contains("Android") || source.Contains("Mihon") ||
-                source.Contains("Rensaio") || source.Contains("Java"))
-            {
-                // Skip exceptions the Java side throws-and-catches as normal control
-                // flow. dex2jar alone raised ~20k MergeResult exceptions during the
-                // post-update extension recompile, flooding the crash log with
-                // hundreds of thousands of lines of synchronous file I/O.
-                var typeName = e.Exception?.GetType().FullName ?? "";
-                if (typeName.StartsWith("com.googlecode.dex2jar.") ||
-                    typeName == "java.lang.ClassNotFoundException" ||
-                    typeName == "java.lang.NoSuchFieldException" ||
-                    typeName == "java.lang.NoSuchMethodException")
-                {
-                    return;
-                }
-
-                FallbackCrashLogger.WriteException(e.Exception,
-                    "TRAY FIRSTCHANCE: " + e.Exception?.GetType().Name + " from " + source);
-            }
-        };
+        // FallbackCrashLogger installs bounded, opt-in first-chance diagnostics.
 
         // Register global exception traps BEFORE any application code runs.
         // These handlers capture crashes that bypass Avalonia's and
@@ -62,8 +37,7 @@ static class Program
         AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
         {
             var ex = e.ExceptionObject as Exception;
-            FallbackCrashLogger.WriteException(ex,
-                "TRAY APPDOMAIN UNHANDLED EXCEPTION (terminating=" + e.IsTerminating + ")");
+            // FallbackCrashLogger has already captured this independently of Serilog.
             try { Log.Fatal(ex, "TRAY APPDOMAIN UNHANDLED EXCEPTION (terminating={IsTerminating})", e.IsTerminating); } catch { }
         };
 

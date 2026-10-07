@@ -13,7 +13,7 @@ namespace RensaioBackend
         {
             // Initialize the zero-dependency fallback crash logger BEFORE registering
             // global handlers.  EnvironmentSetup.Path is resolved in the static
-            // constructor so it's safe to use here.  This ensures crash-(date).log
+            // constructor so it's safe to use here.  This ensures crash-.log
             // is available from the very first millisecond of the process.
             var crashLogDir = System.IO.Path.Combine(EnvironmentSetup.Path, "logs");
             FallbackCrashLogger.Initialize(crashLogDir);
@@ -25,21 +25,7 @@ namespace RensaioBackend
             /*NativeCrashHandler.SetLogPath(System.IO.Path.Combine(crashLogDir, "crash-.log"));
             NativeCrashHandler.Install();
             */
-            // Register FIRST-CHANCE exception handler to catch exceptions that are
-            // thrown and caught internally — these never reach UnhandledException.
-            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
-            {
-                // Log only unexpected internal exceptions, not normal framework patterns.
-                // We filter by source to avoid noise from IL weaving, EF, etc.
-                var source = e.Exception?.Source ?? "";
-                if (source.Contains("IKVM") || source.Contains("ikvm") ||
-                    source.Contains("Android") || source.Contains("Mihon") ||
-                    source.Contains("Rensaio") || source.Contains("Java"))
-                {
-                    FallbackCrashLogger.WriteException(e.Exception,
-                        "FIRSTCHANCE: " + e.Exception?.GetType().Name + " from " + source);
-                }
-            };
+            // FallbackCrashLogger installs bounded, opt-in first-chance diagnostics.
 
             // Register global exception traps BEFORE any initialization code runs.
             // These handlers capture crashes that bypass AspNetCore's error pipeline
@@ -48,7 +34,7 @@ namespace RensaioBackend
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
                 var ex = e.ExceptionObject as Exception;
-                FallbackCrashLogger.WriteException(ex, "APPDOMAIN UNHANDLED EXCEPTION (terminating=" + e.IsTerminating + ")");
+                // FallbackCrashLogger has already captured this independently of Serilog.
                 // Also try Serilog in case it's still healthy
                 try { Log.Fatal(ex, "APPDOMAIN UNHANDLED EXCEPTION (terminating={IsTerminating})", e.IsTerminating); } catch { }
             };

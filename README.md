@@ -148,6 +148,8 @@ Rensaiō is composed of:
 ## ⚙️ Issues
 
 - If you encounter any issues, check the `logs` folder. You can review the logs there or upload them to share feedback.
+- Managed fallback crash diagnostics use `crash-.log` plus `.1` and `.2` archives, each capped at 1 MiB. On startup an oversized legacy crash file is reduced to its most recent 1 MiB; save a copy first if you need older diagnostics. Normal Serilog logs have their own retention policy.
+- Caught (first-chance) exceptions are **off by default**. For temporary Java/IKVM troubleshooting, set `RENSAIO_FIRST_CHANCE_LOG=1` and restart. These diagnostics use a separate `firstchance-.log` stream with the same three-file cap (at most 6 MiB total for both fallback streams). Known settings, dex2jar and Java reflection/date-parsing control-flow exceptions are skipped; repeats are collapsed and at most 64 distinct exceptions are recorded per minute. Suppression counts are written at the next diagnostic window or crash/lifecycle write. Unhandled exceptions bypass these filters and quotas. Remove the variable and restart after troubleshooting; logs can contain private exception messages.
 
 ---
 
