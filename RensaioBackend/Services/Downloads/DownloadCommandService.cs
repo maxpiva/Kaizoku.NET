@@ -147,14 +147,18 @@ namespace RensaioBackend.Services.Downloads
             if (p != null)
                 maxChap = p.Chapters.Max(c => c.Number);
 
-            string zipFile = ArchiveHelperService.MakeFileNameSafe(ch.ProviderName, ch.Scanlator, ch.Title, ch.Language, ch.Chapter.ParsedNumber, rchap, maxChap) + ".cbz";
+            bool customFilename = !string.IsNullOrWhiteSpace(appSettings.ChapterFilenameTemplate);
+            string zipFile = customFilename
+                ? ChapterFilenameTemplate.Render(appSettings.ChapterFilenameTemplate, ch.Title, ch.Chapter.ParsedNumber,
+                    rchap, ch.ProviderName, ch.Language, ch.MihonProviderId, ch.Scanlator, ch.ChapterUrl ?? ch.Chapter.RealUrl)
+                : ArchiveHelperService.MakeFileNameSafe(ch.ProviderName, ch.Scanlator, ch.Title, ch.Language, ch.Chapter.ParsedNumber, rchap, maxChap) + ".cbz";
             string message = $"Downloading ({providerName}) {ch.Title} {chapterName}...";
             await reporter.ReportAsync(ProgressStatus.Started, 0, message, downloadSummary, null, token).ConfigureAwait(false);
 
             float step = 100 / (float)(ch.PageCount);
             float acum = 0;
             int pagesWritten = 0;
-            string tempZipPath = Path.Combine(_tempFolder, zipFile);
+            string tempZipPath = Path.Combine(_tempFolder, Guid.NewGuid().ToString("N") + ".cbz");
             bool breaked = false;
 
             try
@@ -248,11 +252,17 @@ namespace RensaioBackend.Services.Downloads
                 string finalPath = Path.Combine(dirPath, zipFile);
                 try
                 {
-                    await Task.Run(() => File.Move(tempZipPath, finalPath, true), token).ConfigureAwait(false);
+                    // Custom names must never overwrite an unrelated existing archive, even in
+                    // the unlikely event of a digest collision or a manually occupied filename.
+                    bool replaceTracked = p?.Chapters.Any(c => c.Number == ch.Chapter.ParsedNumber &&
+                        string.Equals(c.Filename, zipFile, StringComparison.Ordinal)) == true;
+                    await Task.Run(() => File.Move(tempZipPath, finalPath, !customFilename || replaceTracked), token).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {
                     _logger.LogError(e, "Failed to move downloaded file from {TempZipPath} to {FinalPath}", tempZipPath, finalPath);
+                    try { File.Delete(tempZipPath); }
+                    catch (IOException cleanupError) { _logger.LogWarning(cleanupError, "Unable to clean temporary archive {TempZipPath}", tempZipPath); }
                     await reporter.ReportAsync(ProgressStatus.Failed, (int)acum, message, downloadSummary,null, token).ConfigureAwait(false);
                     return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
                 }

@@ -237,6 +237,7 @@ namespace RensaioBackend.Controllers
             }
             catch (Exception ex)
             {
+                if (ex is ArgumentException) return BadRequest(new { error = ex.Message });
                 _logger.LogError(ex, "Error updating settings");
                 return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while updating settings" });
             }

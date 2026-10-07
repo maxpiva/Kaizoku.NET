@@ -28,6 +28,7 @@ export interface Settings {
   perSourceUpdateSchedule: string; // TimeSpan as string
   extensionsCheckForUpdateSchedule: string; // TimeSpan as string
   categorizedFolders: boolean;
+  chapterFilenameTemplate?: string;
   categories: string[];
   flareSolverrEnabled: boolean;
   flareSolverrUrl: string;

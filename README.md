@@ -123,6 +123,17 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
 
 - 🧹 **Filename Normalization**  
   Rebuild your library easily with consistent naming, that will help you reimport it back when needed.
+  In this fork, **Settings → Storage → Chapter filename template** optionally changes
+  future archive names. Leave it empty for the original canonical format. Supported
+  tokens: `{series}`, `{chapter}`, `{chapter:0000}` (1–8 zeros), `{title}`, `{source}`,
+  `{language}`. Example: `Capítulo {chapter:0000}`. Fractional chapters are preserved.
+  Paths, dots, filename extensions, and unknown tokens are rejected; `.cbz` and a
+  source/language plus stable identity suffix are automatic. Existing unrelated
+  files are never overwritten by custom names. **Keep `rensaio.json` beside custom
+  archives for recovery**: filename-only recovery is not guaranteed. ComicInfo is
+  unchanged; the existing series Rename action skips custom archive names (it
+  recognizes canonical names only). This setting does not rename existing archives
+  or customize their internal image names.
 
 - 🧾 **ComicInfo.xml Injection**  
   Chapters include rich metadata from the original source.

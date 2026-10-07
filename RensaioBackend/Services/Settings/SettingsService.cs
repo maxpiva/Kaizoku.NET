@@ -238,6 +238,9 @@ namespace RensaioBackend.Services.Settings
 
         public async Task SaveSettingsAsync(EditableSettingsDto set, bool force = false, CancellationToken token = default, bool clearOidcClientSecret = false)
         {
+            var filenameError = RensaioBackend.Services.Helpers.ChapterFilenameTemplate.Validate(set.ChapterFilenameTemplate);
+            if (filenameError != null) throw new ArgumentException(filenameError);
+            set.ChapterFilenameTemplate = set.ChapterFilenameTemplate?.Trim() ?? "";
             await PreserveStoredOidcValuesAsync(set, clearOidcClientSecret, token).ConfigureAwait(false);
             if (set.NumberOfSimultaneousDownloads != _settings?.NumberOfSimultaneousDownloads ||
                 set.ChapterDownloadFailRetries != _settings?.ChapterDownloadFailRetries ||
@@ -351,6 +354,7 @@ namespace RensaioBackend.Services.Settings
                 PerSourceUpdateSchedule = settings.PerSourceUpdateSchedule,
                 ExtensionsCheckForUpdateSchedule = settings.ExtensionsCheckForUpdateSchedule,
                 CategorizedFolders = settings.CategorizedFolders,
+                ChapterFilenameTemplate = settings.ChapterFilenameTemplate,
                 Categories = settings.Categories,
                 FlareSolverrEnabled = settings.FlareSolverrEnabled,
                 FlareSolverrUrl = settings.FlareSolverrUrl,
@@ -547,6 +551,7 @@ namespace RensaioBackend.Services.Settings
                 PerSourceUpdateSchedule = ed.PerSourceUpdateSchedule,
                 ExtensionsCheckForUpdateSchedule = ed.ExtensionsCheckForUpdateSchedule,
                 CategorizedFolders = ed.CategorizedFolders,
+                ChapterFilenameTemplate = ed.ChapterFilenameTemplate,
                 Categories = ed.Categories,
                 FlareSolverrEnabled = ed.FlareSolverrEnabled,
                 FlareSolverrUrl = ed.FlareSolverrUrl,
