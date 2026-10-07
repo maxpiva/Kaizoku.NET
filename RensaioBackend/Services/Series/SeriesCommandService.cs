@@ -203,6 +203,7 @@ namespace RensaioBackend.Services.Series
                 throw new ArgumentException("Invalid series data provided for update");
             }
 
+            using var mutation = await SeriesMutationLock.AcquireAsync(series.Id, token).ConfigureAwait(false);
             Models.Database.SeriesEntity? dbSeries = await _db.Series.Include(s => s.Sources)
                 .FirstOrDefaultAsync(s => s.Id == series.Id, token).ConfigureAwait(false);
             if (dbSeries == null)

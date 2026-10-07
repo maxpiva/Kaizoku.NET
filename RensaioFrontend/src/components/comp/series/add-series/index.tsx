@@ -43,6 +43,7 @@ export interface AddSeriesProps {
   title?: string;
   existingSources?: ExistingSource[];
   seriesId?: string;
+  existingPermanentCount?: number;
   // Optional props for customizing trigger
   triggerButton?: React.ReactNode;
   open?: boolean;
@@ -53,6 +54,7 @@ export function AddSeries({
   title,
   existingSources,
   seriesId,
+  existingPermanentCount = 0,
   triggerButton,
   open: controlledOpen,
   onOpenChange,
@@ -89,6 +91,7 @@ export function AddSeries({
           existingSources={existingSources}
           seriesId={seriesId}
           isAddSourcesMode={isAddSourcesMode}
+          existingPermanentCount={existingPermanentCount}
         />
       </DialogContent>
     </Dialog>

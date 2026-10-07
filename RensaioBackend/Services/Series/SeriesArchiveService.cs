@@ -17,7 +17,7 @@ namespace RensaioBackend.Services.Series
     /// <summary>
     /// Service responsible for archive operations and series integrity checks
     /// </summary>
-    public class SeriesArchiveService
+    public partial class SeriesArchiveService
     {
         private readonly AppDbContext _db;
         private readonly SettingsService _settings;
@@ -51,6 +51,7 @@ namespace RensaioBackend.Services.Series
         /// <returns>Series integrity result</returns>
         public async Task<SeriesIntegrityResultDto> VerifyIntegrityAsync(Guid seriesId, bool force = false, CancellationToken token = default)
         {
+            using var mutation = await SeriesMutationLock.AcquireAsync(seriesId, token).ConfigureAwait(false);
             SettingsDto settings = await _settings.GetSettingsAsync(token).ConfigureAwait(false);
             Models.Database.SeriesEntity? series = await _db.Series.Include(a => a.Sources).Where(a => a.Id == seriesId)
                 .FirstOrDefaultAsync(token).ConfigureAwait(false);
@@ -61,9 +62,7 @@ namespace RensaioBackend.Services.Series
             string basePath = Path.Combine(settings.StorageFolder, series.StoragePath);
             bool dbChanged = false;
 
-            // Process each provider
-            var providersToRemove = new List<SeriesProviderEntity>();
-
+            // Sources are configured fallbacks, not just containers for downloaded files.
             foreach (SeriesProviderEntity provider in series.Sources)
             {
                 var chaptersToRemove = new List<Chapter>();
@@ -101,20 +100,6 @@ namespace RensaioBackend.Services.Series
                 {
                     _db.Touch(provider, c => c.Chapters);
                 }
-
-                // If provider has no chapters left, mark for removal
-                if (provider.Chapters.Count == 0)
-                {
-                    providersToRemove.Add(provider);
-                }
-            }
-
-            // Remove empty providers
-            foreach (SeriesProviderEntity sp in providersToRemove)
-            {
-                _db.SeriesProviders.Remove(sp);
-                series.Sources.Remove(sp);
-                dbChanged = true;
             }
 
             // Persist all DB changes

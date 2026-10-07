@@ -37,6 +37,7 @@ export interface AddSeriesStepsProps {
   title?: string;
   existingSources?: ExistingSource[];
   seriesId?: string;
+  existingPermanentCount?: number;
   isAddSourcesMode?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -46,6 +47,7 @@ export function AddSeriesSteps({
   title,
   existingSources,
   seriesId,
+  existingPermanentCount = 0,
   isAddSourcesMode = false,
   onOpenChange,
 }: AddSeriesStepsProps) {
@@ -235,6 +237,7 @@ export function AddSeriesSteps({
             setError={setError}
             setIsLoading={setIsLoading}
             setCanProgress={setCanProgress}
+            existingPermanentCount={existingPermanentCount}
             isAddSourcesMode={isAddSourcesMode}
             existingSources={existingSources}
           />

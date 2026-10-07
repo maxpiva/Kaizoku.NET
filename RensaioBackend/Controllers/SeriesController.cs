@@ -95,6 +95,32 @@ namespace RensaioBackend.Controllers
             }
         }
 
+        [HttpPost("{seriesId:guid}/sources/{sourceId:guid}/cleanup-duplicates")]
+        [RequireUserLevel(UserLevel.Manager)]
+        [ProducesResponseType(typeof(SourceDuplicateCleanupResultDto), 200)]
+        [ProducesResponseType(400)]
+        [ProducesResponseType(404)]
+        [ProducesResponseType(500)]
+        public async Task<ActionResult<SourceDuplicateCleanupResultDto>> CleanupSourceDuplicatesAsync(
+            Guid seriesId, Guid sourceId, [FromBody] SourceDuplicateCleanupRequestDto request,
+            CancellationToken token = default)
+        {
+            if (!request.Confirmed)
+                return BadRequest("Explicit confirmation is required to delete duplicate archives.");
+            try
+            {
+                return Ok(await _archiveService.CleanupSourceDuplicatesAsync(seriesId, sourceId, token).ConfigureAwait(false));
+            }
+            catch (KeyNotFoundException ex) { return NotFound(ex.Message); }
+            catch (ArgumentException ex) { return BadRequest(ex.Message); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error cleaning duplicate archives for source {SourceId}", sourceId);
+                return StatusCode(500, "Error cleaning duplicate archives.");
+            }
+        }
+
         [HttpGet("cleanup")]
         [RequireUserLevel(UserLevel.Manager)]
         [ProducesResponseType(500)]

@@ -18,6 +18,7 @@ import { formatThumbnailUrl } from "@/lib/utils/thumbnail";
 import { ProviderMatchDialog } from "@/components/dialogs/provider-match-dialog";
 import { useSetProviderMatch } from "@/lib/api/hooks/useSeries";
 import { useToast } from "@/hooks/use-toast";
+import { apiClient } from "@/lib/api/client";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Small relative-time helper (mirrors the format used in the cinematic mockup)
@@ -110,6 +111,7 @@ export const ProviderCard = ({
   onFromChapterChange,
   deletedProviderStates,
   canEdit = true,
+  hasOtherPermanentSource = false,
 }: {
   provider: ProviderExtendedInfo;
   useCover: boolean;
@@ -125,12 +127,18 @@ export const ProviderCard = ({
   onFromChapterChange: (providerId: string, value: string) => void;
   deletedProviderStates: Record<string, boolean>;
   canEdit?: boolean;
+  hasOtherPermanentSource?: boolean;
 }) => {
   const { toast } = useToast();
   const [isEnabled, setIsEnabled] = useState(
     !provider.isDisabled && !provider.isUninstalled,
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const canCleanup = !useStorage && !provider.isStorage && hasOtherPermanentSource;
+
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -202,6 +210,33 @@ export const ProviderCard = ({
         });
       },
     });
+  };
+
+  const handleCleanup = async () => {
+    if (isCleaning || !canCleanup) return;
+    setIsCleaning(true);
+    setCleanupError(null);
+    try {
+      const result = await apiClient.post<{ deleted: number; skipped: number }>(
+        `/api/serie/${seriesId}/sources/${provider.id}/cleanup-duplicates`,
+        { confirmed: true },
+      );
+      if (!result || !Number.isInteger(result.deleted) || !Number.isInteger(result.skipped)) {
+        throw new Error("The server returned an invalid cleanup result. Refresh this series before trying again.");
+      }
+      toast({
+        title: result.deleted === 0 ? "No safe duplicates to remove" : "Duplicate copies removed",
+        description: `${result.deleted} copies removed from the library; ${result.skipped} skipped. Unique chapters and the fallback source were kept. Recovery files may remain if disk cleanup failed.`,
+      });
+      setConfirmCleanup(false);
+      await queryClient.invalidateQueries({ queryKey: ["series", "detail", seriesId] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not clean up duplicates. Please try again.";
+      setCleanupError(message);
+      toast({ title: "Cleanup failed", description: message, variant: "destructive" });
+    } finally {
+      setIsCleaning(false);
+    }
   };
 
   const handleDelete = () => setConfirmDelete(true);
@@ -311,7 +346,7 @@ export const ProviderCard = ({
             {useStorage && !isUnknown && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                title="Permanent source — its files are kept as the series' storage copy"
+                title="Permanent sources always download their own copies and replace temporary copies."
               >
                 <Archive className="h-3 w-3" />
                 Permanent
@@ -425,6 +460,54 @@ export const ProviderCard = ({
           </div>
         )}
       </div>
+
+      {(
+        <p className="mt-3 border-t border-border/40 pt-3 text-xs leading-relaxed text-muted-foreground">
+          Permanent sources always download their own copies and replace temporary
+          copies. Temporary sources fill missing chapters. Changing this setting
+          does not delete existing files.
+        </p>
+      )}
+      {canEdit && !useStorage && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 sm:min-h-9"
+            disabled={!canCleanup || isCleaning}
+            onClick={() => { setCleanupError(null); setConfirmCleanup(true); }}
+          >
+            <Archive className="mr-1.5 h-3.5 w-3.5" />
+            Clean up duplicate copies
+          </Button>
+          {!canCleanup && (
+            <span className="text-xs text-muted-foreground">
+              {provider.isStorage ? "Save this source as temporary first." : "Requires another permanent source."}
+            </span>
+          )}
+        </div>
+      )}
+
+      <Dialog open={confirmCleanup} onOpenChange={(open) => { if (!isCleaning) setConfirmCleanup(open); }}>
+        <DialogContent aria-busy={isCleaning}>
+          <DialogHeader>
+            <DialogTitle>Remove this source&apos;s duplicate files?</DialogTitle>
+            <DialogDescription>
+              Only copies from {provider.provider} backed by a readable, matching
+              permanent-source archive will be removed from disk. Unique chapters,
+              other languages or editions, and this fallback source are kept.
+              Deletion cannot be undone. Unsafe or uncertain matches are skipped.
+            </DialogDescription>
+          </DialogHeader>
+          {cleanupError && <p role="alert" className="text-sm text-destructive">{cleanupError}</p>}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" disabled={isCleaning} onClick={() => setConfirmCleanup(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={isCleaning || !canCleanup} onClick={handleCleanup}>
+              {isCleaning ? "Cleaning up…" : "Remove duplicate files"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Provider Match Dialog */}
       <ProviderMatchDialog

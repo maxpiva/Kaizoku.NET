@@ -90,8 +90,9 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
   Automatically imports your existing library.
 
 - 🔁 **Temporary vs Permanent Sources**  
-  - Chapters are only downloaded from **temporary** sources when there is no permanent sources 
-  - Auto-deleted if a **permanent** source later provides them.
+  - **Permanent** sources always download their own copies. Multiple permanent sources can download overlapping chapters more than once; the add-series wizard and source list warn about this.
+  - **Temporary** sources fill missing chapters; temporary copies are replaced when a permanent source provides them. For gap-filling without duplicates, choose one permanent source and temporary fallbacks.
+  - Changing a source to temporary does **not** delete existing files. After saving, use **Clean up duplicate copies** on its source card and confirm to remove only its copies backed by a readable, matching permanent archive. Unique chapters, uncertain matches, and the fallback source are kept, including when it has no files left.
 
 - 🔎 **Multi-Search & Multi-Linking**  
   Search and link one series to **multiple sources/providers**.

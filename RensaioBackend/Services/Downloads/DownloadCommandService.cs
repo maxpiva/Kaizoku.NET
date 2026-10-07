@@ -40,7 +40,7 @@ namespace RensaioBackend.Services.Downloads
         private readonly ILogger<DownloadCommandService> _logger;
         private readonly Series.SeriesStateService _stateService;
         private readonly HashCacheService _hashCache;
-        private static readonly KeyedAsyncLock _lock = new KeyedAsyncLock();
+        private static readonly object _lock = new();
 
         public DownloadCommandService(
             MihonBridgeService mihon,
@@ -241,24 +241,25 @@ namespace RensaioBackend.Services.Downloads
                     return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
                 }
 
-                string dirPath = Path.Combine(appSettings.StorageFolder, ch.StoragePath);
-                if (!Directory.Exists(dirPath))
-                    Directory.CreateDirectory(dirPath);
+                // Serialize file publication as well as DB changes with explicit source cleanup.
+                using (var n = await SeriesMutationLock.AcquireAsync(ch.SeriesId, token).ConfigureAwait(false))
+                {
+                    string dirPath = Path.Combine(appSettings.StorageFolder, ch.StoragePath);
+                    if (!Directory.Exists(dirPath))
+                        Directory.CreateDirectory(dirPath);
 
-                string finalPath = Path.Combine(dirPath, zipFile);
-                try
-                {
-                    await Task.Run(() => File.Move(tempZipPath, finalPath, true), token).ConfigureAwait(false);
-                }
-                catch (Exception e)
-                {
-                    _logger.LogError(e, "Failed to move downloaded file from {TempZipPath} to {FinalPath}", tempZipPath, finalPath);
-                    await reporter.ReportAsync(ProgressStatus.Failed, (int)acum, message, downloadSummary,null, token).ConfigureAwait(false);
-                    return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
-                }
+                    string finalPath = Path.Combine(dirPath, zipFile);
+                    try
+                    {
+                        await Task.Run(() => File.Move(tempZipPath, finalPath, true), token).ConfigureAwait(false);
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, "Failed to move downloaded file from {TempZipPath} to {FinalPath}", tempZipPath, finalPath);
+                        await reporter.ReportAsync(ProgressStatus.Failed, (int)acum, message, downloadSummary,null, token).ConfigureAwait(false);
+                        return await RescheduleDownloadAsync(ch, token).ConfigureAwait(false);
+                    }
 
-                using (var n = await _lock.LockAsync(ch.SeriesId.ToString(), token).ConfigureAwait(false))
-                {
                     SeriesProviderEntity? providerr = await _db.SeriesProviders.FirstOrDefaultAsync(a => a.Id == ch.SeriesProviderId, token).ConfigureAwait(false);
                     if (providerr == null)
                     {

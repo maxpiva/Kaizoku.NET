@@ -130,6 +130,7 @@ export function ConfirmSeriesStep({
   setCanProgress,
   isAddSourcesMode = false,
   existingSources = [],
+  existingPermanentCount = 0,
 }: {
   formState: AddSeriesState;
   setFormState: React.Dispatch<React.SetStateAction<AddSeriesState>>;
@@ -138,6 +139,7 @@ export function ConfirmSeriesStep({
   setCanProgress: React.Dispatch<React.SetStateAction<boolean>>;
   isAddSourcesMode?: boolean;
   existingSources?: ExistingSource[];
+  existingPermanentCount?: number;
 }) {
   // ── validFullSeries (verbatim) ─────────────────────────────────────────────
   const validFullSeries: FullSeries[] = React.useMemo(() => {
@@ -360,6 +362,10 @@ export function ConfirmSeriesStep({
     (s) => s.isSelected && !s.isUnselectable,
   ).length;
 
+  const permanentCount = existingPermanentCount + validFullSeries.filter(
+    (s) => s.isSelected && !s.isUnselectable && s.isStorage,
+  ).length;
+
   return (
     <div className="confirm-scroll">
       <div className="flex flex-col gap-4">
@@ -434,6 +440,19 @@ export function ConfirmSeriesStep({
               </span>
             )}
           </div>
+
+          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            Permanent sources always download their own copies of chapters and replace
+            temporary copies. Temporary sources fill missing chapters. Keep one permanent
+            source and use temporary sources as fallbacks to avoid duplicates.
+          </p>
+          {permanentCount > 1 && (
+            <div role="status" className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
+              <strong>{permanentCount} permanent sources:</strong> overlapping chapters
+              will be downloaded more than once, using extra storage. This includes any
+              existing permanent sources. You can continue if you want separate copies.
+            </div>
+          )}
 
           {/* Desktop table */}
           <div className="src-table">

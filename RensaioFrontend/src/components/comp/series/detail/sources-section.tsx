@@ -53,6 +53,11 @@ export function SourcesSection({
   onDelete,
   canEdit,
 }: SourcesSectionProps) {
+  const permanentCount = providers.filter((provider) =>
+    !providerDeletedStates[provider.id] &&
+    (providerSwitches[provider.id]?.useStorage ?? provider.isStorage),
+  ).length;
+
   const addSourceTrigger = (
     <Button size="sm" className="h-8 gap-1.5">
       <Plus className="h-3.5 w-3.5" />
@@ -80,10 +85,20 @@ export function SourcesSection({
             title={series.title}
             existingSources={existingSources}
             seriesId={series.id}
+            existingPermanentCount={permanentCount}
             triggerButton={addSourceTrigger}
           />
         )}
       </header>
+
+      {permanentCount > 1 && (
+        <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground">
+          <strong>{permanentCount} permanent sources:</strong> each downloads its own
+          copies of overlapping chapters. Use one permanent source and temporary
+          fallbacks to avoid duplicates. Existing copies are not removed when you
+          change this setting.
+        </div>
+      )}
 
       <div className="space-y-3">
         {providers.map((provider) => {
@@ -123,6 +138,9 @@ export function SourcesSection({
               onFromChapterChange={onFromChapterChange}
               deletedProviderStates={providerDeletedStates}
               canEdit={canEdit}
+              hasOtherPermanentSource={providers.some((other) =>
+                other.id !== provider.id && !providerDeletedStates[other.id] && other.isStorage,
+              )}
             />
           );
         })}
