@@ -99,6 +99,10 @@ It uses the power of  **MIHON extensions** to connect with multiple sources.
 - 📥 **Automatic Downloads**
 
   Everything is automatic, Retries, Reschedules. With a dedicated download Page.
+  **Pause Downloads** cancels queued and active chapter downloads for that series and
+  blocks retries until you resume. In-flight native calls stop cooperatively; a call
+  that cannot stop immediately may finish internally, but cannot publish an archive
+  after pause. Resume recalculates missing chapters.
 
 - 🔄 **Auto-Updates**  
   Extensions are kept up to date.

@@ -203,6 +203,7 @@ namespace RensaioBackend.Services.Series
                 throw new ArgumentException("Invalid series data provided for update");
             }
 
+            using var mutation = await SeriesMutationLock.AcquireAsync(series.Id, token).ConfigureAwait(false);
             Models.Database.SeriesEntity? dbSeries = await _db.Series.Include(s => s.Sources)
                 .FirstOrDefaultAsync(s => s.Id == series.Id, token).ConfigureAwait(false);
             if (dbSeries == null)
@@ -261,15 +262,7 @@ namespace RensaioBackend.Services.Series
                 dbSeries.StoragePath, dbSeries.PauseDownloads, series.StartFromChapter, token);
             
             dbSeries.Sources.CalculateContinueAfterChapter(series.StartFromChapter);
-            bool wasPaused = dbSeries.PauseDownloads;
             dbSeries.PauseDownloads = series.PausedDownloads;
-            
-            // When series gets paused, clear any queued waiting downloads so they're recalculated on resume
-            if (series.PausedDownloads && !wasPaused)
-            {
-                await _jobManagement.ClearWaitingDownloadsForSeriesAsync(series.Id, token)
-                    .ConfigureAwait(false);
-            }
             
             _db.Series.Update(dbSeries);
             
@@ -278,6 +271,11 @@ namespace RensaioBackend.Services.Series
             
             await _db.SaveChangesAsync(token).ConfigureAwait(false);
             
+            // Persist pause before cancellation: late/native completions and retries consult
+            // the database under the same series mutation lock before publishing/scheduling.
+            if (series.PausedDownloads)
+                await _jobManagement.CancelDownloadsForSeriesAsync(series.Id, token).ConfigureAwait(false);
+
             await _providerService.RescheduleIfNeededAsync(dbSeries.Sources, true, series.PausedDownloads, token)
                 .ConfigureAwait(false);
             

@@ -4,6 +4,7 @@ using RensaioBackend.Models.Database;
 using RensaioBackend.Models.Enums;
 using RensaioBackend.Services.Jobs;
 using RensaioBackend.Services.Jobs.Settings;
+using RensaioBackend.Services.Downloads;
 using RensaioBackend.Utils;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -367,6 +368,19 @@ namespace RensaioBackend.Services.Jobs
                 return count;
             }
         }
+        public async Task<int> CancelDownloadsForSeriesAsync(Guid seriesId, CancellationToken token = default)
+        {
+            SeriesDownloadCancellation.Cancel(seriesId);
+            using (await _lock.LockAsync(token))
+            {
+                var downloads = await _db.Queues.Where(j => j.JobType == JobType.Download &&
+                    j.ExtraKey == seriesId.ToString()).ToListAsync(token).ConfigureAwait(false);
+                _db.Queues.RemoveRange(downloads);
+                await _db.SaveChangesAsync(token).ConfigureAwait(false);
+                return downloads.Count;
+            }
+        }
+
         public async Task<int> ClearWaitingDownloadsForSeriesAsync(Guid seriesId, CancellationToken token = default)
         {
             using (await _lock.LockAsync(token))
