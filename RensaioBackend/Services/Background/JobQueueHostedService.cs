@@ -251,7 +251,7 @@ namespace RensaioBackend.Services.Background
             
             if (result != JobResult.Handled)
             {
-                var updatedJob = await management.QueuedJobs.FirstAsync(a => a.Id == job.Id, stoppingToken);
+                var updatedJob = await management.QueuedJobs.FirstOrDefaultAsync(a => a.Id == job.Id, stoppingToken);
                 if (updatedJob != null)
                 {
                     updatedJob.Status = result == JobResult.Success ? QueueStatus.Completed : QueueStatus.Failed;
@@ -297,7 +297,7 @@ namespace RensaioBackend.Services.Background
             using var scope = _scopeFactory.CreateScope();
             var management = scope.ServiceProvider.GetRequiredService<JobManagementService>();
             
-            var updatedJob = await management.QueuedJobs.FirstAsync(a => a.Id == job.Id, stoppingToken);
+            var updatedJob = await management.QueuedJobs.FirstOrDefaultAsync(a => a.Id == job.Id, stoppingToken);
             if (updatedJob != null)
             {
                 updatedJob.RetryCount += 1;

@@ -468,7 +468,7 @@ namespace RensaioBackend.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error deleting series: {Message}", ex.Message);
-                return StatusCode(500, $"Error updating series with id {id}");
+                return StatusCode(500, new { error = "Series deletion failed; the library record was retained. Check storage permissions and server logs before retrying." });
             }
         }
         /// <summary>

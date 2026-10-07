@@ -86,6 +86,10 @@ public class SeriesStateService
                 return;
             }
 
+            // Do not recreate a folder removed by a reader after automatic/manual pause.
+            // Explicit Resume clears the pause flag and may recreate it deliberately.
+            if (series.PauseDownloads && !Directory.Exists(seriesFolder)) return;
+
             // Step 1: Build snapshot from current DB state
             ImportSeriesSnapshot snapshot = series.ToImportSeriesSnapshot();
 
