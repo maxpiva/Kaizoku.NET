@@ -188,6 +188,10 @@ Then use [IKVM](https://github.com/ikvmnet/ikvm) to run this on .NET.
 
 > Ensure the specified PUID and PGID have write access to your mounted `/config` and `/series` directories.
 
+`PUID` and `PGID` select the container's application user; they do not grant that user access to a host share. The `/series` mount must be read-write, and the mapped user/group must have write and directory traversal (execute) access on the host folder and relevant parent directories, including any share ACLs. `UMASK` controls permissions of newly created files and directories only; it cannot repair ownership, ACLs, or permissions on an existing mount.
+
+At startup, Rensaiō checks directory and file creation in the configured storage folder and logs an actionable warning if the check fails. The check removes its temporary probe and does not change ownership or permissions; the UI remains available for troubleshooting/read-only access. A successful root check does not guarantee access to existing series subfolders. If downloads report `Access to the path '/series/…' is denied`, verify the bind-mount source, read-write mount setting, numeric `PUID`/`PGID`, and host/share permissions for that exact folder. Correct the host permissions according to your NAS/share policy rather than applying a recursive `chmod` or `chown` to the library.
+
 ### 🌐 Network Mode
 
 It is recommended to use **host networking** for optimal performance when downloading a lot and querying multiple providers in parallel. This applies to the Docker one-liner and Unraid template below; the Compose and Helm examples use bridged/`ClusterIP` networking instead since host networking isn't practical (or needed) in those environments.

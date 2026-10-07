@@ -408,6 +408,15 @@ namespace RensaioBackend.Utils
                 logsDir = System.IO.Path.Combine(Path, logsDir);
             FallbackCrashLogger.Initialize(logsDir);
             LoggerInfrastructure.BuildLogger(Configuration!);
+            try
+            {
+                StorageAccessValidator.EnsureWritable(Configuration!.GetValue<string>("StorageFolder", string.Empty)!);
+            }
+            catch (IOException ex)
+            {
+                // Keep the UI available for read-only libraries and troubleshooting.
+                Logger.LogWarning("{StorageError}", ex.Message);
+            }
             ExtractWWWRoot();
         }
 
