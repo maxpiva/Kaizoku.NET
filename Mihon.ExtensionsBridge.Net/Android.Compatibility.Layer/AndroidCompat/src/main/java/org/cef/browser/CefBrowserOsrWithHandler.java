@@ -124,6 +124,15 @@ public class CefBrowserOsrWithHandler extends CefBrowser_N implements CefRenderH
         createBrowserIfRequired();
     }
 
+    // CefBrowser_N.doClose cancels the close and waits for the component's top-level
+    // window to close. This browser has no window, so the native browser and its
+    // renderer process would outlive close() forever. CEF destroys a windowless
+    // browser immediately when DoClose returns false.
+    @Override
+    public synchronized boolean doClose() {
+        return false;
+    }
+
     @Override
     public Component getUIComponent() {
         return component_;
