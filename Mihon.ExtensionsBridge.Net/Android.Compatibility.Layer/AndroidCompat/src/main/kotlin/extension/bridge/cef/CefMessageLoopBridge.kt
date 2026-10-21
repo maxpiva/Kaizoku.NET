@@ -91,15 +91,12 @@ object CefMessageLoopBridge {
                 try {
                     while (running.get()) {
                         pumpWork(app, 0L)
-                        Thread.sleep(currentIntervalMs())
-                    }
-                } catch (interrupted: InterruptedException) {
-                    if (running.get()) {
-                        // Nudge from RendererGate.reserve: clear the interrupt flag and re-check
-                        // the live renderer count so the pump drops to active cadence immediately.
-                        Thread.interrupted()
-                    } else {
-                        Thread.currentThread().interrupt()
+                        try {
+                            Thread.sleep(currentIntervalMs())
+                        } catch (_: InterruptedException) {
+                            // Nudge from RendererGate.reserve, or stop(): the loop condition
+                            // decides which, and the pump re-checks its cadence immediately.
+                        }
                     }
                 } catch (t: Throwable) {
                     logger.warn { "Error inside CEF message loop: ${'$'}t" }
